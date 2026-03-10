@@ -317,12 +317,199 @@ def scrape_interconnectors() -> dict:
         return {}
 
 
+TRADING_PRICE_URL = f"{NEMWEB_BASE}/Reports/CURRENT/TradingIS_Reports/"
+PREDISPATCH_URL = f"{NEMWEB_BASE}/Reports/CURRENT/PredispatchIS_Reports/"
+
+
+def get_all_file_urls(directory_url: str, prefix: str = "") -> list[str]:
+    """Fetch directory listing and return URLs of ALL matching files, sorted."""
+    import re
+    try:
+        resp = requests.get(directory_url, timeout=15)
+        resp.raise_for_status()
+        files = []
+        for line in resp.text.split("\n"):
+            if ".zip" not in line.lower() and ".csv" not in line.lower():
+                continue
+            match = re.search(r'href="([^"]*\.(?:zip|csv|ZIP|CSV))"', line, re.IGNORECASE)
+            if match:
+                fname = match.group(1)
+                if prefix and prefix.lower() not in fname.lower():
+                    continue
+                if fname.startswith("http"):
+                    files.append(fname)
+                elif fname.startswith("/"):
+                    files.append(f"{NEMWEB_BASE}{fname}")
+                else:
+                    files.append(f"{directory_url}{fname}")
+        files.sort()
+        return files
+    except Exception as e:
+        logger.error(f"Error fetching directory {directory_url}: {e}")
+        return []
+
+
+def parse_aemo_csv(rows: list[dict], target_table: str, fields: list[str]) -> list[dict]:
+    """Generic AEMO CSV parser. Returns list of dicts for matching table rows."""
+    results = []
+    headers = None
+    current_table = None
+
+    for row in rows:
+        vals = list(row.values())
+        if not vals:
+            continue
+        indicator = str(vals[0]).strip().upper()
+
+        if indicator == "I" and len(vals) > 1:
+            current_table = str(vals[1]).strip().upper()
+            headers = [str(v).strip().upper() for v in vals]
+        elif indicator == "D" and headers and current_table:
+            if target_table.upper() in current_table:
+                row_dict = dict(zip(headers, vals))
+                entry = {}
+                for f in fields:
+                    entry[f] = row_dict.get(f.upper(), "")
+                results.append(entry)
+    return results
+
+
+def scrape_trading_prices_today() -> dict:
+    """
+    Scrape today's 30-min trading interval prices from TradingIS reports.
+    Returns: { region: [ {interval: "HH:MM", rrp: float}, ... ] }
+    """
+    try:
+        urls = get_all_file_urls(TRADING_PRICE_URL, "PUBLIC_TRADINGIS")
+        if not urls:
+            logger.warning("No TradingIS files found")
+            return {}
+
+        # Get AEST date for today
+        from zoneinfo import ZoneInfo
+        aest = ZoneInfo("Australia/Sydney")
+        today = datetime.now(aest).strftime("%Y/%m/%d")
+        today_compact = datetime.now(aest).strftime("%Y%m%d")
+
+        region_series: dict[str, list] = {r: [] for r in NEM_REGIONS}
+
+        for url in urls:
+            # Only process today's files (filename contains today's date)
+            if today_compact not in url:
+                continue
+            rows = fetch_zip_csv(url)
+            entries = parse_aemo_csv(rows, "TRADINGPRICE", ["SETTLEMENTDATE", "REGIONID", "RRP"])
+            for e in entries:
+                region = e.get("REGIONID", "").strip()
+                if region not in NEM_REGIONS:
+                    continue
+                dt_str = e.get("SETTLEMENTDATE", "").strip()
+                rrp_str = e.get("RRP", "").strip()
+                if not dt_str or not rrp_str:
+                    continue
+                try:
+                    rrp = round(float(rrp_str), 2)
+                    # Parse datetime - AEMO format: "YYYY/MM/DD HH:MM:SS"
+                    dt_str_clean = dt_str.replace("/", "-")
+                    dt = datetime.fromisoformat(dt_str_clean)
+                    interval_label = dt.strftime("%H:%M")
+                    region_series[region].append({"interval": interval_label, "rrp": rrp, "sort_dt": dt_str})
+                except (ValueError, TypeError):
+                    pass
+
+        # Sort and deduplicate by interval
+        result = {}
+        for region, series in region_series.items():
+            seen = {}
+            for pt in sorted(series, key=lambda x: x["sort_dt"]):
+                seen[pt["interval"]] = pt["rrp"]
+            if seen:
+                result[region] = [{"interval": k, "rrp": v} for k, v in sorted(seen.items())]
+
+        return result
+    except Exception as e:
+        logger.error(f"Error scraping trading prices: {e}")
+        return {}
+
+
+def scrape_predispatch_prices() -> dict:
+    """
+    Scrape predispatch prices for the remainder of the day.
+    Returns: { region: [ {interval: "HH:MM", rrp: float}, ... ] }
+    """
+    try:
+        urls = get_all_file_urls(PREDISPATCH_URL, "PUBLIC_PREDISPATCHIS")
+        if not urls:
+            logger.warning("No PredispatchIS files found")
+            return {}
+
+        # Use only the latest predispatch file
+        latest_url = urls[-1]
+        rows = fetch_zip_csv(latest_url)
+
+        entries = parse_aemo_csv(
+            rows, "PREDISPATCH_REGION_PRICES",
+            ["DATETIME", "REGIONID", "RRP", "PREDISPATCHSEQNO"]
+        )
+
+        # Also try PRICE table name variant
+        if not entries:
+            entries = parse_aemo_csv(
+                rows, "REGIONPRICE",
+                ["DATETIME", "REGIONID", "RRP", "PREDISPATCHSEQNO"]
+            )
+
+        from zoneinfo import ZoneInfo
+        aest = ZoneInfo("Australia/Sydney")
+        now_aest = datetime.now(aest)
+
+        region_series: dict[str, list] = {r: [] for r in NEM_REGIONS}
+
+        for e in entries:
+            region = e.get("REGIONID", "").strip()
+            if region not in NEM_REGIONS:
+                continue
+            dt_str = e.get("DATETIME", "").strip()
+            rrp_str = e.get("RRP", "").strip()
+            if not dt_str or not rrp_str:
+                continue
+            try:
+                rrp = round(float(rrp_str), 2)
+                dt_str_clean = dt_str.replace("/", "-")
+                dt = datetime.fromisoformat(dt_str_clean)
+                # Only future intervals
+                if dt.replace(tzinfo=None) >= now_aest.replace(tzinfo=None):
+                    interval_label = dt.strftime("%H:%M")
+                    region_series[region].append({
+                        "interval": interval_label,
+                        "rrp": rrp,
+                        "sort_dt": dt_str
+                    })
+            except (ValueError, TypeError):
+                pass
+
+        result = {}
+        for region, series in region_series.items():
+            seen = {}
+            for pt in sorted(series, key=lambda x: x["sort_dt"]):
+                seen[pt["interval"]] = pt["rrp"]
+            if seen:
+                result[region] = [{"interval": k, "rrp": v} for k, v in sorted(seen.items())]
+
+        return result
+    except Exception as e:
+        logger.error(f"Error scraping predispatch: {e}")
+        return {}
+
+
 def scrape_all() -> dict:
     """Scrape all data and return consolidated result."""
     logger.info("Starting NEMWeb scrape...")
 
     region_summary = scrape_region_summary()
     interconnectors = scrape_interconnectors()
+    historical_prices = scrape_trading_prices_today()
+    predispatch_prices = scrape_predispatch_prices()
 
     # Build prices from region summary
     prices = {}
@@ -352,9 +539,13 @@ def scrape_all() -> dict:
         "generation": generation,
         "interconnectors": interconnectors,
         "raw_summary": region_summary,
+        "historical_prices": historical_prices,
+        "predispatch_prices": predispatch_prices,
     }
 
-    logger.info(f"Scrape complete. Regions with prices: {list(prices.keys())}")
+    logger.info(f"Scrape complete. Regions with prices: {list(prices.keys())}, "
+                f"historical points: {sum(len(v) for v in historical_prices.values())}, "
+                f"predispatch points: {sum(len(v) for v in predispatch_prices.values())}")
     return result
 
 

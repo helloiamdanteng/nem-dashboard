@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -461,11 +460,16 @@ function destroyChart(id) {
   if (charts[id]) { charts[id].destroy(); delete charts[id]; }
 }
 
+function destroyPriceCharts() {
+  destroyChart('priceHistory');
+  destroyChart('price');
+}
+
 function renderPrices(data) {
   const prices = data.prices || {};
   const demand = data.demand || {};
 
-  let html = '<div class="section-title">Spot Prices ($/MWh)</div>';
+  let html = '<div class="section-title">Latest Spot Prices ($/MWh)</div>';
   html += '<div class="price-grid">';
   for (const r of REGIONS) {
     const p = prices[r];
@@ -477,6 +481,23 @@ function renderPrices(data) {
     </div>`;
   }
   html += '</div>';
+
+  // Price history + predispatch line chart
+  html += '<div class="section-title">Today\'s Prices + Predispatch</div>';
+  html += '<div class="chart-card">';
+  html += '<div class="chart-title">30-min Trading Prices — Actual (solid) · Predispatch (dashed)</div>';
+  html += '<div class="chart-container" style="height:260px"><canvas id="priceHistoryChart"></canvas></div>';
+
+  // Region toggle buttons
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">';
+  for (const r of REGIONS) {
+    html += `<button onclick="toggleRegion('${r}')" id="rgn-${r}"
+      style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;
+             border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;
+             color:${REGION_COLORS[r]};cursor:pointer;transition:all 0.2s"
+      data-active="true">${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div></div>';
 
   html += '<div class="section-title">Total Demand (MW)</div>';
   html += '<div class="demand-grid">';
@@ -490,11 +511,27 @@ function renderPrices(data) {
   }
   html += '</div>';
 
-  // Price bar chart
-  html += '<div class="section-title">Price Comparison</div>';
-  html += '<div class="chart-card"><div class="chart-title">Spot Price by Region</div><div class="chart-container"><canvas id="priceChart"></canvas></div></div>';
-
   return html;
+}
+
+function toggleRegion(region) {
+  if (!charts.priceHistory) return;
+  const btn = document.getElementById('rgn-' + region);
+  const isActive = btn.dataset.active === 'true';
+  const newActive = !isActive;
+  btn.dataset.active = newActive;
+  btn.style.background = newActive ? REGION_COLORS[region] + '33' : 'transparent';
+  btn.style.opacity = newActive ? '1' : '0.4';
+
+  // Find and toggle both datasets for this region (actual + predispatch)
+  const chart = charts.priceHistory;
+  chart.data.datasets.forEach((ds, i) => {
+    if (ds.regionId === region) {
+      const meta = chart.getDatasetMeta(i);
+      meta.hidden = !newActive;
+    }
+  });
+  chart.update();
 }
 
 function renderGeneration(data) {
@@ -587,44 +624,146 @@ function renderInterconnectors(data) {
 }
 
 function drawPriceChart(data) {
-  destroyChart('price');
-  const ctx = document.getElementById('priceChart');
+  destroyChart('priceHistory');
+  const ctx = document.getElementById('priceHistoryChart');
   if (!ctx) return;
-  const prices = data.prices || {};
-  const vals = REGIONS.map(r => prices[r] ?? null);
 
-  charts.price = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: REGIONS.map(r => REGION_SHORT[r]),
-      datasets: [{
-        data: vals,
-        backgroundColor: REGIONS.map((r, i) => {
-          const v = vals[i];
-          if (v === null) return '#1e2d45';
-          if (v < 0) return '#2ed573';
-          if (v < 100) return REGION_COLORS[r] + 'bb';
-          if (v < 300) return '#ffd32a';
-          if (v < 1000) return '#ff6b35';
-          return '#ff4757';
-        }),
-        borderColor: REGIONS.map(r => REGION_COLORS[r]),
-        borderWidth: 1,
-        borderRadius: 6,
-      }]
-    },
+  const historical = data.historical_prices || {};
+  const predispatch = data.predispatch_prices || {};
+
+  // Build unified label set (all intervals across the day)
+  const labelSet = new Set();
+  for (const r of REGIONS) {
+    (historical[r] || []).forEach(pt => labelSet.add(pt.interval));
+    (predispatch[r] || []).forEach(pt => labelSet.add(pt.interval));
+  }
+  const labels = Array.from(labelSet).sort();
+
+  // Get current AEST time for "now" marker
+  const nowStr = new Date().toLocaleTimeString('en-AU', {
+    hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Australia/Sydney'
+  });
+  const nowIndex = labels.findIndex(l => l >= nowStr);
+
+  const datasets = [];
+
+  for (const r of REGIONS) {
+    const color = REGION_COLORS[r];
+    const histMap = {};
+    (historical[r] || []).forEach(pt => { histMap[pt.interval] = pt.rrp; });
+    const pdMap = {};
+    (predispatch[r] || []).forEach(pt => { pdMap[pt.interval] = pt.rrp; });
+
+    // Actual data — null for future intervals
+    const actualData = labels.map(l => histMap[l] !== undefined ? histMap[l] : null);
+
+    // Predispatch data — null for past intervals, connect from last actual
+    const pdData = labels.map((l, i) => {
+      if (pdMap[l] !== undefined) return pdMap[l];
+      // Bridge: repeat last actual value at the transition point
+      if (i === nowIndex && actualData[i - 1] !== null) return actualData[i - 1];
+      return null;
+    });
+
+    // Actual line (solid)
+    datasets.push({
+      label: REGION_SHORT[r],
+      regionId: r,
+      data: actualData,
+      borderColor: color,
+      backgroundColor: 'transparent',
+      borderWidth: 2,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      tension: 0.3,
+      borderDash: [],
+      spanGaps: false,
+    });
+
+    // Predispatch line (dashed, same colour, slightly dimmer)
+    datasets.push({
+      label: REGION_SHORT[r] + ' (PD)',
+      regionId: r,
+      data: pdData,
+      borderColor: color + '99',
+      backgroundColor: 'transparent',
+      borderWidth: 2,
+      borderDash: [5, 4],
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      tension: 0.3,
+      spanGaps: false,
+    });
+  }
+
+  charts.priceHistory = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
     options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: {
-        callbacks: { label: ctx => ' $' + (ctx.raw ?? 0).toFixed(2) + '/MWh' }
-      }},
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          filter: item => item.raw !== null,
+          callbacks: {
+            label: ctx => {
+              if (ctx.raw === null) return null;
+              const isPD = ctx.dataset.label.includes('(PD)');
+              return ` ${ctx.dataset.label.replace(' (PD)','')}${isPD ? ' ⋯' : ''}: $${ctx.raw.toFixed(2)}/MWh`;
+            }
+          },
+          backgroundColor: '#111827',
+          borderColor: '#1e2d45',
+          borderWidth: 1,
+          titleColor: '#94a3b8',
+          bodyColor: '#e2e8f0',
+          titleFont: { family: 'Space Mono', size: 10 },
+          bodyFont: { family: 'Space Mono', size: 11 },
+        },
+        // "Now" vertical line annotation via afterDraw plugin
+      },
       scales: {
-        x: { ticks: { color: '#94a3b8', font: { family: 'Space Mono', size: 11 } }, grid: { color: '#1e2d45' } },
-        y: { ticks: { color: '#94a3b8', font: { family: 'Space Mono', size: 10 },
-              callback: v => '$' + v.toFixed(0) },
-             grid: { color: '#1e2d45' } }
+        x: {
+          ticks: {
+            color: '#64748b',
+            font: { family: 'Space Mono', size: 9 },
+            maxTicksLimit: 8,
+            maxRotation: 0,
+          },
+          grid: { color: '#1e2d4544' },
+        },
+        y: {
+          ticks: {
+            color: '#94a3b8',
+            font: { family: 'Space Mono', size: 10 },
+            callback: v => '$' + v.toLocaleString(),
+          },
+          grid: { color: '#1e2d45' },
+        }
       }
-    }
+    },
+    plugins: [{
+      id: 'nowLine',
+      afterDraw(chart) {
+        if (nowIndex < 0) return;
+        const { ctx: c, chartArea, scales } = chart;
+        const x = scales.x.getPixelForValue(nowIndex);
+        c.save();
+        c.beginPath();
+        c.moveTo(x, chartArea.top);
+        c.lineTo(x, chartArea.bottom);
+        c.strokeStyle = 'rgba(255,255,255,0.25)';
+        c.lineWidth = 1;
+        c.setLineDash([3, 3]);
+        c.stroke();
+        c.fillStyle = 'rgba(255,255,255,0.5)';
+        c.font = '9px Space Mono';
+        c.fillText('NOW', x + 3, chartArea.top + 12);
+        c.restore();
+      }
+    }]
   });
 }
 

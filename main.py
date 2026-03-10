@@ -1,6 +1,5 @@
 """
 NEM Dashboard - FastAPI backend
-Serves scraped NEMWeb data and the mobile-friendly dashboard frontend.
 """
 
 import asyncio
@@ -26,14 +25,12 @@ REFRESH_INTERVAL = 300
 async def refresh_data():
     while True:
         try:
-            logger.info("Refreshing NEMWeb data...")
             data = await asyncio.get_event_loop().run_in_executor(None, scrape_all)
             cache["data"] = data
             cache["last_updated"] = datetime.now(timezone.utc).isoformat()
             cache["error"] = None
-            logger.info("Data refresh complete.")
         except Exception as e:
-            logger.error(f"Error refreshing data: {e}")
+            logger.error(f"Refresh error: {e}")
             cache["error"] = str(e)
         await asyncio.sleep(REFRESH_INTERVAL)
 
@@ -41,7 +38,6 @@ async def refresh_data():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        logger.info("Initial NEMWeb data fetch...")
         data = await asyncio.get_event_loop().run_in_executor(None, scrape_all)
         cache["data"] = data
         cache["last_updated"] = datetime.now(timezone.utc).isoformat()
@@ -81,64 +77,82 @@ async def health():
 
 @app.get("/api/debug")
 async def debug():
-    """Inspect raw NEMWeb file structure to diagnose missing data."""
-    from scraper import get_all_file_urls, fetch_zip_csv, TRADING_PRICE_URL, PREDISPATCH_URL
+    from scraper import (get_all_file_urls, _list_hrefs, _read_zip_csv, _parse_aemo,
+                         DISPATCH_IS_URL, PREDISPATCH_URL, TRADING_ARCHIVE_BASE)
     from zoneinfo import ZoneInfo
 
     result = {}
     aest = ZoneInfo("Australia/Sydney")
-    today_compact = datetime.now(aest).strftime("%Y%m%d")
-    result["today_aest"] = datetime.now(aest).isoformat()
-    result["today_compact"] = today_compact
+    now = datetime.now(aest)
+    today_str = now.strftime("%Y%m%d")
+    result["now_aest"] = now.isoformat()
+    result["today_str"] = today_str
 
-    def peek_zip(url):
-        rows = fetch_zip_csv(url)
-        tables = {}
-        current_table = None
-        headers = None
-        for row in rows:
-            vals = list(row.values())
-            if not vals:
-                continue
-            ind = str(vals[0]).strip().upper()
-            if ind == "I" and len(vals) > 1:
-                current_table = str(vals[1]).strip().upper()
-                headers = [str(v).strip().upper() for v in vals]
-                tables.setdefault(current_table, {"headers": headers, "sample": None})
-            elif ind == "D" and headers and current_table:
-                if tables[current_table]["sample"] is None:
-                    tables[current_table]["sample"] = dict(zip(headers, [str(v) for v in vals]))
-        return tables
-
+    # Check trading archive
     try:
-        all_trading = get_all_file_urls(TRADING_PRICE_URL, "PUBLIC_TRADINGIS")
-        today_trading = [u for u in all_trading if today_compact in u]
-        result["trading_total_files"] = len(all_trading)
-        result["trading_today_count"] = len(today_trading)
-        result["trading_today_urls"] = today_trading[-3:]
-        if today_trading:
-            result["trading_structure"] = peek_zip(today_trading[0])
-        elif all_trading:
-            result["trading_latest_url"] = all_trading[-1]
-            result["trading_structure"] = peek_zip(all_trading[-1])
+        archive_url = f"{TRADING_ARCHIVE_BASE}/"
+        all_zips = _list_hrefs(archive_url)
+        today_zips = [u for u in all_zips if today_str in u]
+        result["trading_archive_total"] = len(all_zips)
+        result["trading_archive_today"] = len(today_zips)
+        result["trading_archive_sample"] = all_zips[-3:] if all_zips else []
+
+        # Peek at latest trading file
+        test_url = today_zips[-1] if today_zips else (all_zips[-1] if all_zips else None)
+        if test_url:
+            result["trading_test_url"] = test_url
+            text = _read_zip_csv(test_url)
+            # Find all table keys
+            import csv, io, re
+            tables = {}
+            reader = csv.reader(io.StringIO(text))
+            for row in reader:
+                if row and row[0].strip().upper() == "I" and len(row) >= 5:
+                    key = f"{row[1].strip()}_{row[2].strip()}".upper()
+                    headers = [c.strip().upper() for c in row[4:] if c.strip()]
+                    tables[key] = headers
+            result["trading_tables"] = tables
+
+            # Sample TRADING_PRICE rows
+            sample = _parse_aemo(text, "TRADING_PRICE")
+            result["trading_price_rows"] = len(sample)
+            result["trading_price_sample"] = sample[:2] if sample else []
     except Exception:
         result["trading_error"] = traceback.format_exc()
 
+    # Check predispatch
     try:
-        all_pd = get_all_file_urls(PREDISPATCH_URL, "PUBLIC_PREDISPATCHIS")
-        result["predispatch_total_files"] = len(all_pd)
-        result["predispatch_latest_url"] = all_pd[-1] if all_pd else None
-        if all_pd:
-            result["predispatch_structure"] = peek_zip(all_pd[-1])
+        pd_urls = _list_hrefs(PREDISPATCH_URL)
+        result["predispatch_total"] = len(pd_urls)
+        if pd_urls:
+            result["predispatch_latest"] = pd_urls[-1]
+            text = _read_zip_csv(pd_urls[-1])
+            import csv, io
+            tables = {}
+            reader = csv.reader(io.StringIO(text))
+            for row in reader:
+                if row and row[0].strip().upper() == "I" and len(row) >= 5:
+                    key = f"{row[1].strip()}_{row[2].strip()}".upper()
+                    headers = [c.strip().upper() for c in row[4:] if c.strip()]
+                    tables[key] = headers
+            result["predispatch_tables"] = tables
+            for tk in ["PREDISPATCH_REGION_PRICES", "PREDISPATCH_PRICE", "PREDISPATCH_REGIONPRICE", "PREDISPATCH_REGION_SOLUTION"]:
+                rows = _parse_aemo(text, tk)
+                result[f"pd_{tk}_count"] = len(rows)
+                if rows:
+                    result[f"pd_{tk}_sample"] = rows[0]
     except Exception:
         result["predispatch_error"] = traceback.format_exc()
 
+    # Cache summary
     if cache["data"]:
         d = cache["data"]
-        result["cache_summary"] = {
-            "historical_regions": {r: len(v) for r, v in d.get("historical_prices", {}).items()},
-            "predispatch_regions": {r: len(v) for r, v in d.get("predispatch_prices", {}).items()},
+        result["cache"] = {
             "prices": d.get("prices", {}),
+            "hist_price":  {r: len(v) for r, v in d.get("historical_prices", {}).items()},
+            "pd_price":    {r: len(v) for r, v in d.get("predispatch_prices", {}).items()},
+            "demand_hist": {r: len(v) for r, v in d.get("demand_history", {}).items()},
+            "pd_demand":   {r: len(v) for r, v in d.get("predispatch_demand", {}).items()},
         }
 
     return JSONResponse(content=result)
@@ -149,7 +163,7 @@ async def dashboard():
     html_path = Path(__file__).parent / "static" / "index.html"
     if html_path.exists():
         return HTMLResponse(content=html_path.read_text())
-    return HTMLResponse(content="<h1>Dashboard loading...</h1>")
+    return HTMLResponse(content="<h1>Loading...</h1>")
 
 
 if __name__ == "__main__":

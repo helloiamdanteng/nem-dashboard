@@ -1,5 +1,7 @@
 """
 NEM Dashboard - FastAPI backend
+Fast cache: prices, demand, gen, IC, Origin — refreshed every 5 min
+Slow cache: all generators, ST PASA week-ahead — refreshed every 30 min
 """
 
 import asyncio
@@ -14,44 +16,73 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from scraper import scrape_all
+from scraper import scrape_all, scrape_slow
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-cache = {"data": None, "last_updated": None, "error": None}
-REFRESH_INTERVAL = 300
+fast_cache = {"data": None, "last_updated": None, "error": None}
+slow_cache = {"data": None, "last_updated": None, "error": None}
+
+FAST_INTERVAL = 300   # 5 min
+SLOW_INTERVAL = 1800  # 30 min
 
 
-async def refresh_data():
+async def _run_fast():
+    t0 = time.time()
+    data = await asyncio.get_event_loop().run_in_executor(None, scrape_all)
+    fast_cache["data"] = data
+    fast_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
+    fast_cache["error"] = None
+    logger.info(f"Fast scrape done in {time.time()-t0:.1f}s")
+
+
+async def _run_slow():
+    t0 = time.time()
+    data = await asyncio.get_event_loop().run_in_executor(None, scrape_slow)
+    slow_cache["data"] = data
+    slow_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
+    slow_cache["error"] = None
+    logger.info(f"Slow scrape done in {time.time()-t0:.1f}s")
+
+
+async def fast_loop():
     while True:
         try:
-            t0 = time.time()
-            data = await asyncio.get_event_loop().run_in_executor(None, scrape_all)
-            cache["data"] = data
-            cache["last_updated"] = datetime.now(timezone.utc).isoformat()
-            cache["error"] = None
-            logger.info(f"Scrape completed in {time.time()-t0:.1f}s")
+            await _run_fast()
         except Exception as e:
-            logger.error(f"Refresh error: {e}\n{traceback.format_exc()}")
-            cache["error"] = str(e)
-        await asyncio.sleep(REFRESH_INTERVAL)
+            logger.error(f"Fast scrape error: {e}\n{traceback.format_exc()}")
+            fast_cache["error"] = str(e)
+        await asyncio.sleep(FAST_INTERVAL)
+
+
+async def slow_loop():
+    while True:
+        try:
+            await _run_slow()
+        except Exception as e:
+            logger.error(f"Slow scrape error: {e}\n{traceback.format_exc()}")
+            slow_cache["error"] = str(e)
+        await asyncio.sleep(SLOW_INTERVAL)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Fast scrape first — gets prices/demand up immediately
     try:
-        t0 = time.time()
-        data = await asyncio.get_event_loop().run_in_executor(None, scrape_all)
-        cache["data"] = data
-        cache["last_updated"] = datetime.now(timezone.utc).isoformat()
-        logger.info(f"Initial scrape completed in {time.time()-t0:.1f}s")
+        await _run_fast()
     except Exception as e:
-        logger.error(f"Initial fetch failed: {e}\n{traceback.format_exc()}")
-        cache["error"] = str(e)
-    task = asyncio.create_task(refresh_data())
+        logger.error(f"Initial fast scrape failed: {e}\n{traceback.format_exc()}")
+        fast_cache["error"] = str(e)
+
+    # Slow scrape kicks off in background — doesn't block startup
+    asyncio.create_task(_run_slow())
+
+    fast_task = asyncio.create_task(fast_loop())
+    slow_task = asyncio.create_task(slow_loop())
     yield
-    task.cancel()
+    fast_task.cancel()
+    slow_task.cancel()
 
 
 app = FastAPI(title="NEM Dashboard", lifespan=lifespan)
@@ -63,35 +94,49 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 @app.get("/api/data")
 async def get_data():
-    if cache["data"] is None:
+    if fast_cache["data"] is None:
         return JSONResponse(
-            content={"error": cache.get("error", "Data not yet available"), "loading": True},
-            status_code=503 if cache["error"] else 202,
+            content={"error": fast_cache.get("error", "Data not yet available"), "loading": True},
+            status_code=503 if fast_cache["error"] else 202,
         )
     return JSONResponse(content={
-        **cache["data"],
-        "last_updated": cache["last_updated"],
-        "cache_error": cache.get("error"),
+        **fast_cache["data"],
+        "last_updated": fast_cache["last_updated"],
+        "cache_error":  fast_cache.get("error"),
+    })
+
+
+@app.get("/api/slow")
+async def get_slow():
+    if slow_cache["data"] is None:
+        return JSONResponse(
+            content={"loading": True, "error": slow_cache.get("error")},
+            status_code=202,
+        )
+    return JSONResponse(content={
+        **slow_cache["data"],
+        "last_updated": slow_cache["last_updated"],
+        "cache_error":  slow_cache.get("error"),
     })
 
 
 @app.get("/api/health")
 async def health():
     return {
-        "status": "ok" if cache["data"] else "loading",
-        "last_updated": cache["last_updated"],
-        "has_data": cache["data"] is not None,
-        "error": cache.get("error"),
+        "status":           "ok" if fast_cache["data"] else "loading",
+        "fast_updated":     fast_cache["last_updated"],
+        "slow_updated":     slow_cache["last_updated"],
+        "fast_has_data":    fast_cache["data"] is not None,
+        "slow_has_data":    slow_cache["data"] is not None,
+        "fast_error":       fast_cache.get("error"),
+        "slow_error":       slow_cache.get("error"),
     }
 
 
 @app.get("/api/debug")
 async def debug():
     import csv, io
-    from scraper import (
-        _list_hrefs, _read_zip, _parse_aemo,
-        DISPATCH_IS_URL, PREDISPATCH_URL, TRADING_ARCHIVE
-    )
+    from scraper import _list_hrefs, _read_zip, _parse_aemo, DISPATCH_IS_URL, PREDISPATCH_URL, TRADING_ARCHIVE, ST_PASA_URL
     from zoneinfo import ZoneInfo
 
     result = {}
@@ -100,7 +145,7 @@ async def debug():
     today_str = now.strftime("%Y%m%d")
     result["now_aest"] = now.isoformat()
 
-    # Trading archive
+    # Trading archive timing
     try:
         t0 = time.time()
         all_zips = _list_hrefs(TRADING_ARCHIVE)
@@ -108,8 +153,6 @@ async def debug():
         result["trading_total_zips"] = len(all_zips)
         result["trading_today_zips"] = len(today_zips)
         result["trading_list_ms"] = round((time.time()-t0)*1000)
-        result["trading_sample"] = all_zips[-3:] if all_zips else []
-
         test_url = today_zips[-1] if today_zips else (all_zips[-1] if all_zips else None)
         if test_url:
             t1 = time.time()
@@ -120,50 +163,41 @@ async def debug():
             for row in reader:
                 if row and row[0].strip().upper() == "I" and len(row) >= 5:
                     key = f"{row[1].strip()}_{row[2].strip()}".upper()
-                    tables[key] = [c.strip().upper() for c in row[4:] if c.strip()]
+                    tables[key] = True
             result["trading_tables"] = list(tables.keys())
-            price_rows = _parse_aemo(text, "TRADING_PRICE")
-            demand_rows = _parse_aemo(text, "TRADING_REGIONSUM")
-            result["trading_price_rows"] = len(price_rows)
-            result["trading_demand_rows"] = len(demand_rows)
-            result["trading_price_sample"] = price_rows[:1] if price_rows else []
-            result["trading_demand_sample"] = demand_rows[:1] if demand_rows else []
     except Exception:
         result["trading_error"] = traceback.format_exc()
 
-    # Predispatch
+    # ST PASA listing
     try:
         t0 = time.time()
-        pd_urls = _list_hrefs(PREDISPATCH_URL)
-        result["predispatch_total"] = len(pd_urls)
-        result["predispatch_list_ms"] = round((time.time()-t0)*1000)
-        if pd_urls:
-            t1 = time.time()
-            text = _read_zip(pd_urls[-1])
-            result["predispatch_fetch_ms"] = round((time.time()-t1)*1000)
-            tables = {}
-            reader = csv.reader(io.StringIO(text))
-            for row in reader:
-                if row and row[0].strip().upper() == "I" and len(row) >= 5:
-                    key = f"{row[1].strip()}_{row[2].strip()}".upper()
-                    tables[key] = True
-            result["predispatch_tables"] = list(tables.keys())
+        pasa_urls = _list_hrefs(ST_PASA_URL)
+        result["stpasa_total"] = len(pasa_urls)
+        result["stpasa_list_ms"] = round((time.time()-t0)*1000)
+        result["stpasa_sample"] = pasa_urls[-2:] if pasa_urls else []
     except Exception:
-        result["predispatch_error"] = traceback.format_exc()
+        result["stpasa_error"] = traceback.format_exc()
 
     # Cache summary
-    if cache["data"]:
-        d = cache["data"]
-        result["cache"] = {
-            "prices": d.get("prices", {}),
+    if fast_cache["data"]:
+        d = fast_cache["data"]
+        result["fast_cache"] = {
+            "prices":        d.get("prices", {}),
             "hist_prices":   {r: len(v) for r, v in d.get("historical_prices", {}).items()},
             "pd_prices":     {r: len(v) for r, v in d.get("predispatch_prices", {}).items()},
             "demand_hist":   {r: len(v) for r, v in d.get("demand_history", {}).items()},
             "dispatch_hist": {r: len(v) for r, v in d.get("dispatch_history", {}).items()},
-            "pd_demand":     {r: len(v) for r, v in d.get("predispatch_demand", {}).items()},
             "fuel_mix":      {r: len(v) for r, v in d.get("fuel_mix_history", {}).items()},
             "ic_history":    {k: len(v) for k, v in d.get("ic_history", {}).items()},
-            "origin_found":  sum(1 for v in d.get("origin_assets", {}).values() if v.get("mw") is not None),
+        }
+    if slow_cache["data"]:
+        d = slow_cache["data"]
+        gens = d.get("generators", {}).get("grouped", {})
+        result["slow_cache"] = {
+            "gen_regions":   list(gens.keys()),
+            "gen_units":     sum(len(u) for r in gens.values() for u in r.values()),
+            "stpasa_pts":    {r: len(v) for r, v in d.get("stpasa_demand", {}).items()},
+            "fuel_mix_pts":  {r: len(v) for r, v in d.get("fuel_mix_today", {}).items()},
         }
 
     return JSONResponse(content=result)

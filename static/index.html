@@ -535,15 +535,42 @@ function toggleRegion(region) {
 }
 
 function renderGeneration(data) {
+  const fuelColors = data.fuel_colors || {
+    "Black Coal":"#4a4a6a","Brown Coal":"#8B4513","Gas":"#ff9f40",
+    "Hydro":"#36a2eb","Wind":"#4bc0c0","Solar":"#ffd700",
+    "Battery":"#9b59b6","Liquid":"#e74c3c","Other":"#95a5a6"
+  };
+
+  let html = '<div class="section-title">Generation Fuel Mix</div>';
+
+  // Region selector
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">';
+  for (const r of REGIONS) {
+    html += `<button onclick="selectGenRegion(\'${r}\')" id="grgn-${r}"
+      style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;
+             border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;
+             color:${REGION_COLORS[r]};cursor:pointer;transition:all 0.2s"
+      data-active="false">${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div>';
+
+  html += '<div class="chart-card">';
+  html += '<div class="chart-title">Fuel Mix (MW) — Actual (solid fill) · Predispatch (hatched)</div>';
+  html += '<div class="chart-container" style="height:280px"><canvas id="fuelMixChart"></canvas></div>';
+
+  // Fuel type legend
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">';
+  for (const [fuel, color] of Object.entries(fuelColors)) {
+    html += `<div style="display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10px;color:#94a3b8">
+      <div style="width:10px;height:10px;border-radius:2px;background:${color}"></div>${fuel}
+    </div>`;
+  }
+  html += '</div></div>';
+
+  // Summary table
   const gen = data.generation || {};
   const rawSummary = data.raw_summary || {};
-
-  let html = '<div class="section-title">Generation & Supply</div>';
-  html += '<div class="chart-card"><div class="chart-title">Dispatched Generation by Region (MW)</div><div class="chart-container tall"><canvas id="genChart"></canvas></div></div>';
-
-  // Table
-  html += '<div class="chart-card">';
-  html += '<div class="chart-title">Generation Summary</div>';
+  html += '<div class="chart-card"><div class="chart-title">Current Generation</div>';
   html += '<div class="table-wrap"><table>';
   html += '<tr><th>Region</th><th>Scheduled</th><th>Semi-Sched</th><th>Net Int.</th></tr>';
   for (const r of REGIONS) {
@@ -552,8 +579,8 @@ function renderGeneration(data) {
     html += `<tr>
       <td style="color:${REGION_COLORS[r]};font-weight:700">${REGION_SHORT[r]}</td>
       <td>${fmt(g.Scheduled ?? raw.DISPATCHABLEGENERATION)} MW</td>
-      <td>${fmt(g['Semi-Scheduled'] ?? raw.SEMISCHEDULEDGENERATION)} MW</td>
-      <td style="color:${(g['Net Interchange'] ?? raw.NETINTERCHANGE ?? 0) >= 0 ? '#00d4ff' : '#ff6b35'}">${fmt(g['Net Interchange'] ?? raw.NETINTERCHANGE)} MW</td>
+      <td>${fmt(g[\'Semi-Scheduled\'] ?? raw.SEMISCHEDULEDGENERATION)} MW</td>
+      <td style="color:${(g[\'Net Interchange\'] ?? raw.NETINTERCHANGE ?? 0) >= 0 ? \'#00d4ff\' : \'#ff6b35\'}">${fmt(g[\'Net Interchange\'] ?? raw.NETINTERCHANGE)} MW</td>
     </tr>`;
   }
   html += '</table></div></div>';
@@ -561,6 +588,20 @@ function renderGeneration(data) {
   return html;
 }
 
+let currentGenRegion = \'NSW1\';
+
+function selectGenRegion(region) {
+  currentGenRegion = region;
+  for (const r of REGIONS) {
+    const btn = document.getElementById(\'grgn-\' + r);
+    if (btn) {
+      btn.dataset.active = (r === region) ? \'true\' : \'false\';
+      btn.style.background = (r === region) ? REGION_COLORS[r] + \'88\' : REGION_COLORS[r] + \'33\';
+      btn.style.fontWeight = (r === region) ? \'700\' : \'400\';
+    }
+  }
+  if (latestData) drawGenChart(latestData);
+}
 function renderDemand(data) {
   const demand = data.demand || {};
   const rawSummary = data.raw_summary || {};
@@ -717,6 +758,7 @@ function drawPriceChart(data) {
       pointHoverRadius: 4,
       tension: 0.3,
       borderDash: [],
+      segment: { borderDash: () => [] },
       spanGaps: false,
     });
 
@@ -808,34 +850,176 @@ function drawPriceChart(data) {
 }
 
 function drawGenChart(data) {
-  destroyChart('gen');
-  const ctx = document.getElementById('genChart');
+  destroyChart(\'gen\');
+  const ctx = document.getElementById(\'fuelMixChart\');
   if (!ctx) return;
-  const gen = data.generation || {};
-  const raw = data.raw_summary || {};
 
-  const scheduled = REGIONS.map(r => gen[r]?.Scheduled ?? raw[r]?.DISPATCHABLEGENERATION ?? null);
-  const semiSched = REGIONS.map(r => gen[r]?.['Semi-Scheduled'] ?? raw[r]?.SEMISCHEDULEDGENERATION ?? null);
+  const region = currentGenRegion;
+  const fuelColors = data.fuel_colors || {
+    "Black Coal":"#4a4a6a","Brown Coal":"#8B4513","Gas":"#ff9f40",
+    "Hydro":"#36a2eb","Wind":"#4bc0c0","Solar":"#ffd700",
+    "Battery":"#9b59b6","Liquid":"#e74c3c","Other":"#95a5a6"
+  };
+  const allFuels = data.all_fuels || Object.keys(fuelColors);
+
+  const histData = (data.fuel_mix_history || {})[region] || [];
+  const pdGen    = (data.predispatch_gen  || {})[region] || [];
+
+  // Build label set
+  const labelSet = new Set();
+  histData.forEach(pt => labelSet.add(pt.interval));
+  pdGen.forEach(pt => labelSet.add(pt.interval));
+  const labels = Array.from(labelSet).sort();
+
+  const nowStr = new Date().toLocaleTimeString(\'en-AU\', {
+    hour:\'2-digit\', minute:\'2-digit\', hour12: false, timeZone:\'Australia/Sydney\'
+  });
+  const nowIndex = labels.findIndex(l => l >= nowStr);
+
+  // Build maps
+  const histMap = {};
+  histData.forEach(pt => { histMap[pt.interval] = pt; });
+  const pdMap = {};
+  pdGen.forEach(pt => { pdMap[pt.interval] = pt; });
+
+  // Determine which fuels actually have data
+  const activeFuels = allFuels.filter(f =>
+    histData.some(pt => pt[f] && pt[f] > 0) ||
+    pdGen.some(pt => pt[\'SemiScheduled\'] && pt[\'SemiScheduled\'] > 0)
+  );
+
+  const datasets = [];
+
+  // If we have fuel mix history — draw per-fuel stacked areas
+  if (histData.length > 0) {
+    for (const fuel of activeFuels) {
+      const color = fuelColors[fuel] || \'#95a5a6\';
+      const actualVals = labels.map(l => {
+        const pt = histMap[l];
+        return (pt && pt[fuel] !== undefined) ? Math.max(0, pt[fuel]) : null;
+      });
+      datasets.push({
+        label: fuel,
+        data: actualVals,
+        backgroundColor: color + \'cc\',
+        borderColor: color,
+        borderWidth: 1,
+        fill: true,
+        pointRadius: 0,
+        tension: 0.2,
+        spanGaps: false,
+        stack: \'actual\',
+        segment: { borderDash: () => [] },
+      });
+    }
+  }
+
+  // Predispatch — show as Scheduled + SemiScheduled stacked bars (future only)
+  if (pdGen.length > 0) {
+    const pdScheduled = labels.map(l => {
+      const pt = pdMap[l];
+      return (pt && pt.Scheduled !== undefined) ? Math.max(0, pt.Scheduled) : null;
+    });
+    const pdSemi = labels.map(l => {
+      const pt = pdMap[l];
+      return (pt && pt.SemiScheduled !== undefined) ? Math.max(0, pt.SemiScheduled) : null;
+    });
+    datasets.push({
+      label: \'Sched (PD)\',
+      data: pdScheduled,
+      backgroundColor: \'rgba(100,116,139,0.3)\',
+      borderColor: \'#64748b\',
+      borderWidth: 1,
+      borderDash: [4, 3],
+      fill: true,
+      pointRadius: 0,
+      tension: 0.2,
+      spanGaps: false,
+      stack: \'pd\',
+    });
+    datasets.push({
+      label: \'Semi-Sched (PD)\',
+      data: pdSemi,
+      backgroundColor: \'rgba(75,192,192,0.25)\',
+      borderColor: \'#4bc0c0\',
+      borderWidth: 1,
+      borderDash: [4, 3],
+      fill: true,
+      pointRadius: 0,
+      tension: 0.2,
+      spanGaps: false,
+      stack: \'pd\',
+    });
+  }
+
+  // Fallback if no fuel mix data — show scheduled + semi from region summary
+  if (histData.length === 0 && pdGen.length === 0) {
+    const gen = (data.generation || {})[region] || {};
+    const raw = (data.raw_summary || {})[region] || {};
+    ctx.parentElement.innerHTML = \'<div class="state-msg"><div class="icon">⚡</div><div style="font-size:12px">Fuel mix data loading...<br><br>Scheduled: \' + fmt(gen.Scheduled ?? raw.DISPATCHABLEGENERATION) + \'MW<br>Semi-sched: \' + fmt(gen[\'Semi-Scheduled\'] ?? raw.SEMISCHEDULEDGENERATION) + \'MW</div></div>\';
+    return;
+  }
 
   charts.gen = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: REGIONS.map(r => REGION_SHORT[r]),
-      datasets: [
-        { label: 'Scheduled', data: scheduled, backgroundColor: REGIONS.map(r => REGION_COLORS[r] + 'cc'), borderRadius: 4 },
-        { label: 'Semi-Scheduled', data: semiSched, backgroundColor: REGIONS.map(r => REGION_COLORS[r] + '55'), borderRadius: 4 },
-      ]
-    },
+    type: \'line\',
+    data: { labels, datasets },
     options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: '#94a3b8', font: { family: 'Space Mono', size: 10 }, boxWidth: 12 } } },
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: \'index\', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          filter: item => item.raw !== null && item.raw > 0,
+          callbacks: {
+            label: c => c.raw !== null ? ` ${c.dataset.label}: ${fmt(c.raw)} MW` : null
+          },
+          backgroundColor: \'#111827\',
+          borderColor: \'#1e2d45\',
+          borderWidth: 1,
+          titleColor: \'#94a3b8\',
+          bodyColor: \'#e2e8f0\',
+          titleFont: { family: \'Space Mono\', size: 10 },
+          bodyFont: { family: \'Space Mono\', size: 11 },
+        },
+      },
       scales: {
-        x: { stacked: true, ticks: { color: '#94a3b8', font: { family: 'Space Mono', size: 11 } }, grid: { color: '#1e2d45' } },
-        y: { stacked: true, ticks: { color: '#94a3b8', font: { family: 'Space Mono', size: 10 },
-              callback: v => v.toLocaleString() + ' MW' },
-             grid: { color: '#1e2d45' } }
+        x: {
+          stacked: true,
+          ticks: { color: \'#64748b\', font: { family: \'Space Mono\', size: 9 }, maxTicksLimit: 8, maxRotation: 0 },
+          grid: { color: \'#1e2d4544\' },
+        },
+        y: {
+          stacked: true,
+          ticks: {
+            color: \'#94a3b8\',
+            font: { family: \'Space Mono\', size: 10 },
+            callback: v => v.toLocaleString() + \' MW\'
+          },
+          grid: { color: \'#1e2d45\' },
+        }
       }
-    }
+    },
+    plugins: [{
+      id: \'nowLineGen\',
+      afterDraw(chart) {
+        if (nowIndex < 0) return;
+        const { ctx: c, chartArea, scales } = chart;
+        const x = scales.x.getPixelForValue(nowIndex);
+        c.save();
+        c.beginPath();
+        c.moveTo(x, chartArea.top);
+        c.lineTo(x, chartArea.bottom);
+        c.strokeStyle = \'rgba(255,255,255,0.25)\';
+        c.lineWidth = 1;
+        c.setLineDash([3, 3]);
+        c.stroke();
+        c.fillStyle = \'rgba(255,255,255,0.5)\';
+        c.font = \'9px Space Mono\';
+        c.fillText(\'NOW\', x + 3, chartArea.top + 12);
+        c.restore();
+      }
+    }]
   });
 }
 
@@ -885,6 +1069,7 @@ function drawDemandChart(data) {
       pointHoverRadius: 4,
       tension: 0.3,
       borderDash: [],
+      segment: { borderDash: () => [] },
       spanGaps: false,
     });
 
@@ -896,6 +1081,7 @@ function drawDemandChart(data) {
       backgroundColor: 'transparent',
       borderWidth: 2,
       borderDash: [5, 4],
+      segment: { borderDash: () => [5, 4] },
       pointRadius: 0,
       pointHoverRadius: 4,
       tension: 0.3,
@@ -1020,7 +1206,9 @@ function renderPanel(panel, data) {
   requestAnimationFrame(() => {
     switch(panel) {
       case 'prices':        drawPriceChart(data); break;
-      case 'generation':    drawGenChart(data); break;
+      case 'generation':
+        selectGenRegion(currentGenRegion);
+        break;
       case 'demand':        drawDemandChart(data); break;
       case 'interconnectors': drawIcChart(data); break;
     }

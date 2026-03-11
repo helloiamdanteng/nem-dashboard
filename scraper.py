@@ -312,7 +312,7 @@ def scrape_trading_history() -> dict:
     if not today_zips:
         today_zips = all_zips[-48:]
     # Cap at 48 — one per 30-min interval, max 48 per day
-    today_zips = sorted(today_zips)[-48:]
+    today_zips = sorted(today_zips)[-300:]
 
     prices: dict[str, dict] = {r: {} for r in NEM_REGIONS}
 
@@ -352,6 +352,64 @@ def scrape_trading_history() -> dict:
 
     logger.info(f"TradingIS prices: {sum(len(v) for v in price_result.values())} pts from {len(today_zips)} files")
     return {"prices": price_result}
+
+
+# ---------------------------------------------------------------------------
+# Historical demand from DispatchIS CURRENT (5-min intervals)
+# ---------------------------------------------------------------------------
+
+def scrape_dispatch_demand_history() -> dict:
+    """
+    Fetch today's DispatchIS files for 5-min demand history.
+    Returns { region: [{interval, demand}] }
+    Cap at 300 files (25 hours of 5-min data).
+    """
+    now_aest = datetime.now(AEST)
+    today_str = now_aest.strftime("%Y%m%d")
+
+    all_zips = _list_hrefs(DISPATCH_IS_URL)
+    today_zips = [u for u in all_zips if today_str in u and "PUBLIC_DISPATCHIS" in u.upper()]
+    if not today_zips:
+        today_zips = all_zips[-288:]
+    today_zips = sorted(today_zips)[-300:]
+
+    demand: dict[str, dict] = {r: {} for r in NEM_REGIONS}
+
+    def fetch_one(url):
+        try:
+            text = _read_zip(url)
+            pts = []
+            for row in _parse_aemo(text, "DISPATCH_REGIONSUM"):
+                region = row.get("REGIONID", "")
+                if region not in NEM_REGIONS:
+                    continue
+                if row.get("INTERVENTION", "0") not in ("0", ""):
+                    continue
+                dt_str = row.get("SETTLEMENTDATE", "")
+                demand_str = row.get("TOTALDEMAND", "")
+                if not dt_str or not demand_str:
+                    continue
+                try:
+                    # SETTLEMENTDATE is end-of-interval for DispatchIS (5-min)
+                    dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=5)
+                    pts.append((region, dt.strftime("%H:%M"), round(float(demand_str), 1)))
+                except (ValueError, TypeError):
+                    pass
+            return pts
+        except Exception as e:
+            logger.warning(f"dispatch_demand fetch_one failed {url}: {e}")
+            return []
+
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = [ex.submit(fetch_one, u) for u in today_zips]
+        for fut in as_completed(futures):
+            for region, label, val in fut.result():
+                demand[region][label] = val
+
+    result = {r: [{"interval": k, "demand": v} for k, v in sorted(s.items())]
+              for r, s in demand.items() if s}
+    logger.info(f"DispatchIS demand history: {sum(len(v) for v in result.values())} pts from {len(today_zips)} files")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -609,15 +667,17 @@ def scrape_all() -> dict:
 
     # Run all IO-bound fetches concurrently
     with ThreadPoolExecutor(max_workers=8) as ex:
-        f_dispatch_is = ex.submit(_fetch_dispatch_is)
-        f_predispatch = ex.submit(_fetch_predispatch)
-        f_trading     = ex.submit(scrape_trading_history)
-        f_fuel_mix    = ex.submit(scrape_fuel_mix_history_opennem)
-        f_scada       = ex.submit(scrape_scada_duids, ORIGIN_DUIDS)
+        f_dispatch_is   = ex.submit(_fetch_dispatch_is)
+        f_predispatch   = ex.submit(_fetch_predispatch)
+        f_trading       = ex.submit(scrape_trading_history)
+        f_demand_hist   = ex.submit(scrape_dispatch_demand_history)
+        f_fuel_mix      = ex.submit(scrape_fuel_mix_history_opennem)
+        f_scada         = ex.submit(scrape_scada_duids, ORIGIN_DUIDS)
 
     dispatch_text    = f_dispatch_is.result()
     predispatch_text = f_predispatch.result()
-    trading          = f_trading.result()   # {"prices": {...}, "demand": {...}}
+    trading          = f_trading.result()   # {"prices": {...}}
+    dispatch_demand  = f_demand_hist.result()
     fuel_mix         = f_fuel_mix.result()
     scada_vals       = f_scada.result()
 
@@ -636,10 +696,11 @@ def scrape_all() -> dict:
     pd_demand = scrape_predispatch_demand(predispatch_text)
     pd_gen    = scrape_predispatch_generation(predispatch_text)
 
-    # In-memory accumulators — demand and IC build up over process lifetime
+    # In-memory accumulators — IC builds up over process lifetime
     _update_demand_history(region_summary)
     _update_ic_history(interconnectors)
-    demand_history     = _get_demand_history()
+    # Use DispatchIS history for demand (full day), fall back to in-memory if empty
+    demand_history     = dispatch_demand if dispatch_demand else _get_demand_history()
     ic_history         = _get_ic_history()
     pd_interconnectors = scrape_predispatch_interconnectors(predispatch_text)
 

@@ -385,7 +385,138 @@ def scrape_predispatch_demand() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Historical demand — from today's dispatch intervals (5-min, stored in cache)
+# Fuel mix — OpenNEM API for current generation by fuel type
+# ---------------------------------------------------------------------------
+
+FUEL_COLORS = {
+    "Black Coal":  "#4a4a6a",
+    "Brown Coal":  "#8B4513",
+    "Gas":         "#ff9f40",
+    "Hydro":       "#36a2eb",
+    "Wind":        "#4bc0c0",
+    "Solar":       "#ffd700",
+    "Battery":     "#9b59b6",
+    "Liquid":      "#e74c3c",
+    "Other":       "#95a5a6",
+}
+ALL_FUELS = list(FUEL_COLORS.keys())
+
+OPENNEM_API = "https://api.opennem.org.au"
+
+
+def _normalise_fuel(fuel: str) -> str:
+    fuel = fuel.upper()
+    if "COAL_BLACK" in fuel or "BLACK" in fuel:       return "Black Coal"
+    if "COAL_BROWN" in fuel or "BROWN" in fuel:       return "Brown Coal"
+    if "GAS" in fuel or "OCGT" in fuel or "CCGT" in fuel: return "Gas"
+    if "HYDRO" in fuel or "WATER" in fuel:            return "Hydro"
+    if "WIND" in fuel:                                return "Wind"
+    if "SOLAR" in fuel or "ROOFTOP" in fuel:          return "Solar"
+    if "BATTERY" in fuel or "STORAGE" in fuel:        return "Battery"
+    if "LIQUID" in fuel or "DISTILLATE" in fuel:      return "Liquid"
+    return "Other"
+
+
+def scrape_fuel_mix_history_opennem() -> dict:
+    """
+    Fetch today\'s generation by fuel type from OpenNEM API (historical + current).
+    Returns { region: [ {interval, Black Coal, Gas, Wind, ...}, ... ] }
+    """
+    try:
+        # Use per-region power endpoint with 30m intervals for today
+        result: dict[str, dict] = {}   # region -> interval -> fuel -> mw
+
+        for region in NEM_REGIONS:
+            region_short = region.replace("1", "")
+            url = f"{OPENNEM_API}/v4/stats/power/network/region/{region_short}?network=NEM&interval=30m&period=1d"
+            r = _get(url, timeout=20)
+            if not r:
+                continue
+            data = r.json()
+            for series in data.get("data", []):
+                fuel_raw = series.get("fuel_tech") or series.get("type") or ""
+                if not fuel_raw:
+                    continue
+                fuel = _normalise_fuel(fuel_raw)
+                history = series.get("history", {})
+                start_str = history.get("start", "")
+                interval_mins = history.get("interval", 30)
+                values = history.get("data", []) or []
+                if not start_str or not values:
+                    continue
+                try:
+                    from datetime import timedelta
+                    start_dt = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+                    start_aest = start_dt.astimezone(AEST)
+                    for i, val in enumerate(values):
+                        if val is None:
+                            continue
+                        slot_dt = start_aest + timedelta(minutes=i * interval_mins)
+                        label = slot_dt.strftime("%H:%M")
+                        region_data = result.setdefault(region, {})
+                        slot_data = region_data.setdefault(label, {})
+                        slot_data[fuel] = slot_data.get(fuel, 0) + round(float(val), 1)
+                except (ValueError, TypeError):
+                    pass
+
+        # Flatten to list format
+        final = {}
+        for region, series in result.items():
+            if series:
+                final[region] = [{"interval": k, **v} for k, v in sorted(series.items())]
+        logger.info(f"Fuel mix history: {sum(len(v) for v in final.values())} points across {len(final)} regions")
+        return final
+    except Exception as e:
+        logger.warning(f"OpenNEM fuel mix history failed: {e}")
+        return {}
+
+
+def scrape_predispatch_generation() -> dict:
+    """
+    Fetch predispatch semi-scheduled + scheduled generation forecast.
+    Returns { region: [ {interval, SemiScheduled, Scheduled}, ... ] }
+    """
+    url = get_latest_file_url(PREDISPATCH_URL, "PUBLIC_PREDISPATCHIS")
+    if not url:
+        return {}
+    text = _read_zip_csv(url)
+    now_aest = datetime.now(AEST).replace(tzinfo=None)
+    region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
+
+    for table_key in ["PREDISPATCH_REGION_SOLUTION", "PREDISPATCH_REGIONSOLUTION"]:
+        rows = _parse_aemo(text, table_key)
+        if rows:
+            for row in rows:
+                region = row.get("REGIONID", "").strip()
+                if region not in NEM_REGIONS:
+                    continue
+                dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", "")).strip()
+                ss  = row.get("SEMISCHEDULEDGENERATION", "").strip()
+                sch = row.get("DISPATCHABLEGENERATION", "").strip()
+                if not dt_str:
+                    continue
+                try:
+                    dt = datetime.fromisoformat(dt_str.replace("/", "-"))
+                    if dt.replace(tzinfo=None) >= now_aest:
+                        label = dt.strftime("%H:%M")
+                        region_series[region][label] = {
+                            "SemiScheduled": round(float(ss), 1) if ss else 0,
+                            "Scheduled":     round(float(sch), 1) if sch else 0,
+                        }
+                except (ValueError, TypeError):
+                    pass
+            break
+
+    result = {}
+    for region, series in region_series.items():
+        if series:
+            result[region] = [{"interval": k, **v} for k, v in sorted(series.items())]
+    logger.info(f"Predispatch generation: {sum(len(v) for v in result.values())} points across {len(result)} regions")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Historical demand — from today\'s dispatch intervals (5-min, stored in cache)
 # ---------------------------------------------------------------------------
 
 _dispatch_demand_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
@@ -416,11 +547,13 @@ def get_demand_history() -> dict:
 def scrape_all() -> dict:
     logger.info("Starting NEMWeb scrape...")
 
-    region_summary   = scrape_region_summary()
-    interconnectors  = scrape_interconnectors()
-    historical_prices = scrape_trading_prices_today()
-    predispatch_prices = scrape_predispatch_prices()
-    predispatch_demand = scrape_predispatch_demand()
+    region_summary      = scrape_region_summary()
+    interconnectors     = scrape_interconnectors()
+    historical_prices   = scrape_trading_prices_today()
+    predispatch_prices  = scrape_predispatch_prices()
+    predispatch_demand  = scrape_predispatch_demand()
+    fuel_mix_history    = scrape_fuel_mix_history_opennem()
+    predispatch_gen     = scrape_predispatch_generation()
 
     # Snapshot current demand into history
     update_dispatch_demand_history(region_summary)
@@ -461,6 +594,10 @@ def scrape_all() -> dict:
         "predispatch_prices": predispatch_prices,
         "demand_history":     demand_history,
         "predispatch_demand": predispatch_demand,
+        "fuel_mix_history":   fuel_mix_history,
+        "predispatch_gen":    predispatch_gen,
+        "fuel_colors":        FUEL_COLORS,
+        "all_fuels":          ALL_FUELS,
     }
 
 

@@ -289,34 +289,35 @@ def scrape_unit_solution(text: str, duids: set) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Trading prices (historical — archive)
+# Historical prices + demand from TradingIS CURRENT
+# Each file is ~1.5KB and covers exactly ONE 30-min interval.
+# Files are named PUBLIC_TRADINGIS_YYYYMMDDHHMM_<id>.zip
+# Contains TRADING_PRICE (actual settled RRP) and TRADING_REGIONSUM (actual demand).
+# SETTLEMENTDATE is end-of-interval — subtract 30min to get interval start.
 # ---------------------------------------------------------------------------
 
-def scrape_trading_prices_today() -> tuple:
+def scrape_trading_history() -> dict:
     """
-    Returns (prices_dict, trading_zips_used).
-    Uses CURRENT TradingIS directory — individual 30-min ZIP files for today.
-    File pattern: PUBLIC_TRADINGIS_YYYYMMDDHHMM_<id>.zip
+    Fetch all TradingIS CURRENT files for today.
+    Returns { "prices": {region: [{interval, rrp}]},
+              "demand":  {region: [{interval, demand}]} }
     """
     now_aest = datetime.now(AEST)
     today_str = now_aest.strftime("%Y%m%d")
 
     all_zips = _list_hrefs(TRADING_CURRENT)
-    # Each file name contains the datetime stamp — filter to today's files only
     today_zips = [u for u in all_zips if today_str in u]
     if not today_zips:
-        # Fallback: take the last 48 files (covers full day even if date string differs)
-        today_zips = all_zips[-48:]
-    # Always cap at last 50 so we don't over-fetch (48 intervals per day max)
-    today_zips = today_zips[-50:]
+        today_zips = all_zips[-48:]  # fallback near midnight
+    today_zips = sorted(today_zips)  # chronological
 
-    region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
+    prices: dict[str, dict] = {r: {} for r in NEM_REGIONS}
+    demand: dict[str, dict] = {r: {} for r in NEM_REGIONS}
 
     def fetch_one(url):
         text = _read_zip(url)
-        rows = _parse_aemo(text, "TRADING_PRICE")
         pts = []
-        for row in rows:
+        for row in _parse_aemo(text, "TRADING_PRICE"):
             region = row.get("REGIONID", "")
             if region not in NEM_REGIONS:
                 continue
@@ -327,26 +328,44 @@ def scrape_trading_prices_today() -> tuple:
             if not dt_str or not rrp_str:
                 continue
             try:
-                rrp = round(float(rrp_str), 2)
-                # Shift back 30min: AEMO timestamps are end-of-interval
                 dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                pts.append((region, dt.strftime("%H:%M"), rrp))
+                pts.append(("price", region, dt.strftime("%H:%M"), round(float(rrp_str), 2)))
+            except (ValueError, TypeError):
+                pass
+        for row in _parse_aemo(text, "TRADING_REGIONSUM"):
+            region = row.get("REGIONID", "")
+            if region not in NEM_REGIONS:
+                continue
+            if row.get("INTERVENTION", "0") not in ("0", ""):
+                continue
+            dt_str = row.get("SETTLEMENTDATE", "")
+            demand_str = row.get("TOTALDEMAND", "")
+            if not dt_str or not demand_str:
+                continue
+            try:
+                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
+                pts.append(("demand", region, dt.strftime("%H:%M"), round(float(demand_str), 1)))
             except (ValueError, TypeError):
                 pass
         return pts
 
-    with ThreadPoolExecutor(max_workers=6) as ex:
+    with ThreadPoolExecutor(max_workers=8) as ex:
         futures = [ex.submit(fetch_one, u) for u in today_zips]
         for fut in as_completed(futures):
-            for region, label, rrp in fut.result():
-                region_series[region][label] = rrp
+            for kind, region, label, val in fut.result():
+                if kind == "price":
+                    prices[region][label] = val
+                else:
+                    demand[region][label] = val
 
-    result = {}
-    for region, series in region_series.items():
-        if series:
-            result[region] = [{"interval": k, "rrp": v} for k, v in sorted(series.items())]
-    logger.info(f"Trading prices: {sum(len(v) for v in result.values())} pts from {len(today_zips)} zips")
-    return result, today_zips
+    price_result = {r: [{"interval": k, "rrp": v} for k, v in sorted(s.items())]
+                    for r, s in prices.items() if s}
+    demand_result = {r: [{"interval": k, "demand": v} for k, v in sorted(s.items())]
+                     for r, s in demand.items() if s}
+
+    logger.info(f"TradingIS history: {sum(len(v) for v in price_result.values())} price pts, "
+                f"{sum(len(v) for v in demand_result.values())} demand pts from {len(today_zips)} files")
+    return {"prices": price_result, "demand": demand_result}
 
 
 # ---------------------------------------------------------------------------
@@ -526,81 +545,7 @@ def scrape_fuel_mix_history_opennem() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Demand history from TradingIS archive (30-min, reuses already-listed zips)
-# Same files used for price history — no extra directory listing needed.
-# ---------------------------------------------------------------------------
-
-def scrape_demand_history_today(trading_zips: list) -> dict:
-    """
-    Extract TOTALDEMAND from today's TradingIS archive zips (30-min intervals).
-    AEMO SETTLEMENTDATE is end-of-interval, so we shift back 30min for display.
-    Returns { region: [{interval, demand}] }
-    """
-    region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-
-    def fetch_one(url):
-        text = _read_zip(url)
-        pts = []
-        for row in _parse_aemo(text, "TRADING_REGIONSUM"):
-            region = row.get("REGIONID", "")
-            if region not in NEM_REGIONS:
-                continue
-            if row.get("INTERVENTION", "0") not in ("0", ""):
-                continue
-            dt_str = row.get("SETTLEMENTDATE", "")
-            demand_str = row.get("TOTALDEMAND", "")
-            if not dt_str or not demand_str:
-                continue
-            try:
-                demand = round(float(demand_str), 1)
-                # Shift back 30min: AEMO timestamps are end-of-interval
-                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                label = dt.strftime("%H:%M")
-                pts.append((region, label, demand))
-            except (ValueError, TypeError):
-                pass
-        return pts
-
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        futures = [ex.submit(fetch_one, u) for u in trading_zips]
-        for fut in as_completed(futures):
-            for region, label, demand in fut.result():
-                region_series[region][label] = demand
-
-    result = {}
-    for region, series in region_series.items():
-        if series:
-            result[region] = [{"interval": k, "demand": v} for k, v in sorted(series.items())]
-    logger.info(f"Demand history: {sum(len(v) for v in result.values())} pts across {len(result)} regions")
-    return result
-
-
-# ---------------------------------------------------------------------------
-# In-memory dispatch price history (5-min actual prices, accumulated each cycle)
-# ---------------------------------------------------------------------------
-
-_price_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-
-
-def _update_price_history(region_summary: dict) -> None:
-    """Called each scrape cycle. Stores the actual 5-min RRP for each region."""
-    # Use SETTLEMENTDATE from the dispatch file if available, else current time
-    label = datetime.now(AEST).strftime("%H:%M")
-    for region, data in region_summary.items():
-        if region in NEM_REGIONS and "RRP" in data:
-            _price_history[region][label] = data["RRP"]
-
-
-def _get_price_history() -> dict:
-    result = {}
-    for region, series in _price_history.items():
-        if series:
-            result[region] = [{"interval": k, "rrp": v} for k, v in sorted(series.items())]
-    return result
-
-
-# ---------------------------------------------------------------------------
-# In-memory demand history — lightweight fallback if archive fetch fails
+# In-memory demand history — lightweight fallback used only if TradingIS fetch fails
 # ---------------------------------------------------------------------------
 
 _demand_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
@@ -678,28 +623,19 @@ def scrape_all() -> dict:
 
     # Run all IO-bound fetches concurrently
     with ThreadPoolExecutor(max_workers=8) as ex:
-        f_dispatch_is   = ex.submit(_fetch_dispatch_is)
-        f_predispatch   = ex.submit(_fetch_predispatch)
-        f_trading       = ex.submit(scrape_trading_prices_today)
-        f_fuel_mix      = ex.submit(scrape_fuel_mix_history_opennem)
-        f_scada         = ex.submit(scrape_scada_duids, ORIGIN_DUIDS)
+        f_dispatch_is = ex.submit(_fetch_dispatch_is)
+        f_predispatch = ex.submit(_fetch_predispatch)
+        f_trading     = ex.submit(scrape_trading_history)
+        f_fuel_mix    = ex.submit(scrape_fuel_mix_history_opennem)
+        f_scada       = ex.submit(scrape_scada_duids, ORIGIN_DUIDS)
 
     dispatch_text    = f_dispatch_is.result()
     predispatch_text = f_predispatch.result()
-    trading_result   = f_trading.result()
+    trading          = f_trading.result()   # {"prices": {...}, "demand": {...}}
     fuel_mix         = f_fuel_mix.result()
     scada_vals       = f_scada.result()
 
-    # Unpack trading — returns (prices_dict, zips_used)
-    if isinstance(trading_result, tuple):
-        trading_prices, trading_zips = trading_result
-    else:
-        trading_prices, trading_zips = trading_result, []
-
-    # Fetch demand history reusing the same trading zips (no extra HTTP calls)
-    dispatch_history = scrape_demand_history_today(trading_zips) if trading_zips else {}
-
-    # Parse dispatch IS
+    # Parse live dispatch snapshot (prices, demand, generation, ICs)
     region_summary  = scrape_region_summary(dispatch_text)
     interconnectors = scrape_interconnectors(dispatch_text)
 
@@ -709,32 +645,21 @@ def scrape_all() -> dict:
         unit_sol = scrape_unit_solution(dispatch_text, missing)
         scada_vals.update(unit_sol)
 
-    # Accumulate actual 5-min dispatch prices in memory
-    _update_price_history(region_summary)
-    price_history = _get_price_history()
-
-    # Parse predispatch
+    # Parse predispatch (future forecasts only)
     pd_prices = scrape_predispatch_prices(predispatch_text)
     pd_demand = scrape_predispatch_demand(predispatch_text)
     pd_gen    = scrape_predispatch_generation(predispatch_text)
 
-    # Use full-day dispatch archive for demand history; fall back to in-memory
+    # In-memory IC history + demand fallback
     _update_demand_history(region_summary)
-    if dispatch_history:
-        demand_history = {
-            region: [{"interval": pt["interval"], "demand": pt["demand"]}
-                     for pt in pts if pt.get("demand") is not None]
-            for region, pts in dispatch_history.items()
-        }
-    else:
-        demand_history = _get_demand_history()
     _update_ic_history(interconnectors)
-    ic_history = _get_ic_history()
+    demand_history = trading["demand"] if trading["demand"] else _get_demand_history()
+    ic_history     = _get_ic_history()
     pd_interconnectors = scrape_predispatch_interconnectors(predispatch_text)
 
-    # Build simple current values
-    prices     = {r: d["RRP"]                    for r, d in region_summary.items() if "RRP" in d}
-    demand     = {r: d["TOTALDEMAND"]             for r, d in region_summary.items() if "TOTALDEMAND" in d}
+    # Live current values from latest dispatch interval
+    prices     = {r: d["RRP"]         for r, d in region_summary.items() if "RRP" in d}
+    demand     = {r: d["TOTALDEMAND"] for r, d in region_summary.items() if "TOTALDEMAND" in d}
     generation = {r: {
         "Scheduled":      d.get("DISPATCHABLEGENERATION", 0),
         "Semi-Scheduled": d.get("SEMISCHEDULE_CLEAREDMW", 0),
@@ -747,9 +672,9 @@ def scrape_all() -> dict:
         mw = scada_vals.get(duid)
         origin_assets_out[duid] = {
             **info,
-            "mw":      mw,
-            "pct":     round(mw / info["capacity"] * 100, 1) if mw is not None and info["capacity"] else None,
-            "status":  "running" if (mw is not None and mw > 5) else ("off" if mw is not None else "unknown"),
+            "mw":     mw,
+            "pct":    round(mw / info["capacity"] * 100, 1) if mw is not None and info["capacity"] else None,
+            "status": "running" if (mw is not None and mw > 5) else ("off" if mw is not None else "unknown"),
         }
 
     logger.info(
@@ -765,13 +690,12 @@ def scrape_all() -> dict:
         "generation":         generation,
         "interconnectors":    interconnectors,
         "raw_summary":        region_summary,
-        "historical_prices":  price_history,
+        "historical_prices":  trading["prices"],
         "predispatch_prices": pd_prices,
         "demand_history":     demand_history,
         "predispatch_demand": pd_demand,
         "fuel_mix_history":   fuel_mix,
         "predispatch_gen":    pd_gen,
-        "dispatch_history":   dispatch_history,
         "ic_history":         ic_history,
         "predispatch_ic":     pd_interconnectors,
         "origin_assets":      origin_assets_out,

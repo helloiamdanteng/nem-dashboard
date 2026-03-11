@@ -576,6 +576,30 @@ def scrape_demand_history_today(trading_zips: list) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# In-memory dispatch price history (5-min actual prices, accumulated each cycle)
+# ---------------------------------------------------------------------------
+
+_price_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
+
+
+def _update_price_history(region_summary: dict) -> None:
+    """Called each scrape cycle. Stores the actual 5-min RRP for each region."""
+    # Use SETTLEMENTDATE from the dispatch file if available, else current time
+    label = datetime.now(AEST).strftime("%H:%M")
+    for region, data in region_summary.items():
+        if region in NEM_REGIONS and "RRP" in data:
+            _price_history[region][label] = data["RRP"]
+
+
+def _get_price_history() -> dict:
+    result = {}
+    for region, series in _price_history.items():
+        if series:
+            result[region] = [{"interval": k, "rrp": v} for k, v in sorted(series.items())]
+    return result
+
+
+# ---------------------------------------------------------------------------
 # In-memory demand history — lightweight fallback if archive fetch fails
 # ---------------------------------------------------------------------------
 
@@ -685,6 +709,16 @@ def scrape_all() -> dict:
         unit_sol = scrape_unit_solution(dispatch_text, missing)
         scada_vals.update(unit_sol)
 
+    # Accumulate actual 5-min dispatch prices in memory
+    _update_price_history(region_summary)
+    price_history = _get_price_history()
+
+    # Supplement SCADA with unit solution if needed
+    missing = ORIGIN_DUIDS - set(scada_vals.keys())
+    if missing:
+        unit_sol = scrape_unit_solution(dispatch_text, missing)
+        scada_vals.update(unit_sol)
+
     # Parse predispatch
     pd_prices = scrape_predispatch_prices(predispatch_text)
     pd_demand = scrape_predispatch_demand(predispatch_text)
@@ -737,7 +771,7 @@ def scrape_all() -> dict:
         "generation":         generation,
         "interconnectors":    interconnectors,
         "raw_summary":        region_summary,
-        "historical_prices":  trading_prices,
+        "historical_prices":  price_history,
         "predispatch_prices": pd_prices,
         "demand_history":     demand_history,
         "predispatch_demand": pd_demand,

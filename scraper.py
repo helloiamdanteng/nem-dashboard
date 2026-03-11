@@ -298,9 +298,11 @@ def scrape_unit_solution(text: str, duids: set) -> dict:
 
 def scrape_trading_history() -> dict:
     """
-    Fetch all TradingIS CURRENT files for today.
-    Returns { "prices": {region: [{interval, rrp}]},
-              "demand":  {region: [{interval, demand}]} }
+    Fetch today's TradingIS CURRENT files for price history.
+    Each file covers ONE 30-min interval (~1.5KB).
+    TRADING_PRICE uses INVALIDFLAG (not INTERVENTION).
+    SETTLEMENTDATE is end-of-interval — subtract 30min.
+    Returns { "prices": {region: [{interval, rrp}]} }
     """
     now_aest = datetime.now(AEST)
     today_str = now_aest.strftime("%Y%m%d")
@@ -308,64 +310,48 @@ def scrape_trading_history() -> dict:
     all_zips = _list_hrefs(TRADING_CURRENT)
     today_zips = [u for u in all_zips if today_str in u]
     if not today_zips:
-        today_zips = all_zips[-48:]  # fallback near midnight
-    today_zips = sorted(today_zips)  # chronological
+        today_zips = all_zips[-48:]
+    # Cap at 48 — one per 30-min interval, max 48 per day
+    today_zips = sorted(today_zips)[-48:]
 
     prices: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-    demand: dict[str, dict] = {r: {} for r in NEM_REGIONS}
 
     def fetch_one(url):
-        text = _read_zip(url)
-        pts = []
-        for row in _parse_aemo(text, "TRADING_PRICE"):
-            region = row.get("REGIONID", "")
-            if region not in NEM_REGIONS:
-                continue
-            if row.get("INTERVENTION", "0") not in ("0", ""):
-                continue
-            dt_str = row.get("SETTLEMENTDATE", "")
-            rrp_str = row.get("RRP", "")
-            if not dt_str or not rrp_str:
-                continue
-            try:
-                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                pts.append(("price", region, dt.strftime("%H:%M"), round(float(rrp_str), 2)))
-            except (ValueError, TypeError):
-                pass
-        for row in _parse_aemo(text, "TRADING_REGIONSUM"):
-            region = row.get("REGIONID", "")
-            if region not in NEM_REGIONS:
-                continue
-            if row.get("INTERVENTION", "0") not in ("0", ""):
-                continue
-            dt_str = row.get("SETTLEMENTDATE", "")
-            demand_str = row.get("TOTALDEMAND", "")
-            if not dt_str or not demand_str:
-                continue
-            try:
-                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                pts.append(("demand", region, dt.strftime("%H:%M"), round(float(demand_str), 1)))
-            except (ValueError, TypeError):
-                pass
-        return pts
+        try:
+            text = _read_zip(url)
+            pts = []
+            for row in _parse_aemo(text, "TRADING_PRICE"):
+                region = row.get("REGIONID", "")
+                if region not in NEM_REGIONS:
+                    continue
+                # TradingIS uses INVALIDFLAG, not INTERVENTION
+                if row.get("INVALIDFLAG", "0") not in ("0", ""):
+                    continue
+                dt_str = row.get("SETTLEMENTDATE", "")
+                rrp_str = row.get("RRP", "")
+                if not dt_str or not rrp_str:
+                    continue
+                try:
+                    dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
+                    pts.append((region, dt.strftime("%H:%M"), round(float(rrp_str), 2)))
+                except (ValueError, TypeError):
+                    pass
+            return pts
+        except Exception as e:
+            logger.warning(f"fetch_one failed {url}: {e}")
+            return []
 
     with ThreadPoolExecutor(max_workers=8) as ex:
         futures = [ex.submit(fetch_one, u) for u in today_zips]
         for fut in as_completed(futures):
-            for kind, region, label, val in fut.result():
-                if kind == "price":
-                    prices[region][label] = val
-                else:
-                    demand[region][label] = val
+            for region, label, val in fut.result():
+                prices[region][label] = val
 
     price_result = {r: [{"interval": k, "rrp": v} for k, v in sorted(s.items())]
                     for r, s in prices.items() if s}
-    demand_result = {r: [{"interval": k, "demand": v} for k, v in sorted(s.items())]
-                     for r, s in demand.items() if s}
 
-    logger.info(f"TradingIS history: {sum(len(v) for v in price_result.values())} price pts, "
-                f"{sum(len(v) for v in demand_result.values())} demand pts from {len(today_zips)} files")
-    return {"prices": price_result, "demand": demand_result}
+    logger.info(f"TradingIS prices: {sum(len(v) for v in price_result.values())} pts from {len(today_zips)} files")
+    return {"prices": price_result}
 
 
 # ---------------------------------------------------------------------------
@@ -650,11 +636,11 @@ def scrape_all() -> dict:
     pd_demand = scrape_predispatch_demand(predispatch_text)
     pd_gen    = scrape_predispatch_generation(predispatch_text)
 
-    # In-memory IC history + demand fallback
+    # In-memory accumulators — demand and IC build up over process lifetime
     _update_demand_history(region_summary)
     _update_ic_history(interconnectors)
-    demand_history = trading["demand"] if trading["demand"] else _get_demand_history()
-    ic_history     = _get_ic_history()
+    demand_history     = _get_demand_history()
+    ic_history         = _get_ic_history()
     pd_interconnectors = scrape_predispatch_interconnectors(predispatch_text)
 
     # Live current values from latest dispatch interval

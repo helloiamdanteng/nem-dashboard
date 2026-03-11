@@ -27,8 +27,8 @@ NEMWEB_BASE       = "https://www.nemweb.com.au"
 DISPATCH_IS_URL   = f"{NEMWEB_BASE}/Reports/CURRENT/DispatchIS_Reports/"
 PREDISPATCH_URL   = f"{NEMWEB_BASE}/Reports/CURRENT/PredispatchIS_Reports/"
 SCADA_URL         = f"{NEMWEB_BASE}/Reports/CURRENT/Dispatch_SCADA/"
-TRADING_ARCHIVE   = f"{NEMWEB_BASE}/Reports/ARCHIVE/TradingIS_Reports/"
-ST_PASA_URL       = f"{NEMWEB_BASE}/Reports/CURRENT/STPASA_Files/"
+TRADING_CURRENT   = f"{NEMWEB_BASE}/Reports/CURRENT/TradingIS_Reports/"
+ST_PASA_URL       = f"{NEMWEB_BASE}/Reports/CURRENT/Short_Term_PASA_Reports/"
 OPENNEM_API       = "https://api.opennem.org.au"
 AEMO_REG_LIST_URL = "https://www.aemo.com.au/-/media/Files/Electricity/NEM/Participant_Information/Current-Participants/NEM-Registration-and-Exemption-List.xls"
 
@@ -293,18 +293,21 @@ def scrape_unit_solution(text: str, duids: set) -> dict:
 # ---------------------------------------------------------------------------
 
 def scrape_trading_prices_today() -> tuple:
-    """Returns (prices_dict, trading_zips_used)"""
+    """
+    Returns (prices_dict, trading_zips_used).
+    Uses CURRENT TradingIS directory — individual 30-min ZIP files for today.
+    File pattern: PUBLIC_TRADINGIS_YYYYMMDDHHMM_<id>.zip
+    """
     now_aest = datetime.now(AEST)
     today_str = now_aest.strftime("%Y%m%d")
-    yesterday_str = (now_aest - timedelta(days=1)).strftime("%Y%m%d")
 
-    all_zips = _list_hrefs(TRADING_ARCHIVE)
+    all_zips = _list_hrefs(TRADING_CURRENT)
+    # Each file name contains the datetime stamp — filter to today's files only
     today_zips = [u for u in all_zips if today_str in u]
     if not today_zips:
-        today_zips = [u for u in all_zips if yesterday_str in u]
-    if not today_zips:
-        today_zips = all_zips[-1:]
-    # Cap to last 50 files — 48 x 30-min intervals = full day, well within limit
+        # Fallback: take the last 48 files (covers full day even if date string differs)
+        today_zips = all_zips[-48:]
+    # Always cap at last 50 so we don't over-fetch (48 intervals per day max)
     today_zips = today_zips[-50:]
 
     region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
@@ -332,7 +335,7 @@ def scrape_trading_prices_today() -> tuple:
                 pass
         return pts
 
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=6) as ex:
         futures = [ex.submit(fetch_one, u) for u in today_zips]
         for fut in as_completed(futures):
             for region, label, rrp in fut.result():
@@ -342,7 +345,7 @@ def scrape_trading_prices_today() -> tuple:
     for region, series in region_series.items():
         if series:
             result[region] = [{"interval": k, "rrp": v} for k, v in sorted(series.items())]
-    logger.info(f"Trading prices: {sum(len(v) for v in result.values())} pts")
+    logger.info(f"Trading prices: {sum(len(v) for v in result.values())} pts from {len(today_zips)} zips")
     return result, today_zips
 
 

@@ -84,8 +84,44 @@ body { background:var(--bg); color:var(--text); font-family:var(--font-sans); mi
 .ic-value { font-family:var(--font-mono); font-size:12px; font-weight:700; min-width:65px; text-align:right; }
 .ic-value.positive{color:var(--accent)} .ic-value.negative{color:var(--accent2)}
 
-.state-msg { text-align:center; padding:40px 20px; color:var(--text-muted); font-family:var(--font-mono); font-size:13px; }
-.state-msg .icon { font-size:36px; margin-bottom:12px; }
+/* ── Stations page ── */
+.fuel-group { margin-bottom:16px; }
+.fuel-group-header {
+  font-family:var(--font-mono); font-size:10px; font-weight:700; letter-spacing:0.12em;
+  text-transform:uppercase; padding:6px 10px; border-radius:6px 6px 0 0;
+  display:flex; align-items:center; justify-content:space-between;
+  background:var(--surface2); border:1px solid var(--border); border-bottom:none;
+}
+.fuel-group-total { font-size:11px; color:var(--text-dim); }
+.station-row {
+  background:var(--surface); border:1px solid var(--border); border-top:none;
+  padding:8px 10px; display:grid; grid-template-columns:1fr auto auto;
+  align-items:center; gap:8px;
+}
+.station-row:last-child { border-radius:0 0 6px 6px; }
+.station-name { font-family:var(--font-sans); font-size:12px; font-weight:500; }
+.station-region { font-family:var(--font-mono); font-size:9px; margin-top:2px; }
+.station-bar-wrap { width:80px; height:4px; background:var(--surface2); border-radius:2px; }
+.station-bar { height:100%; border-radius:2px; }
+.station-mw { font-family:var(--font-mono); font-size:12px; font-weight:700; text-align:right; min-width:60px; }
+.station-cap { font-family:var(--font-mono); font-size:9px; color:var(--text-muted); text-align:right; }
+
+/* ── Region filter pills ── */
+.region-pills { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+.region-pill {
+  font-family:var(--font-mono); font-size:10px; font-weight:700; padding:4px 10px;
+  border-radius:20px; border:1px solid; cursor:pointer; transition:opacity 0.15s;
+  background:transparent; opacity:0.45;
+}
+.region-pill.active { opacity:1; }
+
+/* ── Week ahead ── */
+.week-chart-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:10px; }
+.week-chart-card .chart-title { font-family:var(--font-mono); font-size:11px; font-weight:700; color:var(--text-dim); margin-bottom:12px; }
+.spinner { text-align:center; padding:60px 20px; color:var(--text-muted); font-family:var(--font-mono); font-size:12px; }
+.spinner-icon { font-size:28px; animation:spin 1.5s linear infinite; display:inline-block; }
+@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+
 
 .bottom-nav {
   position:fixed; bottom:0; left:0; right:0;
@@ -133,6 +169,12 @@ tr:last-child td { border-bottom:none; }
   </button>
   <button class="nav-btn" onclick="showPanel('origin')" id="nav-origin">
     <span class="icon">🟠</span><span class="label">Origin</span>
+  </button>
+  <button class="nav-btn" onclick="showPanel('stations')" id="nav-stations">
+    <span class="icon">🏭</span><span class="label">Stations</span>
+  </button>
+  <button class="nav-btn" onclick="showPanel('weekahead')" id="nav-weekahead">
+    <span class="icon">📅</span><span class="label">Week</span>
   </button>
 </nav>
 
@@ -769,17 +811,250 @@ function renderOrigin(data) {
   return html;
 }
 
+// ── Stations (all NEM generators) ────────────────────────────────────────────
+
+let stationsRegionFilter = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
+let slowData = null;
+
+function toggleStationRegion(region) {
+  if (stationsRegionFilter.has(region)) {
+    if (stationsRegionFilter.size > 1) stationsRegionFilter.delete(region);
+  } else {
+    stationsRegionFilter.add(region);
+  }
+  if (slowData) renderPanel('stations', latestData);
+}
+
+function renderStations(fastData) {
+  if (!slowData || !slowData.generators) {
+    return `<div class="spinner"><div class="spinner-icon">⚙️</div><br>Loading generator data…<br><span style="font-size:10px;margin-top:8px;display:block">This page fetches from AEMO — may take 20–30s</span></div>`;
+  }
+  const { grouped, summary, fuel_colors: fc } = slowData.generators;
+  const prices = (fastData || {}).prices || {};
+  const FUEL_ORDER = ['Black Coal','Brown Coal','Gas','Hydro','Wind','Solar','Battery','Liquid','Other'];
+
+  // Build region pills
+  let html = '<div class="section-title">All NEM Generators</div>';
+  html += '<div class="region-pills">';
+  for (const r of REGIONS) {
+    const active = stationsRegionFilter.has(r) ? 'active' : '';
+    const color = REGION_COLORS[r];
+    html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="toggleStationRegion('${r}')">${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div>';
+
+  // Collect all stations across selected regions, group by fuel
+  const byFuel = {};
+  for (const region of REGIONS) {
+    if (!stationsRegionFilter.has(region)) continue;
+    const regionFuels = grouped[region] || {};
+    for (const fuel of FUEL_ORDER) {
+      const units = regionFuels[fuel] || [];
+      if (!units.length) continue;
+      // Aggregate to station level
+      const stationMap = {};
+      for (const u of units) {
+        const key = u.station || u.duid;
+        if (!stationMap[key]) stationMap[key] = { name: key, region, fuel, totalMw: 0, totalCap: 0, units: [] };
+        stationMap[key].totalMw += u.mw || 0;
+        stationMap[key].totalCap += u.capacity || 0;
+        stationMap[key].units.push(u);
+      }
+      if (!byFuel[fuel]) byFuel[fuel] = [];
+      byFuel[fuel].push(...Object.values(stationMap));
+    }
+  }
+
+  for (const fuel of FUEL_ORDER) {
+    const stations = byFuel[fuel];
+    if (!stations || !stations.length) continue;
+    stations.sort((a, b) => (b.totalMw || 0) - (a.totalMw || 0));
+    const color = (fc || {})[fuel] || '#95a5a6';
+    const totalMw = stations.reduce((s, x) => s + (x.totalMw || 0), 0);
+    const totalCap = stations.reduce((s, x) => s + (x.totalCap || 0), 0);
+    html += `<div class="fuel-group">
+      <div class="fuel-group-header" style="border-top:3px solid ${color}">
+        <span style="color:${color}">${FUEL_ICONS[fuel] || '⚡'} ${fuel}</span>
+        <span class="fuel-group-total">${fmt(totalMw, 0)} / ${fmt(totalCap, 0)} MW</span>
+      </div>`;
+    for (const st of stations) {
+      const pct = st.totalCap > 0 ? Math.min(st.totalMw / st.totalCap * 100, 100) : 0;
+      const rc = REGION_COLORS[st.region] || '#64748b';
+      const mwColor = st.totalMw > 5 ? color : 'var(--text-muted)';
+      html += `<div class="station-row">
+        <div>
+          <div class="station-name">${st.name}</div>
+          <div class="station-region" style="color:${rc}">${REGION_SHORT[st.region] || st.region}</div>
+        </div>
+        <div class="station-bar-wrap">
+          <div class="station-bar" style="width:${pct.toFixed(1)}%;background:${color}"></div>
+        </div>
+        <div>
+          <div class="station-mw" style="color:${mwColor}">${fmt(st.totalMw, 0)}<span style="font-size:9px;color:var(--text-muted)"> MW</span></div>
+          <div class="station-cap">${st.totalCap > 0 ? fmt(st.totalCap, 0) + ' cap' : ''}</div>
+        </div>
+      </div>`;
+    }
+    html += '</div>';
+  }
+  return html;
+}
+
+// ── Week Ahead ────────────────────────────────────────────────────────────────
+
+let weekRegionFilter = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
+
+function toggleWeekRegion(region) {
+  if (weekRegionFilter.has(region)) {
+    if (weekRegionFilter.size > 1) weekRegionFilter.delete(region);
+  } else {
+    weekRegionFilter.add(region);
+  }
+  if (latestData) renderPanel('weekahead', latestData);
+}
+
+function renderWeekAhead(fastData) {
+  let html = '<div class="section-title">Week Ahead</div>';
+
+  // Region filter pills
+  html += '<div class="region-pills">';
+  for (const r of REGIONS) {
+    const active = weekRegionFilter.has(r) ? 'active' : '';
+    const color = REGION_COLORS[r];
+    html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="toggleWeekRegion('${r}')">${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div>';
+
+  // Today's fuel mix (from fast data)
+  const fm = (fastData || {}).fuel_mix_history || {};
+  const fc = (fastData || {}).fuel_colors || {};
+  const fuels = (fastData || {}).all_fuels || [];
+  html += `<div class="week-chart-card"><div class="chart-title">Today's Generation by Fuel (NEM-wide)</div><div style="position:relative;height:200px"><canvas id="weekFuelChart"></canvas></div></div>`;
+
+  // ST PASA demand forecast
+  const hasSlowPasa = slowData && slowData.stpasa_demand && Object.keys(slowData.stpasa_demand).length > 0;
+  if (!hasSlowPasa) {
+    html += `<div class="week-chart-card"><div class="chart-title">7-Day Demand Forecast (ST PASA)</div><div class="spinner"><div class="spinner-icon">📡</div><br>Loading forecast data…</div></div>`;
+  } else {
+    html += `<div class="week-chart-card"><div class="chart-title">7-Day Demand Forecast — ST PASA (50% probability)</div><div style="position:relative;height:220px"><canvas id="weekPasaChart"></canvas></div></div>`;
+  }
+  return html;
+}
+
+function drawWeekCharts(fastData) {
+  // Today's fuel mix
+  const fm = (fastData || {}).fuel_mix_history || {};
+  const fc = (fastData || {}).fuel_colors || {};
+  const fuels = (fastData || {}).all_fuels || [];
+
+  // Build NEM-wide totals
+  const nemMap = {};
+  for (const r of REGIONS) {
+    for (const pt of (fm[r] || [])) {
+      const slot = nemMap[pt.interval] = nemMap[pt.interval] || {};
+      for (const fuel of fuels) {
+        if (pt[fuel]) slot[fuel] = (slot[fuel] || 0) + pt[fuel];
+      }
+    }
+  }
+  const fuelLabels = Object.keys(nemMap).sort();
+  const activeFuels = fuels.filter(f => fuelLabels.some(l => nemMap[l] && nemMap[l][f] > 0));
+
+  destroyChart('weekFuel');
+  const ctx1 = document.getElementById('weekFuelChart');
+  if (ctx1 && fuelLabels.length > 0) {
+    charts.weekFuel = new Chart(ctx1, {
+      type: 'line',
+      data: {
+        labels: fuelLabels,
+        datasets: activeFuels.map(fuel => ({
+          label: fuel,
+          data: fuelLabels.map(l => Math.max(0, (nemMap[l] && nemMap[l][fuel]) || 0)),
+          backgroundColor: (fc[fuel] || '#95a5a6') + 'cc',
+          borderColor: fc[fuel] || '#95a5a6',
+          borderWidth: 1, fill: true, pointRadius: 0, tension: 0.2, stack: 'nem'
+        }))
+      },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins, legend: { display: false },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw > 0,
+            callbacks: { label: c => c.raw > 0 ? ` ${c.dataset.label}: ${fmt(c.raw)} MW` : null }
+          }
+        },
+        scales: {
+          x: { stacked: true, ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxTicksLimit:8, maxRotation:0 }, grid:{color:'#1e2d4544'} },
+          y: { stacked: true, ticks: { color:'#94a3b8', font:{family:'Space Mono',size:10}, callback: v => (v/1000).toFixed(0)+'GW' }, grid:{color:'#1e2d45'} }
+        }
+      }
+    });
+  } else if (ctx1) {
+    ctx1.closest('.week-chart-card').querySelector('.chart-title').textContent = 'Today\'s fuel mix — loading…';
+  }
+
+  // ST PASA demand forecast
+  if (!slowData || !slowData.stpasa_demand) return;
+  const pasa = slowData.stpasa_demand;
+  const pasaLabelSet = new Set();
+  for (const r of REGIONS) {
+    if (!weekRegionFilter.has(r)) continue;
+    (pasa[r] || []).forEach(p => pasaLabelSet.add(p.interval));
+  }
+  const pasaLabels = Array.from(pasaLabelSet).sort();
+  if (!pasaLabels.length) return;
+
+  const pasaDatasets = [];
+  for (const r of REGIONS) {
+    if (!weekRegionFilter.has(r)) continue;
+    const color = REGION_COLORS[r];
+    const pm = {};
+    (pasa[r] || []).forEach(p => { if (p.demand_50 !== null) pm[p.interval] = p.demand_50; });
+    pasaDatasets.push({
+      label: REGION_SHORT[r],
+      data: pasaLabels.map(l => pm[l] !== undefined ? pm[l] : null),
+      borderColor: color, backgroundColor: 'transparent',
+      borderWidth: 2, pointRadius: 0, tension: 0.3, spanGaps: true
+    });
+  }
+
+  destroyChart('weekPasa');
+  const ctx2 = document.getElementById('weekPasaChart');
+  if (ctx2 && pasaDatasets.length) {
+    charts.weekPasa = new Chart(ctx2, {
+      type: 'line',
+      data: { labels: pasaLabels, datasets: pasaDatasets },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins,
+          legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:12, padding:8 } },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
+            callbacks: { label: c => c.raw !== null ? ` ${c.dataset.label}: ${fmt(c.raw)} MW` : null,
+              title: ts => { try { const d = new Date(ts[0].label.replace(' ','T')); return d.toLocaleDateString('en-AU',{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Australia/Sydney'}); } catch { return ts[0].label; } }
+            }
+          }
+        },
+        scales: {
+          x: { ticks: { color:'#64748b', font:{family:'Space Mono',size:8}, maxTicksLimit:8, maxRotation:0,
+            callback: function(v,i) { const l = this.getLabelForValue(v); try { const d = new Date(l.replace(' ','T')); return d.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',timeZone:'Australia/Sydney'}); } catch { return l; } }
+          }, grid:{color:'#1e2d4544'} },
+          y: { ticks: { color:'#94a3b8', font:{family:'Space Mono',size:10}, callback: v => v.toLocaleString()+' MW' }, grid:{color:'#1e2d45'} }
+        }
+      }
+    });
+  }
+}
+
 // ── Panel router ──────────────────────────────────────────────────────────────
 
 function renderPanel(panel, data) {
   const main = document.getElementById('mainContent');
   let html = '';
   try {
-    if (panel === 'prices')        html = renderPrices(data);
+    if (panel === 'prices')          html = renderPrices(data);
     else if (panel === 'generation') html = renderGeneration(data);
-    else if (panel === 'demand')   html = renderDemand(data);
+    else if (panel === 'demand')     html = renderDemand(data);
     else if (panel === 'interconnectors') html = renderInterconnectors(data);
-    else if (panel === 'origin')   html = renderOrigin(data);
+    else if (panel === 'origin')     html = renderOrigin(data);
+    else if (panel === 'stations')   html = renderStations(data);
+    else if (panel === 'weekahead')  html = renderWeekAhead(data);
   } catch(e) {
     console.error('Render error:', e);
     html = `<div class="state-msg"><div class="icon">⚠️</div><div style="font-size:11px">${e.message}</div></div>`;
@@ -787,10 +1062,11 @@ function renderPanel(panel, data) {
   main.innerHTML = html;
   requestAnimationFrame(() => {
     try {
-      if (panel === 'prices')        { drawPriceChart(data); drawDemandChart(data); }
+      if (panel === 'prices')          { drawPriceChart(data); drawDemandChart(data); }
       else if (panel === 'generation') drawGenChart(data);
-      else if (panel === 'demand')   drawDemandChart(data);
+      else if (panel === 'demand')     drawDemandChart(data);
       else if (panel === 'interconnectors') drawIcChart(data);
+      else if (panel === 'weekahead')  drawWeekCharts(data);
     } catch(e) {
       console.error('Chart error:', e);
     }
@@ -798,6 +1074,27 @@ function renderPanel(panel, data) {
 }
 
 // ── Data fetching ─────────────────────────────────────────────────────────────
+
+async function fetchSlowData() {
+  try {
+    const resp = await fetch('/api/slow');
+    if (resp.status === 202) {
+      // Still loading — retry in 10s
+      setTimeout(fetchSlowData, 10000);
+      return;
+    }
+    if (resp.ok) {
+      slowData = await resp.json();
+      // Re-render if on a slow-data panel
+      if (currentPanel === 'stations' || currentPanel === 'weekahead') {
+        renderPanel(currentPanel, latestData);
+      }
+    }
+  } catch(e) {
+    console.error('Slow data fetch failed:', e);
+    setTimeout(fetchSlowData, 30000);
+  }
+}
 
 async function fetchData() {
   const dot = document.getElementById('statusDot');
@@ -826,6 +1123,9 @@ async function fetchData() {
 
 fetchData();
 setInterval(fetchData, 300000);
+// Start slow data fetch 3s after fast data — doesn't block initial render
+setTimeout(fetchSlowData, 3000);
+setInterval(fetchSlowData, 1800000);
 </script>
 </body>
 </html>

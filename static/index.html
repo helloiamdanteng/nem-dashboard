@@ -10,370 +10,100 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
-  :root {
-    --bg: #0a0e1a;
-    --surface: #111827;
-    --surface2: #1a2235;
-    --border: #1e2d45;
-    --accent: #00d4ff;
-    --accent2: #ff6b35;
-    --accent3: #7cfc3c;
-    --text: #e2e8f0;
-    --text-muted: #64748b;
-    --text-dim: #94a3b8;
-    --red: #ff4757;
-    --green: #2ed573;
-    --yellow: #ffd32a;
-    --qld: #f39c12;
-    --nsw: #3498db;
-    --vic: #9b59b6;
-    --sa:  #e74c3c;
-    --tas: #1abc9c;
-    --font-mono: 'Space Mono', monospace;
-    --font-sans: 'DM Sans', sans-serif;
-  }
+:root {
+  --bg:#0a0e1a; --surface:#111827; --surface2:#1a2235; --border:#1e2d45;
+  --accent:#00d4ff; --accent2:#ff6b35; --text:#e2e8f0;
+  --text-muted:#64748b; --text-dim:#94a3b8;
+  --red:#ff4757; --green:#2ed573; --yellow:#ffd32a;
+  --qld:#f39c12; --nsw:#3498db; --vic:#9b59b6; --sa:#e74c3c; --tas:#1abc9c;
+  --font-mono:'Space Mono',monospace; --font-sans:'DM Sans',sans-serif;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--bg); color:var(--text); font-family:var(--font-sans); min-height:100vh; overscroll-behavior:none; }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+.header {
+  position:sticky; top:0; z-index:100;
+  background:rgba(10,14,26,0.92); backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border); padding:12px 16px;
+  display:flex; align-items:center; justify-content:space-between;
+}
+.header-left { display:flex; align-items:center; gap:10px; }
+.logo { font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--accent); letter-spacing:0.1em; }
+.pulse-dot { width:8px; height:8px; border-radius:50%; background:var(--green); animation:pulse 2s infinite; }
+.pulse-dot.loading { background:var(--yellow); }
+.pulse-dot.error { background:var(--red); animation:none; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} }
+.last-updated { font-family:var(--font-mono); font-size:10px; color:var(--text-muted); }
+.refresh-btn { background:transparent; border:1px solid var(--border); color:var(--text-dim); border-radius:6px; padding:6px 10px; font-size:13px; cursor:pointer; }
 
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font-sans);
-    min-height: 100vh;
-    overscroll-behavior: none;
-  }
+.main { padding:12px 12px 80px; max-width:600px; margin:0 auto; }
 
-  /* Header */
-  .header {
-    position: sticky;
-    top: 0;
-    z-index: 100;
-    background: rgba(10,14,26,0.92);
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid var(--border);
-    padding: 12px 16px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
+.section-title {
+  font-family:var(--font-mono); font-size:10px; font-weight:700; letter-spacing:0.15em;
+  text-transform:uppercase; color:var(--text-muted); margin:20px 0 10px;
+  display:flex; align-items:center; gap:8px;
+}
+.section-title::after { content:''; flex:1; height:1px; background:var(--border); }
 
-  .header-left { display: flex; align-items: center; gap: 10px; }
+.price-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; }
+.price-card {
+  background:var(--surface); border:1px solid var(--border); border-radius:10px;
+  padding:10px 6px; text-align:center; position:relative; overflow:hidden;
+}
+.price-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
+.price-card.qld::before{background:var(--qld)} .price-card.nsw::before{background:var(--nsw)}
+.price-card.vic::before{background:var(--vic)} .price-card.sa::before{background:var(--sa)}
+.price-card.tas::before{background:var(--tas)}
+.price-card .region { font-family:var(--font-mono); font-size:9px; font-weight:700; color:var(--text-muted); margin-bottom:4px; }
+.price-card.qld .region{color:var(--qld)} .price-card.nsw .region{color:var(--nsw)}
+.price-card.vic .region{color:var(--vic)} .price-card.sa  .region{color:var(--sa)}
+.price-card.tas .region{color:var(--tas)}
+.price-card .price { font-family:var(--font-mono); font-size:14px; font-weight:700; line-height:1; }
+.price-card .price.negative{color:var(--green)} .price-card .price.low{color:var(--text)}
+.price-card .price.medium{color:var(--yellow)} .price-card .price.high{color:var(--accent2)}
+.price-card .price.vhigh{color:var(--red)}
+.price-card .unit { font-family:var(--font-mono); font-size:8px; color:var(--text-muted); margin-top:2px; }
 
-  .logo {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--accent);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-  }
+.demand-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; }
+.demand-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:10px 6px; text-align:center; }
+.demand-card .region { font-family:var(--font-mono); font-size:9px; font-weight:700; color:var(--text-muted); margin-bottom:4px; }
+.demand-card .value { font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--accent); }
+.demand-card .unit { font-family:var(--font-mono); font-size:8px; color:var(--text-muted); margin-top:2px; }
 
-  .pulse-dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: var(--green);
-    animation: pulse 2s infinite;
-  }
-  .pulse-dot.loading { background: var(--yellow); }
-  .pulse-dot.error { background: var(--red); animation: none; }
+.chart-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:10px; }
+.chart-card .chart-title { font-family:var(--font-mono); font-size:11px; font-weight:700; color:var(--text-dim); margin-bottom:12px; }
+.chart-container { position:relative; height:180px; }
 
-  @keyframes pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(0.8); }
-  }
+.ic-list { display:flex; flex-direction:column; gap:8px; }
+.ic-row { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 14px; display:flex; align-items:center; justify-content:space-between; }
+.ic-name { font-family:var(--font-mono); font-size:11px; color:var(--text-dim); min-width:120px; }
+.ic-bar-wrap { flex:1; height:6px; background:var(--surface2); border-radius:3px; margin:0 12px; position:relative; }
+.ic-bar { position:absolute; top:0; height:100%; border-radius:3px; }
+.ic-bar.positive{background:var(--accent);left:50%} .ic-bar.negative{background:var(--accent2);right:50%}
+.ic-midpoint { position:absolute; top:-3px; left:50%; width:2px; height:12px; background:var(--border); transform:translateX(-50%); }
+.ic-value { font-family:var(--font-mono); font-size:12px; font-weight:700; min-width:65px; text-align:right; }
+.ic-value.positive{color:var(--accent)} .ic-value.negative{color:var(--accent2)}
 
-  .last-updated {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-muted);
-  }
+.state-msg { text-align:center; padding:40px 20px; color:var(--text-muted); font-family:var(--font-mono); font-size:13px; }
+.state-msg .icon { font-size:36px; margin-bottom:12px; }
 
-  .refresh-btn {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-dim);
-    border-radius: 6px;
-    padding: 6px 10px;
-    font-size: 13px;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  .refresh-btn:active { background: var(--surface2); }
+.bottom-nav {
+  position:fixed; bottom:0; left:0; right:0;
+  background:rgba(10,14,26,0.96); backdrop-filter:blur(12px);
+  border-top:1px solid var(--border);
+  display:flex; justify-content:space-around;
+  padding:8px 0 calc(8px + env(safe-area-inset-bottom)); z-index:100;
+}
+.nav-btn { display:flex; flex-direction:column; align-items:center; gap:3px; background:none; border:none; cursor:pointer; padding:4px 10px; color:var(--text-muted); }
+.nav-btn.active { color:var(--accent); }
+.nav-btn .icon { font-size:18px; }
+.nav-btn .label { font-size:10px; font-family:var(--font-mono); }
 
-  /* Main layout */
-  .main { padding: 12px 12px 80px; max-width: 600px; margin: 0 auto; }
-
-  /* Section titles */
-  .section-title {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    margin: 20px 0 10px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .section-title::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--border);
-  }
-
-  /* Price cards */
-  .price-grid {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 6px;
-  }
-
-  .price-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 10px 6px;
-    text-align: center;
-    position: relative;
-    overflow: hidden;
-    transition: transform 0.2s;
-  }
-  .price-card:active { transform: scale(0.97); }
-  .price-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 3px;
-  }
-  .price-card.qld::before { background: var(--qld); }
-  .price-card.nsw::before { background: var(--nsw); }
-  .price-card.vic::before { background: var(--vic); }
-  .price-card.sa::before  { background: var(--sa); }
-  .price-card.tas::before { background: var(--tas); }
-
-  .price-card .region {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    color: var(--text-muted);
-    margin-bottom: 4px;
-  }
-  .price-card.qld .region { color: var(--qld); }
-  .price-card.nsw .region { color: var(--nsw); }
-  .price-card.vic .region { color: var(--vic); }
-  .price-card.sa  .region { color: var(--sa); }
-  .price-card.tas .region { color: var(--tas); }
-
-  .price-card .price {
-    font-family: var(--font-mono);
-    font-size: 15px;
-    font-weight: 700;
-    line-height: 1;
-  }
-  .price-card .price.negative { color: var(--green); }
-  .price-card .price.low      { color: var(--text); }
-  .price-card .price.medium   { color: var(--yellow); }
-  .price-card .price.high     { color: var(--accent2); }
-  .price-card .price.vhigh    { color: var(--red); }
-
-  .price-card .unit {
-    font-family: var(--font-mono);
-    font-size: 8px;
-    color: var(--text-muted);
-    margin-top: 2px;
-  }
-
-  /* Demand grid */
-  .demand-grid {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 6px;
-  }
-
-  .demand-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 10px 6px;
-    text-align: center;
-  }
-  .demand-card .region {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    font-weight: 700;
-    color: var(--text-muted);
-    margin-bottom: 4px;
-  }
-  .demand-card .value {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--accent);
-  }
-  .demand-card .unit {
-    font-family: var(--font-mono);
-    font-size: 8px;
-    color: var(--text-muted);
-    margin-top: 2px;
-  }
-
-  /* Chart cards */
-  .chart-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 14px;
-    margin-bottom: 10px;
-  }
-
-  .chart-card .chart-title {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--text-dim);
-    margin-bottom: 12px;
-    letter-spacing: 0.05em;
-  }
-
-  .chart-container { position: relative; height: 180px; }
-  .chart-container.tall { height: 220px; }
-
-  /* Interconnectors */
-  .ic-list { display: flex; flex-direction: column; gap: 8px; }
-
-  .ic-row {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 12px 14px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .ic-name {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-dim);
-    min-width: 120px;
-  }
-
-  .ic-bar-wrap {
-    flex: 1;
-    height: 6px;
-    background: var(--surface2);
-    border-radius: 3px;
-    margin: 0 12px;
-    position: relative;
-    overflow: visible;
-  }
-
-  .ic-bar {
-    position: absolute;
-    top: 0;
-    height: 100%;
-    border-radius: 3px;
-    transition: width 0.5s ease;
-  }
-  .ic-bar.positive { background: var(--accent); left: 50%; }
-  .ic-bar.negative { background: var(--accent2); right: 50%; }
-
-  .ic-midpoint {
-    position: absolute;
-    top: -3px; left: 50%;
-    width: 2px; height: 12px;
-    background: var(--border);
-    transform: translateX(-50%);
-  }
-
-  .ic-value {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-weight: 700;
-    min-width: 65px;
-    text-align: right;
-  }
-  .ic-value.positive { color: var(--accent); }
-  .ic-value.negative { color: var(--accent2); }
-
-  /* Loading / error states */
-  .state-msg {
-    text-align: center;
-    padding: 40px 20px;
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-    font-size: 13px;
-  }
-  .state-msg .icon { font-size: 36px; margin-bottom: 12px; }
-
-  /* Bottom nav */
-  .bottom-nav {
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
-    background: rgba(10,14,26,0.96);
-    backdrop-filter: blur(12px);
-    border-top: 1px solid var(--border);
-    display: flex;
-    justify-content: space-around;
-    padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
-    z-index: 100;
-  }
-
-  .nav-btn {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 3px;
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 4px 12px;
-    border-radius: 8px;
-    transition: all 0.2s;
-    color: var(--text-muted);
-  }
-  .nav-btn.active { color: var(--accent); }
-  .nav-btn .icon { font-size: 20px; }
-  .nav-btn .label { font-size: 10px; font-family: var(--font-mono); letter-spacing: 0.05em; }
-
-  /* Panels */
-  .panel { display: none; }
-  .panel.active { display: block; }
-
-  /* Skeleton loader */
-  .skeleton {
-    background: linear-gradient(90deg, var(--surface) 25%, var(--surface2) 50%, var(--surface) 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
-    border-radius: 6px;
-  }
-  @keyframes shimmer {
-    0% { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
-  }
-
-  /* Scrollable table */
-  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 11px; }
-  th {
-    text-align: left;
-    padding: 6px 10px;
-    color: var(--text-muted);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    border-bottom: 1px solid var(--border);
-    white-space: nowrap;
-  }
-  td {
-    padding: 8px 10px;
-    border-bottom: 1px solid rgba(30,45,69,0.5);
-    white-space: nowrap;
-  }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: rgba(255,255,255,0.02); }
+.table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+table { width:100%; border-collapse:collapse; font-family:var(--font-mono); font-size:11px; }
+th { text-align:left; padding:6px 10px; color:var(--text-muted); font-weight:700; letter-spacing:0.08em; border-bottom:1px solid var(--border); white-space:nowrap; }
+td { padding:8px 10px; border-bottom:1px solid rgba(30,45,69,0.5); white-space:nowrap; }
+tr:last-child td { border-bottom:none; }
 </style>
 </head>
 <body>
@@ -388,13 +118,9 @@
 </header>
 
 <main class="main" id="mainContent">
-  <div class="state-msg">
-    <div class="icon">⚡</div>
-    <div>Fetching NEM data…</div>
-  </div>
+  <div class="state-msg"><div class="icon">⚡</div><div>Fetching NEM data…</div></div>
 </main>
 
-<!-- Bottom Nav -->
 <nav class="bottom-nav">
   <button class="nav-btn active" onclick="showPanel('prices')" id="nav-prices">
     <span class="icon">💲</span><span class="label">Prices</span>
@@ -415,756 +141,441 @@
 
 <script>
 const REGIONS = ['QLD1','NSW1','VIC1','SA1','TAS1'];
-const REGION_SHORT = { QLD1:'QLD', NSW1:'NSW', VIC1:'VIC', SA1:'SA', TAS1:'TAS' };
-const REGION_CLASS = { QLD1:'qld', NSW1:'nsw', VIC1:'vic', SA1:'sa', TAS1:'tas' };
-const REGION_COLORS = {
-  QLD1: '#f39c12', NSW1: '#3498db', VIC1: '#9b59b6', SA1: '#e74c3c', TAS1: '#1abc9c'
-};
+const REGION_SHORT = {QLD1:'QLD',NSW1:'NSW',VIC1:'VIC',SA1:'SA',TAS1:'TAS'};
+const REGION_CLASS = {QLD1:'qld',NSW1:'nsw',VIC1:'vic',SA1:'sa',TAS1:'tas'};
+const REGION_COLORS = {QLD1:'#f39c12',NSW1:'#3498db',VIC1:'#9b59b6',SA1:'#e74c3c',TAS1:'#1abc9c'};
+const FUEL_ICONS = {"Black Coal":"⬛","Brown Coal":"🟫","Gas":"🔥","Hydro":"💧","Wind":"🌀","Solar":"☀️","Battery":"🔋","Liquid":"🛢️","Other":"⚙️"};
 
 let currentPanel = 'prices';
+let currentGenRegion = 'NSW1';
 let charts = {};
 let latestData = null;
 
-function priceClass(rrp) {
-  if (rrp < 0)    return 'negative';
-  if (rrp < 100)  return 'low';
-  if (rrp < 300)  return 'medium';
-  if (rrp < 1000) return 'high';
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function priceClass(v) {
+  if (v < 0) return 'negative';
+  if (v < 100) return 'low';
+  if (v < 300) return 'medium';
+  if (v < 1000) return 'high';
   return 'vhigh';
 }
-
-function fmt(n, decimals=0) {
+function fmt(n, d=0) {
   if (n === undefined || n === null) return '—';
-  return Number(n).toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return Number(n).toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
-
 function fmtPrice(n) {
   if (n === undefined || n === null) return '—';
   const v = Number(n);
   return (v < 0 ? '-$' : '$') + Math.abs(v).toFixed(2);
 }
-
 function fmtTime(iso) {
-  if (!iso) return '';
   try {
-    const d = new Date(iso);
-    return d.toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit', timeZone:'Australia/Sydney' }) + ' AEST';
-  } catch { return iso; }
+    return new Date(iso).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Sydney'}) + ' AEST';
+  } catch { return ''; }
 }
+function nowAEST() {
+  return new Date().toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Australia/Sydney'});
+}
+function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
+const CHART_DEFAULTS = {
+  responsive:true, maintainAspectRatio:false,
+  interaction:{mode:'index',intersect:false},
+  plugins:{
+    legend:{display:false},
+    tooltip:{
+      backgroundColor:'#111827', borderColor:'#1e2d45', borderWidth:1,
+      titleColor:'#94a3b8', bodyColor:'#e2e8f0',
+      titleFont:{family:'Space Mono',size:10}, bodyFont:{family:'Space Mono',size:11}
+    }
+  },
+  scales:{
+    x:{ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxTicksLimit:8,maxRotation:0},grid:{color:'#1e2d4544'}},
+    y:{ticks:{color:'#94a3b8',font:{family:'Space Mono',size:10}},grid:{color:'#1e2d45'}}
+  }
+};
+
+function nowLinePlugin(nowIndex) {
+  return {
+    id:'nowLine',
+    afterDraw(chart) {
+      if (nowIndex < 0) return;
+      const {ctx:c,chartArea,scales} = chart;
+      const x = scales.x.getPixelForValue(nowIndex);
+      c.save();
+      c.beginPath(); c.moveTo(x,chartArea.top); c.lineTo(x,chartArea.bottom);
+      c.strokeStyle='rgba(255,255,255,0.25)'; c.lineWidth=1; c.setLineDash([3,3]); c.stroke();
+      c.fillStyle='rgba(255,255,255,0.5)'; c.font='9px Space Mono';
+      c.fillText('NOW',x+3,chartArea.top+12); c.restore();
+    }
+  };
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
 
 function showPanel(name) {
   currentPanel = name;
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('nav-' + name)?.classList.add('active');
+  const btn = document.getElementById('nav-' + name);
+  if (btn) btn.classList.add('active');
   if (latestData) renderPanel(name, latestData);
 }
 
-function destroyChart(id) {
-  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
-}
-
-function destroyPriceCharts() {
-  destroyChart('priceHistory');
-  destroyChart('price');
-}
+// ── Prices ────────────────────────────────────────────────────────────────────
 
 function renderPrices(data) {
   const prices = data.prices || {};
   const demand = data.demand || {};
-
-  let html = '<div class="section-title">Latest Spot Prices ($/MWh)</div>';
-  html += '<div class="price-grid">';
+  let html = '<div class="section-title">Latest Spot Prices ($/MWh)</div><div class="price-grid">';
   for (const r of REGIONS) {
     const p = prices[r];
     const cls = p !== undefined ? priceClass(p) : 'low';
     html += `<div class="price-card ${REGION_CLASS[r]}">
       <div class="region">${REGION_SHORT[r]}</div>
       <div class="price ${cls}">${p !== undefined ? fmtPrice(p) : '—'}</div>
-      <div class="unit">$/MWh</div>
-    </div>`;
+      <div class="unit">$/MWh</div></div>`;
   }
   html += '</div>';
-
-  // Price history + predispatch line chart
-  html += '<div class="section-title">Today\'s Prices + Predispatch</div>';
-  html += '<div class="chart-card">';
-  html += '<div class="chart-title">30-min Trading Prices — Actual (solid) · Predispatch (dashed)</div>';
-  html += '<div class="chart-container" style="height:260px"><canvas id="priceHistoryChart"></canvas></div>';
-
-  // Region toggle buttons
-  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">';
+  html += '<div class="section-title">Price History + Predispatch</div>';
+  html += '<div class="chart-card"><div class="chart-title">30-min Trading — Actual (solid) · Predispatch (dashed)</div>';
+  html += '<div class="chart-container" style="height:250px"><canvas id="priceHistChart"></canvas></div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
   for (const r of REGIONS) {
-    html += `<button onclick="toggleRegion('${r}')" id="rgn-${r}"
+    html += `<button onclick="togglePriceRegion('${r}')" id="pr-${r}" data-on="1"
       style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;
-             border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;
-             color:${REGION_COLORS[r]};cursor:pointer;transition:all 0.2s"
-      data-active="true">${REGION_SHORT[r]}</button>`;
+      border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;color:${REGION_COLORS[r]};cursor:pointer"
+      >${REGION_SHORT[r]}</button>`;
   }
   html += '</div></div>';
-
-  html += '<div class="section-title">Total Demand (MW)</div>';
-  html += '<div class="demand-grid">';
+  html += '<div class="section-title">Total Demand (MW)</div><div class="demand-grid">';
   for (const r of REGIONS) {
     const d = demand[r];
     html += `<div class="demand-card">
       <div class="region" style="color:${REGION_COLORS[r]}">${REGION_SHORT[r]}</div>
       <div class="value">${d !== undefined ? fmt(d) : '—'}</div>
-      <div class="unit">MW</div>
-    </div>`;
+      <div class="unit">MW</div></div>`;
   }
   html += '</div>';
-
   return html;
 }
 
-function toggleRegion(region) {
-  if (!charts.priceHistory) return;
-  const btn = document.getElementById('rgn-' + region);
-  const isActive = btn.dataset.active === 'true';
-  const newActive = !isActive;
-  btn.dataset.active = newActive;
-  btn.style.background = newActive ? REGION_COLORS[region] + '33' : 'transparent';
-  btn.style.opacity = newActive ? '1' : '0.4';
-
-  // Find and toggle both datasets for this region (actual + predispatch)
-  const chart = charts.priceHistory;
-  chart.data.datasets.forEach((ds, i) => {
-    if (ds.regionId === region) {
-      const meta = chart.getDatasetMeta(i);
-      meta.hidden = !newActive;
-    }
+function togglePriceRegion(r) {
+  if (!charts.priceHist) return;
+  const btn = document.getElementById('pr-' + r);
+  const on = btn.dataset.on === '1';
+  btn.dataset.on = on ? '0' : '1';
+  btn.style.opacity = on ? '0.35' : '1';
+  charts.priceHist.data.datasets.forEach((ds, i) => {
+    if (ds.regionId === r) charts.priceHist.getDatasetMeta(i).hidden = on;
   });
-  chart.update();
+  charts.priceHist.update();
 }
+
+function drawPriceChart(data) {
+  destroyChart('priceHist');
+  const ctx = document.getElementById('priceHistChart');
+  if (!ctx) return;
+  const hist = data.historical_prices || {};
+  const pd   = data.predispatch_prices || {};
+  const labelSet = new Set();
+  for (const r of REGIONS) {
+    (hist[r] || []).forEach(p => labelSet.add(p.interval));
+    (pd[r]   || []).forEach(p => labelSet.add(p.interval));
+  }
+  const labels = Array.from(labelSet).sort();
+  if (labels.length === 0) {
+    ctx.closest('.chart-card').querySelector('.chart-title').textContent = 'Price history — data loading on next refresh';
+    ctx.style.display = 'none';
+    return;
+  }
+  const now = nowAEST();
+  const nowIdx = labels.findIndex(l => l >= now);
+  const datasets = [];
+  for (const r of REGIONS) {
+    const color = REGION_COLORS[r];
+    const hm = {}; (hist[r] || []).forEach(p => hm[p.interval] = p.rrp);
+    const pm = {}; (pd[r]   || []).forEach(p => pm[p.interval] = p.rrp);
+    datasets.push({
+      label: REGION_SHORT[r], regionId: r,
+      data: labels.map(l => hm[l] !== undefined ? hm[l] : null),
+      borderColor: color, backgroundColor:'transparent',
+      borderWidth:2, pointRadius:0, tension:0.3, spanGaps:false,
+      borderDash:[], segment:{borderDash:()=>[]}
+    });
+    datasets.push({
+      label: REGION_SHORT[r]+' PD', regionId: r,
+      data: labels.map(l => pm[l] !== undefined ? pm[l] : null),
+      borderColor: color+'88', backgroundColor:'transparent',
+      borderWidth:2, pointRadius:0, tension:0.3, spanGaps:false,
+      borderDash:[5,4], segment:{borderDash:()=>[5,4]}
+    });
+  }
+  charts.priceHist = new Chart(ctx, {
+    type:'line', data:{labels,datasets},
+    options:{...CHART_DEFAULTS,
+      plugins:{...CHART_DEFAULTS.plugins,
+        tooltip:{...CHART_DEFAULTS.plugins.tooltip,
+          filter:i=>i.raw!==null,
+          callbacks:{label:c=>c.raw===null?null:` ${c.dataset.label}: $${c.raw.toFixed(2)}/MWh`}
+        }
+      },
+      scales:{...CHART_DEFAULTS.scales,
+        y:{...CHART_DEFAULTS.scales.y, ticks:{...CHART_DEFAULTS.scales.y.ticks, callback:v=>'$'+v.toFixed(0)}}
+      }
+    },
+    plugins:[nowLinePlugin(nowIdx)]
+  });
+}
+
+// ── Generation ────────────────────────────────────────────────────────────────
 
 function renderGeneration(data) {
-  const fuelColors = data.fuel_colors || {
-    "Black Coal":"#4a4a6a","Brown Coal":"#8B4513","Gas":"#ff9f40",
-    "Hydro":"#36a2eb","Wind":"#4bc0c0","Solar":"#ffd700",
-    "Battery":"#9b59b6","Liquid":"#e74c3c","Other":"#95a5a6"
-  };
-
+  const fc = data.fuel_colors || {};
   let html = '<div class="section-title">Generation Fuel Mix</div>';
-
-  // Region selector
   html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">';
   for (const r of REGIONS) {
-    html += `<button onclick="selectGenRegion(\'${r}\')" id="grgn-${r}"
+    html += `<button onclick="selectGenRegion('${r}')" id="gr-${r}"
       style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;
-             border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;
-             color:${REGION_COLORS[r]};cursor:pointer;transition:all 0.2s"
-      data-active="false">${REGION_SHORT[r]}</button>`;
+      border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;color:${REGION_COLORS[r]};cursor:pointer"
+      >${REGION_SHORT[r]}</button>`;
   }
   html += '</div>';
-
-  html += '<div class="chart-card">';
-  html += '<div class="chart-title">Fuel Mix (MW) — Actual (solid fill) · Predispatch (hatched)</div>';
-  html += '<div class="chart-container" style="height:280px"><canvas id="fuelMixChart"></canvas></div>';
-
-  // Fuel type legend
-  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">';
-  for (const [fuel, color] of Object.entries(fuelColors)) {
+  html += '<div class="chart-card"><div class="chart-title">Fuel Mix — Actual (filled) · Predispatch (dashed)</div>';
+  html += '<div class="chart-container" style="height:280px"><canvas id="fuelChart"></canvas></div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+  for (const [fuel, color] of Object.entries(fc)) {
     html += `<div style="display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10px;color:#94a3b8">
-      <div style="width:10px;height:10px;border-radius:2px;background:${color}"></div>${fuel}
-    </div>`;
+      <div style="width:10px;height:10px;border-radius:2px;background:${color}"></div>${fuel}</div>`;
   }
   html += '</div></div>';
-
-  // Summary table
   const gen = data.generation || {};
-  const rawSummary = data.raw_summary || {};
+  const raw = data.raw_summary || {};
   html += '<div class="chart-card"><div class="chart-title">Current Generation</div>';
-  html += '<div class="table-wrap"><table>';
-  html += '<tr><th>Region</th><th>Scheduled</th><th>Semi-Sched</th><th>Net Int.</th></tr>';
+  html += '<div class="table-wrap"><table><tr><th>Region</th><th>Scheduled</th><th>Semi-Sched</th><th>Net Int.</th></tr>';
   for (const r of REGIONS) {
-    const g = gen[r] || {};
-    const raw = rawSummary[r] || {};
+    const g = gen[r] || {}, rw = raw[r] || {};
+    const ni = g['Net Interchange'] ?? rw.NETINTERCHANGE ?? 0;
     html += `<tr>
       <td style="color:${REGION_COLORS[r]};font-weight:700">${REGION_SHORT[r]}</td>
-      <td>${fmt(g.Scheduled ?? raw.DISPATCHABLEGENERATION)} MW</td>
-      <td>${fmt(g[\'Semi-Scheduled\'] ?? raw.SEMISCHEDULEDGENERATION)} MW</td>
-      <td style="color:${(g[\'Net Interchange\'] ?? raw.NETINTERCHANGE ?? 0) >= 0 ? \'#00d4ff\' : \'#ff6b35\'}">${fmt(g[\'Net Interchange\'] ?? raw.NETINTERCHANGE)} MW</td>
-    </tr>`;
+      <td>${fmt(g.Scheduled ?? rw.DISPATCHABLEGENERATION)} MW</td>
+      <td>${fmt(g['Semi-Scheduled'] ?? rw.SEMISCHEDULEDGENERATION)} MW</td>
+      <td style="color:${ni>=0?'#00d4ff':'#ff6b35'}">${fmt(ni)} MW</td></tr>`;
   }
   html += '</table></div></div>';
-
   return html;
 }
-
-let currentGenRegion = \'NSW1\';
 
 function selectGenRegion(region) {
   currentGenRegion = region;
   for (const r of REGIONS) {
-    const btn = document.getElementById(\'grgn-\' + r);
-    if (btn) {
-      btn.dataset.active = (r === region) ? \'true\' : \'false\';
-      btn.style.background = (r === region) ? REGION_COLORS[r] + \'88\' : REGION_COLORS[r] + \'33\';
-      btn.style.fontWeight = (r === region) ? \'700\' : \'400\';
-    }
+    const btn = document.getElementById('gr-' + r);
+    if (!btn) continue;
+    const active = r === region;
+    btn.style.background = active ? REGION_COLORS[r] + '88' : REGION_COLORS[r] + '33';
+    btn.style.fontWeight = active ? '700' : '400';
   }
   if (latestData) drawGenChart(latestData);
 }
-function renderDemand(data) {
-  const demand = data.demand || {};
-  const rawSummary = data.raw_summary || {};
 
-  let html = '<div class="section-title">Latest Demand (MW)</div>';
-  html += '<div class="demand-grid">';
+function drawGenChart(data) {
+  destroyChart('gen');
+  const ctx = document.getElementById('fuelChart');
+  if (!ctx) return;
+  const r = currentGenRegion;
+  const fc = data.fuel_colors || {};
+  const fuels = data.all_fuels || Object.keys(fc);
+  const histArr = (data.fuel_mix_history || {})[r] || [];
+  const pdArr   = (data.predispatch_gen  || {})[r] || [];
+  const labelSet = new Set();
+  histArr.forEach(p => labelSet.add(p.interval));
+  pdArr.forEach(p => labelSet.add(p.interval));
+  const labels = Array.from(labelSet).sort();
+  if (labels.length === 0) {
+    ctx.closest('.chart-card').querySelector('.chart-title').textContent = 'Fuel mix — data loading on next refresh';
+    ctx.style.display = 'none';
+    return;
+  }
+  const now = nowAEST();
+  const nowIdx = labels.findIndex(l => l >= now);
+  const hm = {}; histArr.forEach(p => hm[p.interval] = p);
+  const pm = {}; pdArr.forEach(p => pm[p.interval] = p);
+  const activeFuels = fuels.filter(f => histArr.some(p => p[f] > 0));
+  const datasets = [];
+  for (const fuel of activeFuels) {
+    const color = fc[fuel] || '#95a5a6';
+    datasets.push({
+      label: fuel,
+      data: labels.map(l => hm[l] ? Math.max(0, hm[l][fuel] || 0) : null),
+      backgroundColor: color + 'cc', borderColor: color, borderWidth:1,
+      fill:true, pointRadius:0, tension:0.2, spanGaps:false, stack:'actual',
+      segment:{borderDash:()=>[]}
+    });
+  }
+  if (pdArr.length > 0) {
+    datasets.push({
+      label:'Sched (PD)',
+      data: labels.map(l => pm[l] ? Math.max(0, pm[l].Scheduled || 0) : null),
+      backgroundColor:'rgba(100,116,139,0.3)', borderColor:'#64748b', borderWidth:1,
+      borderDash:[4,3], fill:true, pointRadius:0, tension:0.2, spanGaps:false, stack:'pd'
+    });
+    datasets.push({
+      label:'Semi (PD)',
+      data: labels.map(l => pm[l] ? Math.max(0, pm[l].SemiScheduled || 0) : null),
+      backgroundColor:'rgba(75,192,192,0.25)', borderColor:'#4bc0c0', borderWidth:1,
+      borderDash:[4,3], fill:true, pointRadius:0, tension:0.2, spanGaps:false, stack:'pd'
+    });
+  }
+  charts.gen = new Chart(ctx, {
+    type:'line', data:{labels,datasets},
+    options:{...CHART_DEFAULTS,
+      plugins:{...CHART_DEFAULTS.plugins,
+        legend:{display:false},
+        tooltip:{...CHART_DEFAULTS.plugins.tooltip,
+          filter:i=>i.raw!==null&&i.raw>0,
+          callbacks:{label:c=>c.raw>0?` ${c.dataset.label}: ${fmt(c.raw)} MW`:null}
+        }
+      },
+      scales:{
+        x:{stacked:true, ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxTicksLimit:8,maxRotation:0}, grid:{color:'#1e2d4544'}},
+        y:{stacked:true, ticks:{color:'#94a3b8',font:{family:'Space Mono',size:10},callback:v=>v.toLocaleString()+' MW'}, grid:{color:'#1e2d45'}}
+      }
+    },
+    plugins:[nowLinePlugin(nowIdx)]
+  });
+}
+
+// ── Demand ────────────────────────────────────────────────────────────────────
+
+function renderDemand(data) {
+  const demand = data.demand || {}, raw = data.raw_summary || {};
+  let html = '<div class="section-title">Latest Demand (MW)</div><div class="demand-grid">';
   for (const r of REGIONS) {
     const d = demand[r];
     html += `<div class="demand-card">
       <div class="region" style="color:${REGION_COLORS[r]}">${REGION_SHORT[r]}</div>
       <div class="value">${d !== undefined ? fmt(d) : '—'}</div>
-      <div class="unit">MW</div>
-    </div>`;
+      <div class="unit">MW</div></div>`;
   }
   html += '</div>';
-
-  html += '<div class="section-title">Today\'s Demand + Predispatch</div>';
-  html += '<div class="chart-card">';
-  html += '<div class="chart-title">Demand (MW) — Actual (solid) · Predispatch (dashed)</div>';
-  html += '<div class="chart-container" style="height:260px"><canvas id="demandHistoryChart"></canvas></div>';
-  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">';
+  html += '<div class="section-title">Demand History + Predispatch</div>';
+  html += '<div class="chart-card"><div class="chart-title">Total Demand — Actual (solid) · Predispatch (dashed)</div>';
+  html += '<div class="chart-container" style="height:250px"><canvas id="demandHistChart"></canvas></div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
   for (const r of REGIONS) {
-    html += `<button onclick="toggleDemandRegion('${r}')" id="drgn-${r}"
+    html += `<button onclick="toggleDemandRegion('${r}')" id="dr-${r}" data-on="1"
       style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;
-             border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;
-             color:${REGION_COLORS[r]};cursor:pointer;transition:all 0.2s"
-      data-active="true">${REGION_SHORT[r]}</button>`;
+      border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;color:${REGION_COLORS[r]};cursor:pointer"
+      >${REGION_SHORT[r]}</button>`;
   }
   html += '</div></div>';
-
-  html += '<div class="chart-card">';
-  html += '<div class="chart-title">Demand Details</div>';
-  html += '<div class="table-wrap"><table>';
-  html += '<tr><th>Region</th><th>Total Demand</th><th>Forecast</th><th>Initial Supply</th></tr>';
+  html += '<div class="chart-card"><div class="chart-title">Demand Details</div>';
+  html += '<div class="table-wrap"><table><tr><th>Region</th><th>Demand</th><th>Forecast</th><th>Initial Supply</th></tr>';
   for (const r of REGIONS) {
-    const raw = rawSummary[r] || {};
-    const dem = demand[r] ?? raw.TOTALDEMAND;
+    const rw = raw[r] || {}, d = demand[r] ?? rw.TOTALDEMAND;
     html += `<tr>
       <td style="color:${REGION_COLORS[r]};font-weight:700">${REGION_SHORT[r]}</td>
-      <td>${fmt(dem)} MW</td>
-      <td>${fmt(raw.DEMANDFORECAST)} MW</td>
-      <td>${fmt(raw.INITIALSUPPLY)} MW</td>
-    </tr>`;
+      <td>${fmt(d)} MW</td><td>${fmt(rw.DEMANDFORECAST)} MW</td><td>${fmt(rw.INITIALSUPPLY)} MW</td></tr>`;
   }
   html += '</table></div></div>';
-
   return html;
 }
 
-function toggleDemandRegion(region) {
-  if (!charts.demandHistory) return;
-  const btn = document.getElementById('drgn-' + region);
-  const isActive = btn.dataset.active === 'true';
-  const newActive = !isActive;
-  btn.dataset.active = newActive;
-  btn.style.background = newActive ? REGION_COLORS[region] + '33' : 'transparent';
-  btn.style.opacity = newActive ? '1' : '0.4';
-  const chart = charts.demandHistory;
-  chart.data.datasets.forEach((ds, i) => {
-    if (ds.regionId === region) {
-      chart.getDatasetMeta(i).hidden = !newActive;
-    }
+function toggleDemandRegion(r) {
+  if (!charts.demandHist) return;
+  const btn = document.getElementById('dr-' + r);
+  const on = btn.dataset.on === '1';
+  btn.dataset.on = on ? '0' : '1';
+  btn.style.opacity = on ? '0.35' : '1';
+  charts.demandHist.data.datasets.forEach((ds, i) => {
+    if (ds.regionId === r) charts.demandHist.getDatasetMeta(i).hidden = on;
   });
-  chart.update();
+  charts.demandHist.update();
 }
+
+function drawDemandChart(data) {
+  destroyChart('demandHist');
+  const ctx = document.getElementById('demandHistChart');
+  if (!ctx) return;
+  const hist = data.demand_history || {}, pd = data.predispatch_demand || {};
+  const labelSet = new Set();
+  for (const r of REGIONS) {
+    (hist[r] || []).forEach(p => labelSet.add(p.interval));
+    (pd[r]   || []).forEach(p => labelSet.add(p.interval));
+  }
+  const labels = Array.from(labelSet).sort();
+  if (labels.length === 0) {
+    ctx.closest('.chart-card').querySelector('.chart-title').textContent = 'Demand history — data loading on next refresh';
+    ctx.style.display = 'none';
+    return;
+  }
+  const now = nowAEST();
+  const nowIdx = labels.findIndex(l => l >= now);
+  const datasets = [];
+  for (const r of REGIONS) {
+    const color = REGION_COLORS[r];
+    const hm = {}; (hist[r] || []).forEach(p => hm[p.interval] = p.demand);
+    const pm = {}; (pd[r]   || []).forEach(p => pm[p.interval] = p.demand);
+    datasets.push({
+      label: REGION_SHORT[r], regionId: r,
+      data: labels.map(l => hm[l] !== undefined ? hm[l] : null),
+      borderColor:color, backgroundColor:'transparent',
+      borderWidth:2, pointRadius:0, tension:0.3, spanGaps:false,
+      borderDash:[], segment:{borderDash:()=>[]}
+    });
+    datasets.push({
+      label: REGION_SHORT[r]+' PD', regionId: r,
+      data: labels.map(l => pm[l] !== undefined ? pm[l] : null),
+      borderColor:color+'88', backgroundColor:'transparent',
+      borderWidth:2, pointRadius:0, tension:0.3, spanGaps:false,
+      borderDash:[5,4], segment:{borderDash:()=>[5,4]}
+    });
+  }
+  charts.demandHist = new Chart(ctx, {
+    type:'line', data:{labels,datasets},
+    options:{...CHART_DEFAULTS,
+      plugins:{...CHART_DEFAULTS.plugins,
+        tooltip:{...CHART_DEFAULTS.plugins.tooltip,
+          filter:i=>i.raw!==null,
+          callbacks:{label:c=>c.raw===null?null:` ${c.dataset.label}: ${fmt(c.raw)} MW`}
+        }
+      },
+      scales:{...CHART_DEFAULTS.scales,
+        y:{...CHART_DEFAULTS.scales.y, ticks:{...CHART_DEFAULTS.scales.y.ticks, callback:v=>v.toLocaleString()+' MW'}}
+      }
+    },
+    plugins:[nowLinePlugin(nowIdx)]
+  });
+}
+
+// ── Interconnectors ───────────────────────────────────────────────────────────
 
 function renderInterconnectors(data) {
   const ics = data.interconnectors || {};
-
   let html = '<div class="section-title">Interconnector Flows</div>';
-
   if (Object.keys(ics).length === 0) {
-    html += '<div class="state-msg"><div class="icon">🔗</div><div>No interconnector data available</div></div>';
-    return html;
+    return html + '<div class="state-msg"><div class="icon">🔗</div><div>No data</div></div>';
   }
-
-  // Chart
-  html += '<div class="chart-card"><div class="chart-title">MW Flow (positive = export)</div><div class="chart-container tall"><canvas id="icChart"></canvas></div></div>';
-
-  html += '<div class="ic-list">';
-  // Sort by absolute flow
-  const sorted = Object.entries(ics).sort((a,b) => Math.abs(b[1].flow) - Math.abs(a[1].flow));
+  html += '<div class="chart-card"><div class="chart-title">MW Flow (positive = export)</div>';
+  html += '<div class="chart-container" style="height:220px"><canvas id="icChart"></canvas></div></div>';
+  const sorted = Object.entries(ics).sort((a,b) => Math.abs(b[1].flow)-Math.abs(a[1].flow));
   const maxFlow = Math.max(...sorted.map(([,v]) => Math.abs(v.flow)), 1);
-
+  html += '<div class="ic-list">';
   for (const [id, val] of sorted) {
     const flow = val.flow || 0;
-    const pct = Math.min(Math.abs(flow) / maxFlow * 50, 50);
-    const isPos = flow >= 0;
+    const pct = Math.min(Math.abs(flow)/maxFlow*50, 50);
+    const pos = flow >= 0;
     html += `<div class="ic-row">
       <div class="ic-name">${id}</div>
       <div class="ic-bar-wrap">
         <div class="ic-midpoint"></div>
-        <div class="ic-bar ${isPos ? 'positive' : 'negative'}" style="width:${pct}%"></div>
+        <div class="ic-bar ${pos?'positive':'negative'}" style="width:${pct}%"></div>
       </div>
-      <div class="ic-value ${isPos ? 'positive' : 'negative'}">${flow > 0 ? '+' : ''}${fmt(flow)} <span style="font-size:9px;opacity:0.6">MW</span></div>
+      <div class="ic-value ${pos?'positive':'negative'}">${flow>0?'+':''}${fmt(flow)} <span style="font-size:9px;opacity:0.6">MW</span></div>
     </div>`;
   }
   html += '</div>';
-
   return html;
-}
-
-function drawPriceChart(data) {
-  destroyChart('priceHistory');
-  const ctx = document.getElementById('priceHistoryChart');
-  if (!ctx) return;
-
-  const historical = data.historical_prices || {};
-  const predispatch = data.predispatch_prices || {};
-
-  // Build unified label set (all intervals across the day)
-  const labelSet = new Set();
-  for (const r of REGIONS) {
-    (historical[r] || []).forEach(pt => labelSet.add(pt.interval));
-    (predispatch[r] || []).forEach(pt => labelSet.add(pt.interval));
-  }
-  const labels = Array.from(labelSet).sort();
-
-  if (labels.length === 0) {
-    ctx.parentElement.innerHTML = '<div class="state-msg" style="padding:20px 0"><div class="icon" style="font-size:24px">📈</div><div style="font-size:11px;margin-top:6px">Price history loading on next refresh</div></div>';
-    return;
-  }
-
-  // Get current AEST time for "now" marker
-  const nowStr = new Date().toLocaleTimeString('en-AU', {
-    hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Australia/Sydney'
-  });
-  const nowIndex = labels.findIndex(l => l >= nowStr);
-
-  const datasets = [];
-
-  for (const r of REGIONS) {
-    const color = REGION_COLORS[r];
-    const histMap = {};
-    (historical[r] || []).forEach(pt => { histMap[pt.interval] = pt.rrp; });
-    const pdMap = {};
-    (predispatch[r] || []).forEach(pt => { pdMap[pt.interval] = pt.rrp; });
-
-    // Actual data — null for future intervals
-    const actualData = labels.map(l => histMap[l] !== undefined ? histMap[l] : null);
-
-    // Predispatch data — null for past intervals, connect from last actual
-    const pdData = labels.map((l, i) => {
-      if (pdMap[l] !== undefined) return pdMap[l];
-      // Bridge: repeat last actual value at the transition point
-      if (i === nowIndex && actualData[i - 1] !== null) return actualData[i - 1];
-      return null;
-    });
-
-    // Actual line (solid)
-    datasets.push({
-      label: REGION_SHORT[r],
-      regionId: r,
-      data: actualData,
-      borderColor: color,
-      backgroundColor: 'transparent',
-      borderWidth: 2,
-      pointRadius: 0,
-      pointHoverRadius: 4,
-      tension: 0.3,
-      borderDash: [],
-      segment: { borderDash: () => [] },
-      spanGaps: false,
-    });
-
-    // Predispatch line (dashed, same colour, slightly dimmer)
-    datasets.push({
-      label: REGION_SHORT[r] + ' (PD)',
-      regionId: r,
-      data: pdData,
-      borderColor: color + '99',
-      backgroundColor: 'transparent',
-      borderWidth: 2,
-      borderDash: [5, 4],
-      pointRadius: 0,
-      pointHoverRadius: 4,
-      tension: 0.3,
-      spanGaps: false,
-    });
-  }
-
-  charts.priceHistory = new Chart(ctx, {
-    type: 'line',
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          filter: item => item.raw !== null,
-          callbacks: {
-            label: ctx => {
-              if (ctx.raw === null) return null;
-              const isPD = ctx.dataset.label.includes('(PD)');
-              return ` ${ctx.dataset.label.replace(' (PD)','')}${isPD ? ' ⋯' : ''}: $${ctx.raw.toFixed(2)}/MWh`;
-            }
-          },
-          backgroundColor: '#111827',
-          borderColor: '#1e2d45',
-          borderWidth: 1,
-          titleColor: '#94a3b8',
-          bodyColor: '#e2e8f0',
-          titleFont: { family: 'Space Mono', size: 10 },
-          bodyFont: { family: 'Space Mono', size: 11 },
-        },
-        // "Now" vertical line annotation via afterDraw plugin
-      },
-      scales: {
-        x: {
-          ticks: {
-            color: '#64748b',
-            font: { family: 'Space Mono', size: 9 },
-            maxTicksLimit: 8,
-            maxRotation: 0,
-          },
-          grid: { color: '#1e2d4544' },
-        },
-        y: {
-          ticks: {
-            color: '#94a3b8',
-            font: { family: 'Space Mono', size: 10 },
-            callback: v => '$' + v.toLocaleString(),
-          },
-          grid: { color: '#1e2d45' },
-        }
-      }
-    },
-    plugins: [{
-      id: 'nowLine',
-      afterDraw(chart) {
-        if (nowIndex < 0) return;
-        const { ctx: c, chartArea, scales } = chart;
-        const x = scales.x.getPixelForValue(nowIndex);
-        c.save();
-        c.beginPath();
-        c.moveTo(x, chartArea.top);
-        c.lineTo(x, chartArea.bottom);
-        c.strokeStyle = 'rgba(255,255,255,0.25)';
-        c.lineWidth = 1;
-        c.setLineDash([3, 3]);
-        c.stroke();
-        c.fillStyle = 'rgba(255,255,255,0.5)';
-        c.font = '9px Space Mono';
-        c.fillText('NOW', x + 3, chartArea.top + 12);
-        c.restore();
-      }
-    }]
-  });
-}
-
-function drawGenChart(data) {
-  destroyChart(\'gen\');
-  const ctx = document.getElementById(\'fuelMixChart\');
-  if (!ctx) return;
-
-  const region = currentGenRegion;
-  const fuelColors = data.fuel_colors || {
-    "Black Coal":"#4a4a6a","Brown Coal":"#8B4513","Gas":"#ff9f40",
-    "Hydro":"#36a2eb","Wind":"#4bc0c0","Solar":"#ffd700",
-    "Battery":"#9b59b6","Liquid":"#e74c3c","Other":"#95a5a6"
-  };
-  const allFuels = data.all_fuels || Object.keys(fuelColors);
-
-  const histData = (data.fuel_mix_history || {})[region] || [];
-  const pdGen    = (data.predispatch_gen  || {})[region] || [];
-
-  // Build label set
-  const labelSet = new Set();
-  histData.forEach(pt => labelSet.add(pt.interval));
-  pdGen.forEach(pt => labelSet.add(pt.interval));
-  const labels = Array.from(labelSet).sort();
-
-  const nowStr = new Date().toLocaleTimeString(\'en-AU\', {
-    hour:\'2-digit\', minute:\'2-digit\', hour12: false, timeZone:\'Australia/Sydney\'
-  });
-  const nowIndex = labels.findIndex(l => l >= nowStr);
-
-  // Build maps
-  const histMap = {};
-  histData.forEach(pt => { histMap[pt.interval] = pt; });
-  const pdMap = {};
-  pdGen.forEach(pt => { pdMap[pt.interval] = pt; });
-
-  // Determine which fuels actually have data
-  const activeFuels = allFuels.filter(f =>
-    histData.some(pt => pt[f] && pt[f] > 0) ||
-    pdGen.some(pt => pt[\'SemiScheduled\'] && pt[\'SemiScheduled\'] > 0)
-  );
-
-  const datasets = [];
-
-  // If we have fuel mix history — draw per-fuel stacked areas
-  if (histData.length > 0) {
-    for (const fuel of activeFuels) {
-      const color = fuelColors[fuel] || \'#95a5a6\';
-      const actualVals = labels.map(l => {
-        const pt = histMap[l];
-        return (pt && pt[fuel] !== undefined) ? Math.max(0, pt[fuel]) : null;
-      });
-      datasets.push({
-        label: fuel,
-        data: actualVals,
-        backgroundColor: color + \'cc\',
-        borderColor: color,
-        borderWidth: 1,
-        fill: true,
-        pointRadius: 0,
-        tension: 0.2,
-        spanGaps: false,
-        stack: \'actual\',
-        segment: { borderDash: () => [] },
-      });
-    }
-  }
-
-  // Predispatch — show as Scheduled + SemiScheduled stacked bars (future only)
-  if (pdGen.length > 0) {
-    const pdScheduled = labels.map(l => {
-      const pt = pdMap[l];
-      return (pt && pt.Scheduled !== undefined) ? Math.max(0, pt.Scheduled) : null;
-    });
-    const pdSemi = labels.map(l => {
-      const pt = pdMap[l];
-      return (pt && pt.SemiScheduled !== undefined) ? Math.max(0, pt.SemiScheduled) : null;
-    });
-    datasets.push({
-      label: \'Sched (PD)\',
-      data: pdScheduled,
-      backgroundColor: \'rgba(100,116,139,0.3)\',
-      borderColor: \'#64748b\',
-      borderWidth: 1,
-      borderDash: [4, 3],
-      fill: true,
-      pointRadius: 0,
-      tension: 0.2,
-      spanGaps: false,
-      stack: \'pd\',
-    });
-    datasets.push({
-      label: \'Semi-Sched (PD)\',
-      data: pdSemi,
-      backgroundColor: \'rgba(75,192,192,0.25)\',
-      borderColor: \'#4bc0c0\',
-      borderWidth: 1,
-      borderDash: [4, 3],
-      fill: true,
-      pointRadius: 0,
-      tension: 0.2,
-      spanGaps: false,
-      stack: \'pd\',
-    });
-  }
-
-  // Fallback if no fuel mix data — show scheduled + semi from region summary
-  if (histData.length === 0 && pdGen.length === 0) {
-    const gen = (data.generation || {})[region] || {};
-    const raw = (data.raw_summary || {})[region] || {};
-    ctx.parentElement.innerHTML = \'<div class="state-msg"><div class="icon">⚡</div><div style="font-size:12px">Fuel mix data loading...<br><br>Scheduled: \' + fmt(gen.Scheduled ?? raw.DISPATCHABLEGENERATION) + \'MW<br>Semi-sched: \' + fmt(gen[\'Semi-Scheduled\'] ?? raw.SEMISCHEDULEDGENERATION) + \'MW</div></div>\';
-    return;
-  }
-
-  charts.gen = new Chart(ctx, {
-    type: \'line\',
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: \'index\', intersect: false },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          filter: item => item.raw !== null && item.raw > 0,
-          callbacks: {
-            label: c => c.raw !== null ? ` ${c.dataset.label}: ${fmt(c.raw)} MW` : null
-          },
-          backgroundColor: \'#111827\',
-          borderColor: \'#1e2d45\',
-          borderWidth: 1,
-          titleColor: \'#94a3b8\',
-          bodyColor: \'#e2e8f0\',
-          titleFont: { family: \'Space Mono\', size: 10 },
-          bodyFont: { family: \'Space Mono\', size: 11 },
-        },
-      },
-      scales: {
-        x: {
-          stacked: true,
-          ticks: { color: \'#64748b\', font: { family: \'Space Mono\', size: 9 }, maxTicksLimit: 8, maxRotation: 0 },
-          grid: { color: \'#1e2d4544\' },
-        },
-        y: {
-          stacked: true,
-          ticks: {
-            color: \'#94a3b8\',
-            font: { family: \'Space Mono\', size: 10 },
-            callback: v => v.toLocaleString() + \' MW\'
-          },
-          grid: { color: \'#1e2d45\' },
-        }
-      }
-    },
-    plugins: [{
-      id: \'nowLineGen\',
-      afterDraw(chart) {
-        if (nowIndex < 0) return;
-        const { ctx: c, chartArea, scales } = chart;
-        const x = scales.x.getPixelForValue(nowIndex);
-        c.save();
-        c.beginPath();
-        c.moveTo(x, chartArea.top);
-        c.lineTo(x, chartArea.bottom);
-        c.strokeStyle = \'rgba(255,255,255,0.25)\';
-        c.lineWidth = 1;
-        c.setLineDash([3, 3]);
-        c.stroke();
-        c.fillStyle = \'rgba(255,255,255,0.5)\';
-        c.font = \'9px Space Mono\';
-        c.fillText(\'NOW\', x + 3, chartArea.top + 12);
-        c.restore();
-      }
-    }]
-  });
-}
-
-function drawDemandChart(data) {
-  destroyChart('demandHistory');
-  const ctx = document.getElementById('demandHistoryChart');
-  if (!ctx) return;
-
-  const historical = data.demand_history || {};
-  const predispatch = data.predispatch_demand || {};
-
-  const labelSet = new Set();
-  for (const r of REGIONS) {
-    (historical[r] || []).forEach(pt => labelSet.add(pt.interval));
-    (predispatch[r] || []).forEach(pt => labelSet.add(pt.interval));
-  }
-  const labels = Array.from(labelSet).sort();
-
-  if (labels.length === 0) {
-    ctx.parentElement.innerHTML = '<div class="state-msg" style="padding:20px 0"><div class="icon" style="font-size:24px">📊</div><div style="font-size:11px;margin-top:6px">Demand history loading on next refresh</div></div>';
-    return;
-  }
-
-  const nowStr = new Date().toLocaleTimeString('en-AU', {
-    hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Australia/Sydney'
-  });
-  const nowIndex = labels.findIndex(l => l >= nowStr);
-
-  const datasets = [];
-  for (const r of REGIONS) {
-    const color = REGION_COLORS[r];
-    const histMap = {};
-    (historical[r] || []).forEach(pt => { histMap[pt.interval] = pt.demand; });
-    const pdMap = {};
-    (predispatch[r] || []).forEach(pt => { pdMap[pt.interval] = pt.demand; });
-
-    const actualData = labels.map(l => histMap[l] !== undefined ? histMap[l] : null);
-    const pdData = labels.map((l, i) => {
-      if (pdMap[l] !== undefined) return pdMap[l];
-      if (i === nowIndex && i > 0 && actualData[i - 1] !== null) return actualData[i - 1];
-      return null;
-    });
-
-    datasets.push({
-      label: REGION_SHORT[r],
-      regionId: r,
-      data: actualData,
-      borderColor: color,
-      backgroundColor: 'transparent',
-      borderWidth: 2,
-      pointRadius: 0,
-      pointHoverRadius: 4,
-      tension: 0.3,
-      borderDash: [],
-      segment: { borderDash: () => [] },
-      spanGaps: false,
-    });
-
-    datasets.push({
-      label: REGION_SHORT[r] + ' (PD)',
-      regionId: r,
-      data: pdData,
-      borderColor: color + '99',
-      backgroundColor: 'transparent',
-      borderWidth: 2,
-      borderDash: [5, 4],
-      segment: { borderDash: () => [5, 4] },
-      pointRadius: 0,
-      pointHoverRadius: 4,
-      tension: 0.3,
-      spanGaps: false,
-    });
-  }
-
-  charts.demandHistory = new Chart(ctx, {
-    type: 'line',
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          filter: item => item.raw !== null,
-          callbacks: {
-            label: ctx => {
-              if (ctx.raw === null) return null;
-              const isPD = ctx.dataset.label.includes('(PD)');
-              return ` ${ctx.dataset.label.replace(' (PD)','')}${isPD ? ' ⋯' : ''}: ${fmt(ctx.raw)} MW`;
-            }
-          },
-          backgroundColor: '#111827',
-          borderColor: '#1e2d45',
-          borderWidth: 1,
-          titleColor: '#94a3b8',
-          bodyColor: '#e2e8f0',
-          titleFont: { family: 'Space Mono', size: 10 },
-          bodyFont: { family: 'Space Mono', size: 11 },
-        },
-      },
-      scales: {
-        x: {
-          ticks: { color: '#64748b', font: { family: 'Space Mono', size: 9 }, maxTicksLimit: 8, maxRotation: 0 },
-          grid: { color: '#1e2d4544' },
-        },
-        y: {
-          ticks: {
-            color: '#94a3b8',
-            font: { family: 'Space Mono', size: 10 },
-            callback: v => v.toLocaleString() + ' MW',
-          },
-          grid: { color: '#1e2d45' },
-        }
-      }
-    },
-    plugins: [{
-      id: 'nowLineDemand',
-      afterDraw(chart) {
-        if (nowIndex < 0) return;
-        const { ctx: c, chartArea, scales } = chart;
-        const x = scales.x.getPixelForValue(nowIndex);
-        c.save();
-        c.beginPath();
-        c.moveTo(x, chartArea.top);
-        c.lineTo(x, chartArea.bottom);
-        c.strokeStyle = 'rgba(255,255,255,0.25)';
-        c.lineWidth = 1;
-        c.setLineDash([3, 3]);
-        c.stroke();
-        c.fillStyle = 'rgba(255,255,255,0.5)';
-        c.font = '9px Space Mono';
-        c.fillText('NOW', x + 3, chartArea.top + 12);
-        c.restore();
-      }
-    }]
-  });
 }
 
 function drawIcChart(data) {
@@ -1172,76 +583,64 @@ function drawIcChart(data) {
   const ctx = document.getElementById('icChart');
   if (!ctx) return;
   const ics = data.interconnectors || {};
-  const entries = Object.entries(ics).sort((a,b) => Math.abs(b[1].flow) - Math.abs(a[1].flow));
-
+  const entries = Object.entries(ics).sort((a,b) => Math.abs(b[1].flow)-Math.abs(a[1].flow));
   charts.ic = new Chart(ctx, {
-    type: 'bar',
-    data: {
+    type:'bar', data:{
       labels: entries.map(([k]) => k),
-      datasets: [{
-        data: entries.map(([,v]) => v.flow || 0),
-        backgroundColor: entries.map(([,v]) => (v.flow || 0) >= 0 ? '#00d4ff88' : '#ff6b3588'),
-        borderColor: entries.map(([,v]) => (v.flow || 0) >= 0 ? '#00d4ff' : '#ff6b35'),
-        borderWidth: 1,
-        borderRadius: 4,
+      datasets:[{
+        data: entries.map(([,v]) => v.flow||0),
+        backgroundColor: entries.map(([,v]) => (v.flow||0)>=0?'#00d4ff88':'#ff6b3588'),
+        borderColor: entries.map(([,v]) => (v.flow||0)>=0?'#00d4ff':'#ff6b35'),
+        borderWidth:1, borderRadius:4
       }]
     },
-    options: {
-      indexAxis: 'y',
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: {
-        callbacks: { label: ctx => ' ' + (ctx.raw > 0 ? '+' : '') + ctx.raw.toFixed(0) + ' MW' }
-      }},
-      scales: {
-        x: { ticks: { color: '#94a3b8', font: { family: 'Space Mono', size: 10 },
-              callback: v => v.toLocaleString() + ' MW' },
-             grid: { color: '#1e2d45' } },
-        y: { ticks: { color: '#94a3b8', font: { family: 'Space Mono', size: 10 } }, grid: { color: '#1e2d45' } }
+    options:{...CHART_DEFAULTS, indexAxis:'y',
+      plugins:{...CHART_DEFAULTS.plugins,
+        tooltip:{...CHART_DEFAULTS.plugins.tooltip,
+          callbacks:{label:c=>` ${c.raw>0?'+':''}${c.raw.toFixed(0)} MW`}
+        }
+      },
+      scales:{
+        x:{ticks:{color:'#94a3b8',font:{family:'Space Mono',size:10},callback:v=>v.toLocaleString()+' MW'},grid:{color:'#1e2d45'}},
+        y:{ticks:{color:'#94a3b8',font:{family:'Space Mono',size:10}},grid:{color:'#1e2d45'}}
       }
     }
   });
 }
 
+// ── Origin ────────────────────────────────────────────────────────────────────
 
 function renderOrigin(data) {
   const assets = data.origin_assets || {};
   const prices = data.prices || {};
-  const fuelColors = data.fuel_colors || {};
-
-  const FUEL_ICONS = {
-    "Black Coal": "⬛", "Brown Coal": "🟫", "Gas": "🔥",
-    "Hydro": "💧", "Wind": "🌀", "Solar": "☀️",
-    "Battery": "🔋", "Liquid": "🛢️", "Other": "⚙️"
-  };
+  const fc = data.fuel_colors || {};
 
   // Group by station
   const stations = {};
-  for (const [duid, asset] of Object.entries(assets)) {
-    const key = asset.station;
-    if (!stations[key]) stations[key] = { ...asset, duids: [], totalMw: 0, totalCap: 0 };
-    stations[key].duids.push({ duid, ...asset });
-    if (asset.mw !== null && asset.mw !== undefined) stations[key].totalMw += asset.mw;
-    stations[key].totalCap += asset.capacity || 0;
+  for (const [duid, a] of Object.entries(assets)) {
+    if (!stations[a.station]) stations[a.station] = {fuel:a.fuel, region:a.region, units:[], totalMw:0, totalCap:0};
+    stations[a.station].units.push({duid, ...a});
+    if (a.mw !== null && a.mw !== undefined) stations[a.station].totalMw += a.mw;
+    stations[a.station].totalCap += a.capacity || 0;
   }
 
-  // Summary totals by fuel
+  // Fuel totals
   const fuelTotals = {};
-  for (const [duid, asset] of Object.entries(assets)) {
-    if (asset.mw === null || asset.mw === undefined) continue;
-    fuelTotals[asset.fuel] = (fuelTotals[asset.fuel] || 0) + asset.mw;
+  for (const a of Object.values(assets)) {
+    if (a.mw !== null && a.mw !== undefined) fuelTotals[a.fuel] = (fuelTotals[a.fuel]||0) + a.mw;
   }
-  const totalOriginMw = Object.values(fuelTotals).reduce((a, b) => a + b, 0);
-  const totalOriginCap = Object.values(assets).reduce((a, b) => a + (b.capacity || 0), 0);
+  const totalMw = Object.values(fuelTotals).reduce((s,v)=>s+v,0);
+  const totalCap = Object.values(assets).reduce((s,a)=>s+(a.capacity||0),0);
 
-  let html = '<div class="section-title">Origin Portfolio Summary</div>';
+  let html = '<div class="section-title">Origin Portfolio</div>';
 
-  // Summary cards — fuel totals
-  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:4px">';
-  for (const [fuel, mw] of Object.entries(fuelTotals).sort((a,b) => b[1]-a[1])) {
-    const color = fuelColors[fuel] || '#95a5a6';
+  // Fuel summary
+  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">';
+  for (const [fuel, mw] of Object.entries(fuelTotals).sort((a,b)=>b[1]-a[1])) {
+    const color = fc[fuel] || '#95a5a6';
     html += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
-              padding:10px 8px;text-align:center;border-top:3px solid ${color}">
-      <div style="font-size:16px;margin-bottom:2px">${FUEL_ICONS[fuel] || '⚡'}</div>
+      padding:10px 8px;text-align:center;border-top:3px solid ${color}">
+      <div style="font-size:16px;margin-bottom:2px">${FUEL_ICONS[fuel]||'⚡'}</div>
       <div style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:${color}">${fmt(mw)} <span style="font-size:9px;color:var(--text-muted)">MW</span></div>
       <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-top:2px">${fuel}</div>
     </div>`;
@@ -1249,60 +648,52 @@ function renderOrigin(data) {
   html += '</div>';
 
   // Total bar
-  const pct = totalOriginCap > 0 ? Math.min(totalOriginMw / totalOriginCap * 100, 100) : 0;
-  html += `<div class="chart-card" style="margin-bottom:10px">
+  const pct = totalCap > 0 ? Math.min(totalMw/totalCap*100, 100) : 0;
+  html += `<div class="chart-card" style="margin:10px 0">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim)">Total Output</div>
-      <div style="font-family:var(--font-mono);font-size:14px;font-weight:700;color:#ff6b35">${fmt(totalOriginMw)} <span style="font-size:10px;color:var(--text-muted)">/ ${fmt(totalOriginCap)} MW cap</span></div>
+      <div style="font-family:var(--font-mono);font-size:14px;font-weight:700;color:#ff6b35">${fmt(totalMw)} <span style="font-size:10px;color:var(--text-muted)">/ ${fmt(totalCap)} MW</span></div>
     </div>
     <div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden">
-      <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#ff6b35,#ffd32a);border-radius:4px;transition:width 0.5s"></div>
+      <div style="height:100%;width:${pct.toFixed(1)}%;background:linear-gradient(90deg,#ff6b35,#ffd32a);border-radius:4px"></div>
     </div>
-    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);margin-top:4px;text-align:right">${pct.toFixed(1)}% capacity factor</div>
+    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);margin-top:4px;text-align:right">${pct.toFixed(1)}% capacity</div>
   </div>`;
 
-  // Station cards
+  // Stations
   html += '<div class="section-title">Stations</div>';
-  const stationList = Object.entries(stations).sort((a,b) => b[1].totalMw - a[1].totalMw);
-
-  for (const [stationName, station] of stationList) {
-    const color = fuelColors[station.fuel] || '#95a5a6';
-    const icon = FUEL_ICONS[station.fuel] || '⚡';
-    const stationPct = station.totalCap > 0 ? Math.min(station.totalMw / station.totalCap * 100, 100) : 0;
-    const region = station.region || '';
-    const regionColor = REGION_COLORS[region] || '#64748b';
-    const rrp = prices[region];
-
+  for (const [name, st] of Object.entries(stations).sort((a,b)=>b[1].totalMw-a[1].totalMw)) {
+    const color = fc[st.fuel] || '#95a5a6';
+    const icon = FUEL_ICONS[st.fuel] || '⚡';
+    const sPct = st.totalCap > 0 ? Math.min(st.totalMw/st.totalCap*100,100) : 0;
+    const rrp = prices[st.region];
+    const rc = REGION_COLORS[st.region] || '#64748b';
     html += `<div class="chart-card" style="margin-bottom:8px;border-left:3px solid ${color}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
         <div>
-          <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text)">${icon} ${stationName}</div>
-          <div style="font-family:var(--font-mono);font-size:9px;color:${color};margin-top:2px">${station.fuel} · <span style="color:${regionColor}">${REGION_SHORT[region] || region}</span>${rrp !== undefined ? ` · $${rrp.toFixed(2)}/MWh` : ''}</div>
+          <div style="font-family:var(--font-mono);font-size:12px;font-weight:700">${icon} ${name}</div>
+          <div style="font-family:var(--font-mono);font-size:9px;color:${color};margin-top:2px">
+            ${st.fuel} · <span style="color:${rc}">${REGION_SHORT[st.region]||st.region}</span>${rrp!==undefined?' · $'+rrp.toFixed(2)+'/MWh':''}
+          </div>
         </div>
         <div style="text-align:right">
-          <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:${station.totalMw > 0 ? '#2ed573' : '#64748b'}">${fmt(station.totalMw)}</div>
-          <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted)">/ ${fmt(station.totalCap)} MW</div>
+          <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:${st.totalMw>0?'#2ed573':'#64748b'}">${fmt(st.totalMw)}</div>
+          <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted)">/ ${fmt(st.totalCap)} MW</div>
         </div>
       </div>
       <div style="height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-bottom:8px">
-        <div style="height:100%;width:${stationPct.toFixed(1)}%;background:${color};border-radius:3px;opacity:0.8"></div>
+        <div style="height:100%;width:${sPct.toFixed(1)}%;background:${color};opacity:0.8;border-radius:3px"></div>
       </div>`;
-
-    // Unit rows
-    if (station.duids.length > 1) {
+    if (st.units.length > 1) {
       html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:4px">';
-      for (const unit of station.duids.sort((a,b) => a.duid.localeCompare(b.duid))) {
-        const mw = unit.mw;
-        const isOn = mw !== null && mw > 5;
-        html += `<div style="background:var(--surface2);border-radius:6px;padding:5px 7px;
-                  border:1px solid ${isOn ? color + '55' : 'var(--border)'}">
-          <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted)">${unit.duid}</div>
-          <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;
-                color:${isOn ? color : '#475569'};margin-top:2px">
-            ${mw !== null && mw !== undefined ? fmt(mw) + ' MW' : '—'}
-          </div>
+      for (const u of st.units.sort((a,b)=>a.duid.localeCompare(b.duid))) {
+        const on = u.mw !== null && u.mw > 5;
+        const uPct = (u.mw !== null && u.capacity) ? Math.min(u.mw/u.capacity*100,100).toFixed(0) : 0;
+        html += `<div style="background:var(--surface2);border-radius:6px;padding:5px 7px;border:1px solid ${on?color+'55':'var(--border)'}">
+          <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted)">${u.duid}</div>
+          <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:${on?color:'#475569'};margin-top:2px">${u.mw!==null?fmt(u.mw)+' MW':'—'}</div>
           <div style="height:3px;background:var(--surface);border-radius:2px;margin-top:3px;overflow:hidden">
-            <div style="height:100%;width:${mw !== null && unit.capacity ? Math.min(mw/unit.capacity*100,100).toFixed(0) : 0}%;background:${color};opacity:0.7"></div>
+            <div style="height:100%;width:${uPct}%;background:${color};opacity:0.7"></div>
           </div>
         </div>`;
       }
@@ -1313,75 +704,61 @@ function renderOrigin(data) {
   return html;
 }
 
+// ── Panel router ──────────────────────────────────────────────────────────────
+
 function renderPanel(panel, data) {
   const main = document.getElementById('mainContent');
   let html = '';
-
   try {
-    switch(panel) {
-      case 'prices':        html = renderPrices(data); break;
-      case 'generation':    html = renderGeneration(data); break;
-      case 'demand':        html = renderDemand(data); break;
-      case 'interconnectors': html = renderInterconnectors(data); break;
-      case 'origin':          html = renderOrigin(data); break;
-    }
+    if (panel === 'prices')        html = renderPrices(data);
+    else if (panel === 'generation') html = renderGeneration(data);
+    else if (panel === 'demand')   html = renderDemand(data);
+    else if (panel === 'interconnectors') html = renderInterconnectors(data);
+    else if (panel === 'origin')   html = renderOrigin(data);
   } catch(e) {
     console.error('Render error:', e);
     html = `<div class="state-msg"><div class="icon">⚠️</div><div style="font-size:11px">${e.message}</div></div>`;
   }
-
   main.innerHTML = html;
-
-  // Draw charts after DOM update
   requestAnimationFrame(() => {
     try {
-      switch(panel) {
-        case 'prices':        drawPriceChart(data); break;
-        case 'generation':    selectGenRegion(currentGenRegion); break;
-        case 'demand':        drawDemandChart(data); break;
-        case 'interconnectors': drawIcChart(data); break;
-        case 'origin': break;
-      }
+      if (panel === 'prices')        drawPriceChart(data);
+      else if (panel === 'generation') selectGenRegion(currentGenRegion);
+      else if (panel === 'demand')   drawDemandChart(data);
+      else if (panel === 'interconnectors') drawIcChart(data);
     } catch(e) {
       console.error('Chart error:', e);
     }
   });
 }
 
+// ── Data fetching ─────────────────────────────────────────────────────────────
+
 async function fetchData() {
   const dot = document.getElementById('statusDot');
-  const updated = document.getElementById('lastUpdated');
+  const upd = document.getElementById('lastUpdated');
   dot.className = 'pulse-dot loading';
-
   try {
     const resp = await fetch('/api/data');
     if (resp.status === 503 || resp.status === 202) {
-      updated.textContent = 'Loading data…';
+      upd.textContent = 'Waiting for data…';
       setTimeout(fetchData, 5000);
       return;
     }
     const data = await resp.json();
-    if (data.error && !data.prices) {
-      throw new Error(data.error);
-    }
     latestData = data;
     dot.className = 'pulse-dot';
-    updated.textContent = data.last_updated ? fmtTime(data.last_updated) : 'Just now';
+    upd.textContent = data.last_updated ? fmtTime(data.last_updated) : 'Just now';
     renderPanel(currentPanel, data);
-  } catch (err) {
+  } catch(err) {
     console.error(err);
     dot.className = 'pulse-dot error';
-    updated.textContent = 'Error loading';
-    document.getElementById('mainContent').innerHTML = `
-      <div class="state-msg">
-        <div class="icon">⚠️</div>
-        <div>Could not load NEM data</div>
-        <div style="margin-top:8px;font-size:11px;color:#475569">${err.message}</div>
-      </div>`;
+    upd.textContent = 'Error';
+    document.getElementById('mainContent').innerHTML =
+      `<div class="state-msg"><div class="icon">⚠️</div><div>Could not load data</div><div style="margin-top:8px;font-size:11px;color:#475569">${err.message}</div></div>`;
   }
 }
 
-// Auto-refresh every 5 minutes
 fetchData();
 setInterval(fetchData, 300000);
 </script>

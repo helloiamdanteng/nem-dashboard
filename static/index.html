@@ -408,6 +408,9 @@
   <button class="nav-btn" onclick="showPanel('interconnectors')" id="nav-interconnectors">
     <span class="icon">🔗</span><span class="label">Links</span>
   </button>
+  <button class="nav-btn" onclick="showPanel('origin')" id="nav-origin">
+    <span class="icon">🟠</span><span class="label">Origin</span>
+  </button>
 </nav>
 
 <script>
@@ -1189,6 +1192,117 @@ function drawIcChart(data) {
   });
 }
 
+
+function renderOrigin(data) {
+  const assets = data.origin_assets || {};
+  const prices = data.prices || {};
+  const fuelColors = data.fuel_colors || {};
+
+  const FUEL_ICONS = {
+    "Black Coal": "⬛", "Brown Coal": "🟫", "Gas": "🔥",
+    "Hydro": "💧", "Wind": "🌀", "Solar": "☀️",
+    "Battery": "🔋", "Liquid": "🛢️", "Other": "⚙️"
+  };
+
+  // Group by station
+  const stations = {};
+  for (const [duid, asset] of Object.entries(assets)) {
+    const key = asset.station;
+    if (!stations[key]) stations[key] = { ...asset, duids: [], totalMw: 0, totalCap: 0 };
+    stations[key].duids.push({ duid, ...asset });
+    if (asset.mw !== null && asset.mw !== undefined) stations[key].totalMw += asset.mw;
+    stations[key].totalCap += asset.capacity || 0;
+  }
+
+  // Summary totals by fuel
+  const fuelTotals = {};
+  for (const [duid, asset] of Object.entries(assets)) {
+    if (asset.mw === null || asset.mw === undefined) continue;
+    fuelTotals[asset.fuel] = (fuelTotals[asset.fuel] || 0) + asset.mw;
+  }
+  const totalOriginMw = Object.values(fuelTotals).reduce((a, b) => a + b, 0);
+  const totalOriginCap = Object.values(assets).reduce((a, b) => a + (b.capacity || 0), 0);
+
+  let html = '<div class="section-title">Origin Portfolio Summary</div>';
+
+  // Summary cards — fuel totals
+  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:4px">';
+  for (const [fuel, mw] of Object.entries(fuelTotals).sort((a,b) => b[1]-a[1])) {
+    const color = fuelColors[fuel] || '#95a5a6';
+    html += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
+              padding:10px 8px;text-align:center;border-top:3px solid ${color}">
+      <div style="font-size:16px;margin-bottom:2px">${FUEL_ICONS[fuel] || '⚡'}</div>
+      <div style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:${color}">${fmt(mw)} <span style="font-size:9px;color:var(--text-muted)">MW</span></div>
+      <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-top:2px">${fuel}</div>
+    </div>`;
+  }
+  html += '</div>';
+
+  // Total bar
+  const pct = totalOriginCap > 0 ? Math.min(totalOriginMw / totalOriginCap * 100, 100) : 0;
+  html += `<div class="chart-card" style="margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim)">Total Output</div>
+      <div style="font-family:var(--font-mono);font-size:14px;font-weight:700;color:#ff6b35">${fmt(totalOriginMw)} <span style="font-size:10px;color:var(--text-muted)">/ ${fmt(totalOriginCap)} MW cap</span></div>
+    </div>
+    <div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden">
+      <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#ff6b35,#ffd32a);border-radius:4px;transition:width 0.5s"></div>
+    </div>
+    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);margin-top:4px;text-align:right">${pct.toFixed(1)}% capacity factor</div>
+  </div>`;
+
+  // Station cards
+  html += '<div class="section-title">Stations</div>';
+  const stationList = Object.entries(stations).sort((a,b) => b[1].totalMw - a[1].totalMw);
+
+  for (const [stationName, station] of stationList) {
+    const color = fuelColors[station.fuel] || '#95a5a6';
+    const icon = FUEL_ICONS[station.fuel] || '⚡';
+    const stationPct = station.totalCap > 0 ? Math.min(station.totalMw / station.totalCap * 100, 100) : 0;
+    const region = station.region || '';
+    const regionColor = REGION_COLORS[region] || '#64748b';
+    const rrp = prices[region];
+
+    html += `<div class="chart-card" style="margin-bottom:8px;border-left:3px solid ${color}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div>
+          <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text)">${icon} ${stationName}</div>
+          <div style="font-family:var(--font-mono);font-size:9px;color:${color};margin-top:2px">${station.fuel} · <span style="color:${regionColor}">${REGION_SHORT[region] || region}</span>${rrp !== undefined ? ` · $${rrp.toFixed(2)}/MWh` : ''}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:${station.totalMw > 0 ? '#2ed573' : '#64748b'}">${fmt(station.totalMw)}</div>
+          <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted)">/ ${fmt(station.totalCap)} MW</div>
+        </div>
+      </div>
+      <div style="height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-bottom:8px">
+        <div style="height:100%;width:${stationPct.toFixed(1)}%;background:${color};border-radius:3px;opacity:0.8"></div>
+      </div>`;
+
+    // Unit rows
+    if (station.duids.length > 1) {
+      html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:4px">';
+      for (const unit of station.duids.sort((a,b) => a.duid.localeCompare(b.duid))) {
+        const mw = unit.mw;
+        const isOn = mw !== null && mw > 5;
+        html += `<div style="background:var(--surface2);border-radius:6px;padding:5px 7px;
+                  border:1px solid ${isOn ? color + '55' : 'var(--border)'}">
+          <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted)">${unit.duid}</div>
+          <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;
+                color:${isOn ? color : '#475569'};margin-top:2px">
+            ${mw !== null && mw !== undefined ? fmt(mw) + ' MW' : '—'}
+          </div>
+          <div style="height:3px;background:var(--surface);border-radius:2px;margin-top:3px;overflow:hidden">
+            <div style="height:100%;width:${mw !== null && unit.capacity ? Math.min(mw/unit.capacity*100,100).toFixed(0) : 0}%;background:${color};opacity:0.7"></div>
+          </div>
+        </div>`;
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+  return html;
+}
+
 function renderPanel(panel, data) {
   const main = document.getElementById('mainContent');
   let html = '';
@@ -1198,6 +1312,7 @@ function renderPanel(panel, data) {
     case 'generation':    html = renderGeneration(data); break;
     case 'demand':        html = renderDemand(data); break;
     case 'interconnectors': html = renderInterconnectors(data); break;
+    case 'origin':          html = renderOrigin(data); break;
   }
 
   main.innerHTML = html;
@@ -1211,6 +1326,7 @@ function renderPanel(panel, data) {
         break;
       case 'demand':        drawDemandChart(data); break;
       case 'interconnectors': drawIcChart(data); break;
+      case 'origin': break; // no charts needed
     }
   });
 }

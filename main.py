@@ -148,7 +148,7 @@ async def debug():
     # Trading archive timing
     try:
         t0 = time.time()
-        all_zips = _list_hrefs(TRADING_ARCHIVE)
+        all_zips = _list_hrefs(TRADING_CURRENT)
         today_zips = [u for u in all_zips if today_str in u]
         result["trading_total_zips"] = len(all_zips)
         result["trading_today_zips"] = len(today_zips)

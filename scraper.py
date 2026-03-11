@@ -208,6 +208,8 @@ def scrape_region_summary(text: str) -> dict:
         region = row.get("REGIONID", "")
         if region not in NEM_REGIONS:
             continue
+        if row.get("INTERVENTION", "0") not in ("0", ""):
+            continue  # skip intervention runs
         e = summary.setdefault(region, {})
         for f in ["RRP"]:
             v = row.get(f, "")
@@ -218,6 +220,8 @@ def scrape_region_summary(text: str) -> dict:
         region = row.get("REGIONID", "")
         if region not in NEM_REGIONS:
             continue
+        if row.get("INTERVENTION", "0") not in ("0", ""):
+            continue  # skip intervention runs
         e = summary.setdefault(region, {})
         for f in ["TOTALDEMAND","DEMANDFORECAST","INITIALSUPPLY",
                   "DISPATCHABLEGENERATION","SEMISCHEDULEDGENERATION","NETINTERCHANGE"]:
@@ -313,13 +317,16 @@ def scrape_trading_prices_today() -> tuple:
             region = row.get("REGIONID", "")
             if region not in NEM_REGIONS:
                 continue
+            if row.get("INTERVENTION", "0") not in ("0", ""):
+                continue
             dt_str = row.get("SETTLEMENTDATE", "")
             rrp_str = row.get("RRP", "")
             if not dt_str or not rrp_str:
                 continue
             try:
                 rrp = round(float(rrp_str), 2)
-                dt = datetime.fromisoformat(dt_str.replace("/", "-"))
+                # Shift back 30min: AEMO timestamps are end-of-interval
+                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
                 pts.append((region, dt.strftime("%H:%M"), rrp))
             except (ValueError, TypeError):
                 pass
@@ -359,14 +366,17 @@ def scrape_predispatch_prices(text: str) -> dict:
             region = row.get("REGIONID", "")
             if region not in NEM_REGIONS:
                 continue
+            if row.get("INTERVENTION", "0") not in ("0", ""):
+                continue
             dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", ""))
             rrp_str = row.get("RRP", "")
             if not dt_str or not rrp_str:
                 continue
             try:
                 rrp = round(float(rrp_str), 2)
-                dt = datetime.fromisoformat(dt_str.replace("/", "-"))
-                if dt.replace(tzinfo=None) >= now_aest:
+                # Predispatch DATETIME is end-of-interval — shift back 30min
+                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
+                if dt >= now_aest:
                     region_series[region][dt.strftime("%H:%M")] = rrp
             except (ValueError, TypeError):
                 pass
@@ -390,14 +400,17 @@ def scrape_predispatch_demand(text: str) -> dict:
             region = row.get("REGIONID", "")
             if region not in NEM_REGIONS:
                 continue
+            if row.get("INTERVENTION", "0") not in ("0", ""):
+                continue
             dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", ""))
             demand_str = row.get("TOTALDEMAND", row.get("DEMAND", ""))
             if not dt_str or not demand_str:
                 continue
             try:
                 demand = round(float(demand_str), 1)
-                dt = datetime.fromisoformat(dt_str.replace("/", "-"))
-                if dt.replace(tzinfo=None) >= now_aest:
+                # Predispatch DATETIME is end-of-interval — shift back 30min
+                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
+                if dt >= now_aest:
                     region_series[region][dt.strftime("%H:%M")] = demand
             except (ValueError, TypeError):
                 pass
@@ -517,8 +530,8 @@ def scrape_fuel_mix_history_opennem() -> dict:
 def scrape_demand_history_today(trading_zips: list) -> dict:
     """
     Extract TOTALDEMAND from today's TradingIS archive zips (30-min intervals).
-    trading_zips = list of URLs already fetched for price history.
-    Returns { region: [{interval, demand, scheduled, semi}] }
+    AEMO SETTLEMENTDATE is end-of-interval, so we shift back 30min for display.
+    Returns { region: [{interval, demand}] }
     """
     region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
 
@@ -529,20 +542,18 @@ def scrape_demand_history_today(trading_zips: list) -> dict:
             region = row.get("REGIONID", "")
             if region not in NEM_REGIONS:
                 continue
+            if row.get("INTERVENTION", "0") not in ("0", ""):
+                continue
             dt_str = row.get("SETTLEMENTDATE", "")
             demand_str = row.get("TOTALDEMAND", "")
-            sched_str  = row.get("DISPATCHABLEGENERATION", row.get("SS_SOLAR_UIGF", ""))
-            semi_str   = row.get("SEMISCHEDULEDGENERATION", "")
             if not dt_str or not demand_str:
                 continue
             try:
-                dt = datetime.fromisoformat(dt_str.replace("/", "-"))
+                demand = round(float(demand_str), 1)
+                # Shift back 30min: AEMO timestamps are end-of-interval
+                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
                 label = dt.strftime("%H:%M")
-                pts.append((region, label, {
-                    "demand":    round(float(demand_str), 1),
-                    "scheduled": round(float(sched_str), 1) if sched_str else None,
-                    "semi":      round(float(semi_str), 1)  if semi_str  else None,
-                }))
+                pts.append((region, label, demand))
             except (ValueError, TypeError):
                 pass
         return pts
@@ -550,13 +561,13 @@ def scrape_demand_history_today(trading_zips: list) -> dict:
     with ThreadPoolExecutor(max_workers=4) as ex:
         futures = [ex.submit(fetch_one, u) for u in trading_zips]
         for fut in as_completed(futures):
-            for region, label, vals in fut.result():
-                region_series[region][label] = vals
+            for region, label, demand in fut.result():
+                region_series[region][label] = demand
 
     result = {}
     for region, series in region_series.items():
         if series:
-            result[region] = [{"interval": k, **v} for k, v in sorted(series.items())]
+            result[region] = [{"interval": k, "demand": v} for k, v in sorted(series.items())]
     logger.info(f"Demand history: {sum(len(v) for v in result.values())} pts across {len(result)} regions")
     return result
 

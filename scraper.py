@@ -224,7 +224,7 @@ def scrape_region_summary(text: str) -> dict:
             continue  # skip intervention runs
         e = summary.setdefault(region, {})
         for f in ["TOTALDEMAND","DEMANDFORECAST","INITIALSUPPLY",
-                  "DISPATCHABLEGENERATION","SEMISCHEDULEDGENERATION","NETINTERCHANGE"]:
+                  "DISPATCHABLEGENERATION","SEMISCHEDULE_CLEAREDMW","NETINTERCHANGE"]:
             v = row.get(f, "")
             if v:
                 try: e[f] = round(float(v), 1)
@@ -713,12 +713,6 @@ def scrape_all() -> dict:
     _update_price_history(region_summary)
     price_history = _get_price_history()
 
-    # Supplement SCADA with unit solution if needed
-    missing = ORIGIN_DUIDS - set(scada_vals.keys())
-    if missing:
-        unit_sol = scrape_unit_solution(dispatch_text, missing)
-        scada_vals.update(unit_sol)
-
     # Parse predispatch
     pd_prices = scrape_predispatch_prices(predispatch_text)
     pd_demand = scrape_predispatch_demand(predispatch_text)
@@ -743,7 +737,7 @@ def scrape_all() -> dict:
     demand     = {r: d["TOTALDEMAND"]             for r, d in region_summary.items() if "TOTALDEMAND" in d}
     generation = {r: {
         "Scheduled":      d.get("DISPATCHABLEGENERATION", 0),
-        "Semi-Scheduled": d.get("SEMISCHEDULEDGENERATION", 0),
+        "Semi-Scheduled": d.get("SEMISCHEDULE_CLEAREDMW", 0),
         "Net Interchange":d.get("NETINTERCHANGE", 0),
     } for r, d in region_summary.items() if "DISPATCHABLEGENERATION" in d}
 

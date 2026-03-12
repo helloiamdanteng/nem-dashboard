@@ -160,7 +160,7 @@ async def debug():
     from zoneinfo import ZoneInfo
 
     result = {}
-    aest = ZoneInfo("Australia/Sydney")
+    aest = ZoneInfo("Australia/Brisbane")  # UTC+10 fixed, matches AEMO
     now = datetime.now(aest)
     today_str = now.strftime("%Y%m%d")
     result["now_aest"] = now.isoformat()

@@ -443,30 +443,6 @@
     "region": "QLD1",
     "capacity": 100
   },
-  "LOYYANG1": {
-    "station": "Loy Yang A",
-    "fuel": "Brown Coal",
-    "region": "VIC1",
-    "capacity": 560
-  },
-  "LOYYANG2": {
-    "station": "Loy Yang A",
-    "fuel": "Brown Coal",
-    "region": "VIC1",
-    "capacity": 560
-  },
-  "LOYYANG3": {
-    "station": "Loy Yang A",
-    "fuel": "Brown Coal",
-    "region": "VIC1",
-    "capacity": 560
-  },
-  "LOYYANG4": {
-    "station": "Loy Yang A",
-    "fuel": "Brown Coal",
-    "region": "VIC1",
-    "capacity": 560
-  },
   "MORTLK1": {
     "station": "Mortlake",
     "fuel": "Gas",
@@ -1522,5 +1498,89 @@
     "fuel": "Rooftop Solar",
     "region": "TAS1",
     "capacity": 200
+  },
+  "STAN-1": {
+    "station": "Stanwell",
+    "fuel": "Black Coal",
+    "region": "QLD1",
+    "capacity": 365
+  },
+  "STAN-2": {
+    "station": "Stanwell",
+    "fuel": "Black Coal",
+    "region": "QLD1",
+    "capacity": 365
+  },
+  "STAN-3": {
+    "station": "Stanwell",
+    "fuel": "Black Coal",
+    "region": "QLD1",
+    "capacity": 365
+  },
+  "STAN-4": {
+    "station": "Stanwell",
+    "fuel": "Black Coal",
+    "region": "QLD1",
+    "capacity": 365
+  },
+  "ERARING1": {
+    "station": "Eraring",
+    "fuel": "Black Coal",
+    "region": "NSW1",
+    "capacity": 720
+  },
+  "ERARING2": {
+    "station": "Eraring",
+    "fuel": "Black Coal",
+    "region": "NSW1",
+    "capacity": 720
+  },
+  "ERARING3": {
+    "station": "Eraring",
+    "fuel": "Black Coal",
+    "region": "NSW1",
+    "capacity": 720
+  },
+  "ERARING4": {
+    "station": "Eraring",
+    "fuel": "Black Coal",
+    "region": "NSW1",
+    "capacity": 720
+  },
+  "MTPIPER1": {
+    "station": "Mt Piper",
+    "fuel": "Black Coal",
+    "region": "NSW1",
+    "capacity": 700
+  },
+  "MTPIPER2": {
+    "station": "Mt Piper",
+    "fuel": "Black Coal",
+    "region": "NSW1",
+    "capacity": 700
+  },
+  "LD01": {
+    "station": "Liddell",
+    "fuel": "Black Coal",
+    "region": "NSW1",
+    "capacity": 500
+  },
+  "LD02": {
+    "station": "Liddell",
+    "fuel": "Black Coal",
+    "region": "NSW1",
+    "capacity": 500
+  },
+  "LD03": {
+    "station": "Liddell",
+    "fuel": "Black Coal",
+    "region": "NSW1",
+    "capacity": 500
+  },
+  "LD04": {
+    "station": "Liddell",
+    "fuel": "Black Coal",
+    "region": "NSW1",
+    "capacity": 500
   }
 }

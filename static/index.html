@@ -397,12 +397,12 @@ function drawPriceChart(data) {
       borderColor: color+'cc', backgroundColor: 'transparent',
       borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: false
     });
-    // Predispatch — dashed
+    // Predispatch — dashed, spanGaps true (30-min points on 5-min spine)
     datasets.push({
       label: REGION_SHORT[r]+' PD', regionId: r, isPD: true,
       data: labels.map(l => pm[l] !== undefined ? pm[l] : null),
       borderColor: color+'99', backgroundColor: 'transparent',
-      borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: false,
+      borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: true,
       borderDash: [5, 5]
     });
   }
@@ -711,7 +711,7 @@ function drawDemandChart(data) {
       label: REGION_SHORT[r]+' PD', regionId: r,
       data: labels.map(l => pm[l] !== undefined ? pm[l] : null),
       borderColor: color+'99', backgroundColor: 'transparent',
-      borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: false,
+      borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: true,
       borderDash: [5, 5]
     });
   }

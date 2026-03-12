@@ -1119,38 +1119,57 @@ function renderPanel(panel, data) {
 
 // ── Data fetching ─────────────────────────────────────────────────────────────
 
-let slowRetries = 0;
-const SLOW_MAX_RETRIES = 18; // 18 × 10s = 3 min max wait
+// Single slow-data poll loop — no setInterval, no overlapping retries
+let _slowPollActive = false;
 
 async function fetchSlowData() {
-  try {
-    const resp = await fetch('/api/slow');
-    if (resp.status === 202) {
-      slowRetries++;
-      if (slowRetries < SLOW_MAX_RETRIES) {
-        setTimeout(fetchSlowData, 10000);
-      } else {
-        // Give up — show stations/weekahead as unavailable
-        console.warn('Slow data never arrived after max retries');
-        slowData = { _unavailable: true };
+  if (_slowPollActive) return;          // never run two at once
+  _slowPollActive = true;
+
+  const POLL_INTERVAL  = 12000;         // 12s between polls while waiting
+  const REFRESH_INTERVAL = 1800000;    // 30 min between refreshes once loaded
+  const MAX_WAIT_MS = 3 * 60 * 1000;  // give up after 3 min
+  const started = Date.now();
+
+  while (true) {
+    try {
+      const resp = await fetch('/api/slow');
+
+      if (resp.status === 202) {
+        if (Date.now() - started > MAX_WAIT_MS) {
+          console.warn('Slow data unavailable after 3 min, giving up');
+          slowData = { _unavailable: true };
+          if (currentPanel === 'stations' || currentPanel === 'weekahead') {
+            renderPanel(currentPanel, latestData);
+          }
+          break;
+        }
+        await new Promise(r => setTimeout(r, POLL_INTERVAL));
+        continue;
+      }
+
+      if (resp.ok) {
+        slowData = await resp.json();
         if (currentPanel === 'stations' || currentPanel === 'weekahead') {
           renderPanel(currentPanel, latestData);
         }
+        // Wait 30 min then kick off a fresh cycle
+        await new Promise(r => setTimeout(r, REFRESH_INTERVAL));
+        _slowPollActive = false;
+        fetchSlowData();
+        return;
       }
-      return;
+
+      // Unexpected status — back off
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+
+    } catch(e) {
+      console.error('Slow fetch error:', e);
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
     }
-    if (resp.ok) {
-      slowRetries = 0;
-      slowData = await resp.json();
-      // Re-render if on a slow-data panel
-      if (currentPanel === 'stations' || currentPanel === 'weekahead') {
-        renderPanel(currentPanel, latestData);
-      }
-    }
-  } catch(e) {
-    console.error('Slow data fetch failed:', e);
-    setTimeout(fetchSlowData, 30000);
   }
+
+  _slowPollActive = false;
 }
 
 async function fetchData() {
@@ -1181,8 +1200,7 @@ async function fetchData() {
 fetchData();
 setInterval(fetchData, 300000);
 // Start slow data fetch 3s after fast data — doesn't block initial render
-setTimeout(fetchSlowData, 3000);
-setInterval(fetchSlowData, 1800000);
+setTimeout(fetchSlowData, 3000); // loop manages its own refresh
 </script>
 </body>
 </html>

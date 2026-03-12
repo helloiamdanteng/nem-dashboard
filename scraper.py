@@ -889,8 +889,7 @@ def scrape_all() -> dict:
         f"scrape_all done — prices:{list(prices.keys())} "
         f"trading_pts:{sum(len(v) for v in trading_prices.values())} "
         f"dispatch_5min_pts:{sum(len(v) for v in capped_dispatch_prices.values())} "
-        f"origin_duids_found:{len(scada_vals)} "
-        f"fuel_mix_regions:{list(fuel_mix.keys())}"
+        f"origin_duids_found:{len(scada_vals)}"
     )
 
     return {

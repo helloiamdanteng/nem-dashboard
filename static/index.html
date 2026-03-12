@@ -712,18 +712,23 @@ function renderFuelSnapshot(activeRegions, fuelMix, fc, FUEL_ORDER) {
 // ── Demand ────────────────────────────────────────────────────────────────────
 
 function renderDemand(data) {
-  const demand = data.demand || {}, raw = data.raw_summary || {};
-  let html = '<div class="section-title">Latest Demand (MW)</div><div class="demand-grid">';
+  const demand   = data.demand    || {};
+  const opDemand = data.op_demand || {};
+  const raw = data.raw_summary || {};
+  let html = '<div class="section-title">Latest Operational Demand (MW)</div><div class="demand-grid">';
   for (const r of REGIONS) {
-    const d = demand[r];
+    const op = opDemand[r];
+    const sc = demand[r];
     html += `<div class="demand-card">
       <div class="region" style="color:${REGION_COLORS[r]}">${REGION_SHORT[r]}</div>
-      <div class="value">${d !== undefined ? fmt(d) : '—'}</div>
-      <div class="unit">MW</div></div>`;
+      <div class="value">${op !== undefined ? fmt(op) : (sc !== undefined ? fmt(sc) : '—')}</div>
+      <div class="unit">MW</div>
+      ${sc !== undefined && op !== undefined ? `<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-top:2px">sched ${fmt(sc)}</div>` : ''}
+    </div>`;
   }
   html += '</div>';
   html += '<div class="section-title">Demand History + Predispatch</div>';
-  html += '<div class="chart-card"><div class="chart-title">Total Demand — Actual (solid) · Predispatch (dashed)</div>';
+  html += '<div class="chart-card"><div class="chart-title">Total Demand — Operational (solid) · Scheduled (dashed) · Predispatch (dotted)</div>';
   html += '<div class="chart-container" style="height:250px"><canvas id="demandHistChart"></canvas></div>';
   html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
   for (const r of REGIONS) {
@@ -763,11 +768,12 @@ function drawDemandChart(data) {
   const ctx = document.getElementById('demandHistChart');
   if (!ctx) return;
 
-  // dispatch_history has shape [{interval, demand}], demand_history same shape
-  const dispHist  = data.dispatch_history  || {};
-  const snapHist  = data.demand_history    || {};
-  const pd        = data.predispatch_demand || {};
-  const liveDemand = data.demand || {};
+  const dispHist   = data.dispatch_history   || {};
+  const opHist     = data.op_demand_history  || {};
+  const snapHist   = data.demand_history     || {};
+  const pd         = data.predispatch_demand || {};
+  const liveDemand = data.demand    || {};
+  const liveOp     = data.op_demand || {};
   const now = nowAEST();
 
   // Build 5-min spine
@@ -776,7 +782,6 @@ function drawDemandChart(data) {
     for (let m = 0; m < 60; m += 5)
       allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
 
-  // Find last slot with any data
   const hasData = new Set();
   for (const r of REGIONS) {
     const src = (dispHist[r] && dispHist[r].length) ? dispHist[r] : (snapHist[r] || []);
@@ -790,10 +795,8 @@ function drawDemandChart(data) {
     return;
   }
   ctx.style.display = '';
-
   const labels = allSlots.slice(0, allSlots.indexOf(lastSlot) + 1);
 
-  // Snap now
   const [nh, nm] = now.split(':').map(Number);
   const nowMins  = nh * 60 + nm;
   const nowSnap  = allSlots.reduce((a, b) => {
@@ -806,35 +809,58 @@ function drawDemandChart(data) {
   const datasets = [];
   for (const r of REGIONS) {
     const color = REGION_COLORS[r];
-    // Prefer dispatch_history, fall back to demand_history snapshots
     const src = (dispHist[r] && dispHist[r].length) ? dispHist[r] : (snapHist[r] || []);
+
+    // Scheduled demand (TOTALDEMAND) — solid line
     const hm = {};
     src.forEach(p => {
       if (p.interval !== undefined) {
-        // dispatch_history uses p.demand; demand_history also uses p.demand
         const val = p.demand !== undefined ? p.demand : p.totaldemand;
         if (val !== null && val !== undefined) hm[p.interval] = val;
       }
     });
-    if (liveDemand[r] != null) hm[nowSnap] = liveDemand[r]; // inject live point
+    if (liveDemand[r] != null) hm[nowSnap] = liveDemand[r];
 
+    // Operational demand (DEMAND_AND_NONSCHEDGEN) — slightly thicker, same colour but brigher
+    const opHm = {};
+    (opHist[r] || []).forEach(p => {
+      if (p.interval !== undefined && p.demand != null) opHm[p.interval] = p.demand;
+    });
+    if (liveOp[r] != null) opHm[nowSnap] = liveOp[r];
+
+    // Predispatch
     const pm = {};
     (pd[r] || []).forEach(p => { if (p.interval) pm[p.interval] = p.demand; });
+    const lastActualD = labels.slice().reverse().find(l => opHm[l] !== undefined || hm[l] !== undefined);
+    if (lastActualD && Object.keys(pm).length) {
+      pm[lastActualD] = opHm[lastActualD] || hm[lastActualD];
+    }
 
-    // Bridge PD to last actual before pushing datasets
-    const lastActualD = labels.slice().reverse().find(l => hm[l] !== undefined);
-    if (lastActualD && Object.keys(pm).length) pm[lastActualD] = hm[lastActualD];
+    // Operational demand — bold line (the main one to read)
+    if (Object.keys(opHm).length) {
+      datasets.push({
+        label: REGION_SHORT[r] + ' Op', regionId: r,
+        data: labels.map(l => opHm[l] !== undefined ? opHm[l] : null),
+        borderColor: color, backgroundColor: color + '18',
+        borderWidth: 2.5, pointRadius: 0, tension: 0.2, spanGaps: false,
+        fill: false,
+      });
+    }
 
+    // Scheduled demand — thin dashed (context)
     datasets.push({
       label: REGION_SHORT[r], regionId: r,
       data: labels.map(l => hm[l] !== undefined ? hm[l] : null),
-      borderColor: color, backgroundColor: 'transparent',
-      borderWidth: 2.5, pointRadius: 0, tension: 0.2, spanGaps: false
+      borderColor: color + '77', backgroundColor: 'transparent',
+      borderWidth: 1.2, pointRadius: 0, tension: 0.2, spanGaps: false,
+      borderDash: [3, 3],
     });
+
+    // Predispatch
     datasets.push({
       label: REGION_SHORT[r]+' PD', regionId: r,
       data: labels.map(l => pm[l] !== undefined ? pm[l] : null),
-      borderColor: color+'99', backgroundColor: 'transparent',
+      borderColor: color+'66', backgroundColor: 'transparent',
       borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: true,
       borderDash: [5, 5]
     });

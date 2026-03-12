@@ -307,16 +307,23 @@ async def debug():
             "fuel_mix":      {r: len(v) for r, v in d.get("fuel_mix_history", {}).items()},
             "ic_history":    {k: len(v) for k, v in d.get("ic_history", {}).items()},
         }
+    if gen_cache["data"]:
+        gd = gen_cache["data"]
+        result["gen_cache"] = {
+            "scada_count":   gd.get("scada_count", 0),
+            "reg_count":     gd.get("reg_count", 0),
+            "fuel_mix_regions": list(gd.get("fuel_mix", {}).keys()),
+            "fuel_mix_sample": {r: dict(list(v.items())[:3]) for r, v in gd.get("fuel_mix", {}).items()},
+            "fuel_history_pts": {r: len(v) for r, v in gd.get("fuel_history", {}).items()},
+            "gen_error":     gen_cache.get("error"),
+        }
+    else:
+        result["gen_cache"] = {"status": "no data yet", "error": gen_cache.get("error")}
+
     if slow_cache["data"]:
         d = slow_cache["data"]
-        gens = d.get("generators", {}).get("grouped", {})
         result["slow_cache"] = {
-            "gen_regions":   list(gens.keys()),
-            "gen_units":     sum(len(u) for r in gens.values() for u in r.values()),
-            "reg_list_count": d.get("generators", {}).get("reg_list_count", 0),
-            "scada_count":   d.get("generators", {}).get("scada_count", 0),
             "stpasa_pts":    {r: len(v) for r, v in d.get("stpasa_demand", {}).items()},
-            "fuel_mix_pts":  {r: len(v) for r, v in d.get("fuel_mix_today", {}).items()},
         }
 
     return JSONResponse(content=result)

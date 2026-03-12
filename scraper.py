@@ -574,16 +574,46 @@ def _normalise_fuel(fuel: str) -> str:
     return "Other"
 
 
-def scrape_fuel_mix_history_opennem() -> dict:
+def scrape_fuel_mix_live() -> dict:
     """
-    Single API call to OpenNEM for the whole NEM, then split by region.
-    Returns { region: [ {interval, Black Coal, Gas, ...}, ... ] }
+    Compute current fuel mix from SCADA output + registration list.
+    Returns { region: { fuel: mw } } — a single snapshot (not history).
+    Used as primary source; OpenNEM used for history if available.
     """
     try:
-        url = f"{OPENNEM_API}/v4/stats/power/network/NEM?interval=30m&period=1d"
-        r = _get(url, timeout=15)
-        if not r:
+        scada = _fetch_full_scada()
+        reg   = _load_registration_list()
+        if not scada or not reg:
             return {}
+
+        result: dict[str, dict[str, float]] = {r: {} for r in NEM_REGIONS}
+        for duid, mw in scada.items():
+            info = reg.get(duid, {})
+            region = info.get("region", "")
+            fuel   = info.get("fuel", "Other")
+            if region not in NEM_REGIONS or mw is None or mw <= 0:
+                continue
+            result[region][fuel] = round(result[region].get(fuel, 0) + mw, 1)
+
+        final = {r: v for r, v in result.items() if v}
+        logger.info(f"Live fuel mix: {len(final)} regions")
+        return final
+    except Exception as e:
+        logger.warning(f"Live fuel mix failed: {e}")
+        return {}
+
+
+def scrape_fuel_mix_history_opennem() -> dict:
+    """
+    Fetch fuel mix history from OpenNEM API.
+    Returns { region: [ {interval, Black Coal, Gas, ...}, ... ] }
+    Falls back to live SCADA snapshot if OpenNEM is unavailable.
+    """
+    try:
+        url = f"{OPENNEM_API}/v4/stats/power/network/NEM?interval=5m&period=1d"
+        r = _get(url, timeout=15)
+        if not r or r.status_code != 200:
+            raise ValueError(f"OpenNEM returned {r.status_code if r else 'no response'}")
         data = r.json()
         # result: region -> interval_str -> fuel -> mw
         result: dict[str, dict] = {}
@@ -598,7 +628,7 @@ def scrape_fuel_mix_history_opennem() -> dict:
             fuel = _normalise_fuel(fuel_raw)
             history = series.get("history", {})
             start_str = history.get("start", "")
-            interval_mins = history.get("interval", 30)
+            interval_mins = history.get("interval", 5)
             values = history.get("data", []) or []
             if not start_str or not values:
                 continue
@@ -617,11 +647,16 @@ def scrape_fuel_mix_history_opennem() -> dict:
         for region, series in result.items():
             if series:
                 final[region] = [{"interval": k, **v} for k, v in sorted(series.items())]
-        logger.info(f"Fuel mix: {sum(len(v) for v in final.values())} pts across {len(final)} regions")
-        return final
+        if final:
+            logger.info(f"Fuel mix (OpenNEM): {sum(len(v) for v in final.values())} pts across {len(final)} regions")
+            return final
+        raise ValueError("OpenNEM returned empty data")
     except Exception as e:
-        logger.warning(f"OpenNEM fuel mix failed: {e}")
-        return {}
+        logger.warning(f"OpenNEM fuel mix failed: {e} — using live SCADA snapshot")
+        # Fall back: wrap live snapshot as single-point history
+        live = scrape_fuel_mix_live()
+        now_label = datetime.now(AEST).strftime("%H:%M")
+        return {r: [{"interval": now_label, **fuels}] for r, fuels in live.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -812,7 +847,7 @@ def _fuel_from_reg(fuel_raw: str) -> str:
 
 def _load_registration_list() -> dict:
     """
-    Download and parse AEMO NEM Registration and Exemption List (XLS).
+    Download and parse AEMO NEM Registration and Exemption List (.xls).
     Returns { DUID: {station, fuel, region, capacity_mw, participant} }
     Cached once per day.
     """
@@ -822,9 +857,9 @@ def _load_registration_list() -> dict:
         return _reg_cache
 
     try:
-        import openpyxl
+        import xlrd
     except ImportError:
-        logger.warning("openpyxl not installed; registration list unavailable")
+        logger.warning("xlrd not installed; registration list unavailable")
         return _reg_cache
 
     try:
@@ -832,30 +867,31 @@ def _load_registration_list() -> dict:
         if not r:
             return _reg_cache
 
-        wb = openpyxl.load_workbook(io.BytesIO(r.content), read_only=True, data_only=True)
-        # Sheet name varies; find the generators sheet
+        wb = xlrd.open_workbook(file_contents=r.content)
+        # Find the generators sheet
         sheet = None
-        for name in wb.sheetnames:
+        for name in wb.sheet_names():
             if "generator" in name.lower() or "scheduled" in name.lower():
-                sheet = wb[name]
+                sheet = wb.sheet_by_name(name)
                 break
-        if sheet is None and wb.sheetnames:
-            sheet = wb[wb.sheetnames[0]]
+        if sheet is None:
+            sheet = wb.sheet_by_index(0)
         if sheet is None:
             return _reg_cache
 
-        rows = list(sheet.iter_rows(values_only=True))
-        # Find header row
-        header_row = None
-        for i, row in enumerate(rows[:10]):
-            cells = [str(c or "").upper() for c in row]
+        # Find header row (contains DUID)
+        header_row_idx = None
+        for i in range(min(15, sheet.nrows)):
+            cells = [str(sheet.cell_value(i, j)).upper() for j in range(sheet.ncols)]
             if any("DUID" in c for c in cells):
-                header_row = i
+                header_row_idx = i
                 break
-        if header_row is None:
+        if header_row_idx is None:
+            logger.warning("Registration list: DUID header not found")
             return _reg_cache
 
-        headers = [str(c or "").strip().upper() for c in rows[header_row]]
+        headers = [str(sheet.cell_value(header_row_idx, j)).strip().upper()
+                   for j in range(sheet.ncols)]
 
         def col(name_parts):
             for i, h in enumerate(headers):
@@ -871,22 +907,21 @@ def _load_registration_list() -> dict:
         ci_part     = col(["PARTICIPANT"])
 
         result = {}
-        for row in rows[header_row + 1:]:
-            if not row or ci_duid is None:
+        for i in range(header_row_idx + 1, sheet.nrows):
+            if ci_duid is None:
                 continue
-            duid = str(row[ci_duid] or "").strip().upper()
-            if not duid or duid == "DUID":
+            duid = str(sheet.cell_value(i, ci_duid)).strip().upper()
+            if not duid or duid == "DUID" or duid == "":
                 continue
-            station  = str(row[ci_station]  or "").strip() if ci_station  is not None else ""
-            fuel_raw = str(row[ci_fuel]     or "").strip() if ci_fuel     is not None else ""
-            region   = str(row[ci_region]   or "").strip() if ci_region   is not None else ""
-            cap_raw  = row[ci_capacity]                     if ci_capacity is not None else None
-            part     = str(row[ci_part]     or "").strip() if ci_part     is not None else ""
+            station  = str(sheet.cell_value(i, ci_station)).strip()  if ci_station  is not None else ""
+            fuel_raw = str(sheet.cell_value(i, ci_fuel)).strip()     if ci_fuel     is not None else ""
+            region   = str(sheet.cell_value(i, ci_region)).strip()   if ci_region   is not None else ""
+            cap_raw  = sheet.cell_value(i, ci_capacity)               if ci_capacity is not None else None
+            part     = str(sheet.cell_value(i, ci_part)).strip()     if ci_part     is not None else ""
             try:
                 capacity = round(float(cap_raw), 1) if cap_raw not in (None, "") else None
             except (ValueError, TypeError):
                 capacity = None
-            # Normalise region
             if region and not region.endswith("1"):
                 region = region + "1"
             result[duid] = {
@@ -904,7 +939,7 @@ def _load_registration_list() -> dict:
         return result
 
     except Exception as e:
-        logger.warning(f"Registration list load failed: {e}")
+        logger.warning(f"Registration list load failed: {e}", exc_info=True)
         return _reg_cache
 
 
@@ -1052,10 +1087,12 @@ def scrape_all_generators() -> dict:
 
     logger.info(f"scrape_all_generators: {sum(len(v) for r in grouped.values() for v in r.values())} units across {len(grouped)} regions")
     return {
-        "timestamp":   timestamp,
-        "grouped":     grouped,
-        "summary":     summary,
-        "fuel_colors": FUEL_COLORS,
+        "timestamp":      datetime.now(timezone.utc).isoformat(),
+        "grouped":        grouped,
+        "summary":        summary,
+        "fuel_colors":    FUEL_COLORS,
+        "reg_list_count": len(reg),
+        "scada_count":    len(scada),
     }
 
 

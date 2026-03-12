@@ -314,11 +314,22 @@ def scrape_trading_history() -> dict:
     today_str = now_aest.strftime("%Y%m%d")
 
     all_zips = _list_hrefs(TRADING_CURRENT)
-    today_zips = [u for u in all_zips if today_str in u]
+    today_zips = sorted([u for u in all_zips if today_str in u])
     if not today_zips:
-        today_zips = all_zips[-48:]
-    # Cap at 48 — one per 30-min interval, max 48 per day
-    today_zips = sorted(today_zips)[-300:]
+        today_zips = sorted(all_zips)[-48:]
+
+    # TradingIS has ~5 files per 30-min interval (one per dispatch run).
+    # Keep only the LAST file per HHMM timestamp to get the final settled price.
+    # Filename format: PUBLIC_TRADINGIS_YYYYMMDDHHММ_<seq>.zip
+    seen_hhmm = {}
+    for url in today_zips:
+        fname = url.split('/')[-1]
+        parts = fname.split('_')
+        # parts[2] is the datetime stamp e.g. 202603121335
+        if len(parts) >= 3 and len(parts[2]) >= 12:
+            hhmm = parts[2][8:12]  # extract HHMM
+            seen_hhmm[hhmm] = url  # last one wins (sorted ascending)
+    today_zips = sorted(seen_hhmm.values())
 
     prices: dict[str, dict] = {r: {} for r in NEM_REGIONS}
     fetch_ok = 0

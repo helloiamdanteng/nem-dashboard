@@ -195,9 +195,9 @@ const REGION_COLORS = {QLD1:'#f39c12',NSW1:'#3498db',VIC1:'#2ed573',SA1:'#e74c3c
 const FUEL_ICONS = {"Black Coal":"⬛","Brown Coal":"🟫","Gas":"🔥","Hydro":"💧","Wind":"🌀","Solar":"☀️","Battery":"🔋","Liquid":"🛢️","Other":"⚙️"};
 
 let currentPanel = 'prices';
-let currentGenRegion = 'NSW1';
 let charts = {};
 let latestData = null;
+let genRegion = 'NEM';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1105,7 +1105,6 @@ function renderOrigin(data) {
 // ── Stations (all NEM generators) ────────────────────────────────────────────
 
 let stationsRegionFilter = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
-let genRegion = 'NEM';
 let slowData = null;
 
 function setGenRegion(r) {

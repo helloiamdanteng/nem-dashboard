@@ -1,1156 +1,1169 @@
-"""
-NEMWeb scraper — concurrent fetches, Origin assets, fuel mix via OpenNEM.
-
-AEMO CSV format:
-  C rows = comments
-  I rows = headers: [I, TABLE, SUBTABLE, VERSION, col1, col2, ...]
-  D rows = data:    [D, TABLE, SUBTABLE, VERSION, val1, val2, ...]
-  Trailing comma means last field is always empty — we handle by slicing from index 4.
-"""
-
-import re
-import csv
-import io
-import logging
-import zipfile
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
-from typing import Optional
-from zoneinfo import ZoneInfo
-
-import requests
-
-logger = logging.getLogger(__name__)
-
-AEST = ZoneInfo("Australia/Sydney")
-NEMWEB_BASE       = "https://www.nemweb.com.au"
-DISPATCH_IS_URL   = f"{NEMWEB_BASE}/Reports/CURRENT/DispatchIS_Reports/"
-PREDISPATCH_URL   = f"{NEMWEB_BASE}/Reports/CURRENT/PredispatchIS_Reports/"
-SCADA_URL         = f"{NEMWEB_BASE}/Reports/CURRENT/Dispatch_SCADA/"
-TRADING_CURRENT   = f"{NEMWEB_BASE}/Reports/CURRENT/TradingIS_Reports/"
-ST_PASA_URL       = f"{NEMWEB_BASE}/Reports/CURRENT/Short_Term_PASA_Reports/"
-OPENNEM_API       = "https://api.opennem.org.au"
-AEMO_REG_LIST_URL = "https://www.aemo.com.au/-/media/Files/Electricity/NEM/Participant_Information/Current-Participants/NEM-Registration-and-Exemption-List.xls"
-
-NEM_REGIONS = ["QLD1", "NSW1", "VIC1", "SA1", "TAS1"]
-
-FUEL_COLORS = {
-    "Black Coal": "#4a4a6a",
-    "Brown Coal": "#8B4513",
-    "Gas":        "#ff9f40",
-    "Hydro":      "#36a2eb",
-    "Wind":       "#4bc0c0",
-    "Solar":      "#ffd700",
-    "Battery":    "#9b59b6",
-    "Liquid":     "#e74c3c",
-    "Other":      "#95a5a6",
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>NEM Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:#0a0e1a; --surface:#111827; --surface2:#1a2235; --border:#1e2d45;
+  --accent:#00d4ff; --accent2:#ff6b35; --text:#e2e8f0;
+  --text-muted:#64748b; --text-dim:#94a3b8;
+  --red:#ff4757; --green:#2ed573; --yellow:#ffd32a;
+  --qld:#f39c12; --nsw:#3498db; --vic:#2ed573; --sa:#e74c3c; --tas:#9b59b6;
+  --font-mono:'Space Mono',monospace; --font-sans:'DM Sans',sans-serif;
 }
-ALL_FUELS = list(FUEL_COLORS.keys())
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--bg); color:var(--text); font-family:var(--font-sans); min-height:100vh; overscroll-behavior:none; }
 
-# ---------------------------------------------------------------------------
-# Origin Energy assets — DUID -> display info
-# These are Origin's registered generating units in the NEM
-# ---------------------------------------------------------------------------
-ORIGIN_ASSETS = {
-    # Eraring Power Station (Coal, NSW) — largest power station in Australia
-    "ERARING1": {"name": "Eraring 1", "station": "Eraring",     "fuel": "Black Coal", "region": "NSW1", "capacity": 720},
-    "ERARING2": {"name": "Eraring 2", "station": "Eraring",     "fuel": "Black Coal", "region": "NSW1", "capacity": 720},
-    "ERARING3": {"name": "Eraring 3", "station": "Eraring",     "fuel": "Black Coal", "region": "NSW1", "capacity": 720},
-    "ERARING4": {"name": "Eraring 4", "station": "Eraring",     "fuel": "Black Coal", "region": "NSW1", "capacity": 720},
-    # Mortlake (Gas, VIC)
-    "MORTLK1":  {"name": "Mortlake 1","station": "Mortlake",    "fuel": "Gas",        "region": "VIC1", "capacity": 282},
-    "MORTLK2":  {"name": "Mortlake 2","station": "Mortlake",    "fuel": "Gas",        "region": "VIC1", "capacity": 282},
-    # Darlington Point Solar (NSW)
-    "DARLPNT1": {"name": "Darlington Pt","station":"Darlington Point","fuel":"Solar",  "region": "NSW1", "capacity": 275},
-    # Shoalhaven (Hydro, NSW)
-    "SHGEN":    {"name": "Shoalhaven","station": "Shoalhaven",  "fuel": "Hydro",      "region": "NSW1", "capacity": 240},
-    # Quarantine (Gas, SA)
-    "QPSCL1":   {"name": "Quarantine 1","station":"Quarantine", "fuel": "Gas",        "region": "SA1",  "capacity": 60},
-    "QPSCL2":   {"name": "Quarantine 2","station":"Quarantine", "fuel": "Gas",        "region": "SA1",  "capacity": 60},
-    "QPSCL3":   {"name": "Quarantine 3","station":"Quarantine", "fuel": "Gas",        "region": "SA1",  "capacity": 60},
-    "QPSCL4":   {"name": "Quarantine 4","station":"Quarantine", "fuel": "Gas",        "region": "SA1",  "capacity": 60},
-    # Uranquinty (Gas, NSW)
-    "URANQ1":   {"name": "Uranquinty 1","station":"Uranquinty", "fuel": "Gas",        "region": "NSW1", "capacity": 170},
-    "URANQ2":   {"name": "Uranquinty 2","station":"Uranquinty", "fuel": "Gas",        "region": "NSW1", "capacity": 170},
-    "URANQ3":   {"name": "Uranquinty 3","station":"Uranquinty", "fuel": "Gas",        "region": "NSW1", "capacity": 170},
-    "URANQ4":   {"name": "Uranquinty 4","station":"Uranquinty", "fuel": "Gas",        "region": "NSW1", "capacity": 170},
-    # Osborne (Gas/Cogen, SA)
-    "OSBORNPS": {"name": "Osborne",    "station": "Osborne",    "fuel": "Gas",        "region": "SA1",  "capacity": 180},
-    # Ladbroke Grove (Gas, SA)
-    "LBBG1":    {"name": "Ladbroke 1", "station": "Ladbroke Grove","fuel":"Gas",      "region": "SA1",  "capacity": 80},
-    # Hallett (Wind, SA)
-    "HALLWF1":  {"name": "Hallett Wind","station":"Hallett",    "fuel": "Wind",       "region": "SA1",  "capacity": 95},
-    # Stockyard Hill (Wind, VIC) — Origin's large wind farm
-    "STOCKYD1": {"name": "Stockyard Hill","station":"Stockyard Hill","fuel":"Wind",   "region": "VIC1", "capacity": 530},
-    # Lake Bonney (Wind, SA)
-    "LKBONNY1": {"name": "Lake Bonney 1","station":"Lake Bonney","fuel":"Wind",       "region": "SA1",  "capacity": 81},
-    "LKBONNY2": {"name": "Lake Bonney 2","station":"Lake Bonney","fuel":"Wind",       "region": "SA1",  "capacity": 159},
-    "LKBONNY3": {"name": "Lake Bonney 3","station":"Lake Bonney","fuel":"Wind",       "region": "SA1",  "capacity": 39},
-    # Kareeya (Hydro, QLD)
-    "KAREEYA1": {"name": "Kareeya 1",  "station": "Kareeya",    "fuel": "Hydro",     "region": "QLD1", "capacity": 44},
-    "KAREEYA2": {"name": "Kareeya 2",  "station": "Kareeya",    "fuel": "Hydro",     "region": "QLD1", "capacity": 44},
-    "KAREEYA3": {"name": "Kareeya 3",  "station": "Kareeya",    "fuel": "Hydro",     "region": "QLD1", "capacity": 44},
-    "KAREEYA4": {"name": "Kareeya 4",  "station": "Kareeya",    "fuel": "Hydro",     "region": "QLD1", "capacity": 44},
-    # Cullerin Range (Wind, NSW)
-    "CULLRGWF1":{"name": "Cullerin",   "station": "Cullerin Range","fuel":"Wind",     "region": "NSW1", "capacity": 30},
-    # Shoal Point (TAS — Hydro)
-    "BARCALDN1":{"name": "Barcaldine", "station": "Barcaldine", "fuel": "Gas",        "region": "QLD1", "capacity": 58},
+.header {
+  position:sticky; top:0; z-index:100;
+  background:rgba(10,14,26,0.92); backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border); padding:12px 16px;
+  display:flex; align-items:center; justify-content:space-between;
+}
+.header-left { display:flex; align-items:center; gap:10px; }
+.logo { font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--accent); letter-spacing:0.1em; }
+.pulse-dot { width:8px; height:8px; border-radius:50%; background:var(--green); animation:pulse 2s infinite; }
+.pulse-dot.loading { background:var(--yellow); }
+.pulse-dot.error { background:var(--red); animation:none; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} }
+.last-updated { font-family:var(--font-mono); font-size:10px; color:var(--text-muted); }
+.refresh-btn { background:transparent; border:1px solid var(--border); color:var(--text-dim); border-radius:6px; padding:6px 10px; font-size:13px; cursor:pointer; }
+
+.main { padding:12px 12px 80px; max-width:600px; margin:0 auto; }
+
+.section-title {
+  font-family:var(--font-mono); font-size:10px; font-weight:700; letter-spacing:0.15em;
+  text-transform:uppercase; color:var(--text-muted); margin:20px 0 10px;
+  display:flex; align-items:center; gap:8px;
+}
+.section-title::after { content:''; flex:1; height:1px; background:var(--border); }
+
+.price-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; }
+.price-card {
+  background:var(--surface); border:1px solid var(--border); border-radius:10px;
+  padding:10px 6px; text-align:center; position:relative; overflow:hidden;
+}
+.price-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
+.price-card.qld::before{background:var(--qld)} .price-card.nsw::before{background:var(--nsw)}
+.price-card.vic::before{background:var(--vic)} .price-card.sa::before{background:var(--sa)}
+.price-card.tas::before{background:var(--tas)}
+.price-card .region { font-family:var(--font-mono); font-size:9px; font-weight:700; color:var(--text-muted); margin-bottom:4px; }
+.price-card.qld .region{color:var(--qld)} .price-card.nsw .region{color:var(--nsw)}
+.price-card.vic .region{color:var(--vic)} .price-card.sa  .region{color:var(--sa)}
+.price-card.tas .region{color:var(--tas)}
+.price-card .price { font-family:var(--font-mono); font-size:14px; font-weight:700; line-height:1; }
+.price-card .price.negative{color:var(--green)} .price-card .price.low{color:var(--text)}
+.price-card .price.medium{color:var(--yellow)} .price-card .price.high{color:var(--accent2)}
+.price-card .price.vhigh{color:var(--red)}
+.price-card .unit { font-family:var(--font-mono); font-size:8px; color:var(--text-muted); margin-top:2px; }
+
+.demand-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; }
+.demand-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:10px 6px; text-align:center; }
+.demand-card .region { font-family:var(--font-mono); font-size:9px; font-weight:700; color:var(--text-muted); margin-bottom:4px; }
+.demand-card .value { font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--accent); }
+.demand-card .unit { font-family:var(--font-mono); font-size:8px; color:var(--text-muted); margin-top:2px; }
+
+.chart-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:10px; }
+.chart-card .chart-title { font-family:var(--font-mono); font-size:11px; font-weight:700; color:var(--text-dim); margin-bottom:12px; }
+.chart-container { position:relative; height:180px; }
+
+.ic-list { display:flex; flex-direction:column; gap:8px; }
+.ic-row { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 14px; display:flex; align-items:center; justify-content:space-between; }
+.ic-name { font-family:var(--font-mono); font-size:11px; color:var(--text-dim); min-width:120px; }
+.ic-bar-wrap { flex:1; height:6px; background:var(--surface2); border-radius:3px; margin:0 12px; position:relative; }
+.ic-bar { position:absolute; top:0; height:100%; border-radius:3px; }
+.ic-bar.positive{background:var(--accent);left:50%} .ic-bar.negative{background:var(--accent2);right:50%}
+.ic-midpoint { position:absolute; top:-3px; left:50%; width:2px; height:12px; background:var(--border); transform:translateX(-50%); }
+.ic-value { font-family:var(--font-mono); font-size:12px; font-weight:700; min-width:65px; text-align:right; }
+.ic-value.positive{color:var(--accent)} .ic-value.negative{color:var(--accent2)}
+
+/* ── Stations page ── */
+.fuel-group { margin-bottom:16px; }
+.fuel-group-header {
+  font-family:var(--font-mono); font-size:10px; font-weight:700; letter-spacing:0.12em;
+  text-transform:uppercase; padding:6px 10px; border-radius:6px 6px 0 0;
+  display:flex; align-items:center; justify-content:space-between;
+  background:var(--surface2); border:1px solid var(--border); border-bottom:none;
+}
+.fuel-group-total { font-size:11px; color:var(--text-dim); }
+.station-row {
+  background:var(--surface); border:1px solid var(--border); border-top:none;
+  padding:8px 10px; display:grid; grid-template-columns:1fr auto auto;
+  align-items:center; gap:8px;
+}
+.station-row:last-child { border-radius:0 0 6px 6px; }
+.station-name { font-family:var(--font-sans); font-size:12px; font-weight:500; }
+.station-region { font-family:var(--font-mono); font-size:9px; margin-top:2px; }
+.station-bar-wrap { width:80px; height:4px; background:var(--surface2); border-radius:2px; }
+.station-bar { height:100%; border-radius:2px; }
+.station-mw { font-family:var(--font-mono); font-size:12px; font-weight:700; text-align:right; min-width:60px; }
+.station-cap { font-family:var(--font-mono); font-size:9px; color:var(--text-muted); text-align:right; }
+
+/* ── Region filter pills ── */
+.region-pills { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+.region-pill {
+  font-family:var(--font-mono); font-size:10px; font-weight:700; padding:4px 10px;
+  border-radius:20px; border:1px solid; cursor:pointer; transition:opacity 0.15s;
+  background:transparent; opacity:0.45;
+}
+.region-pill.active { opacity:1; }
+
+/* ── Week ahead ── */
+.week-chart-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:10px; }
+.week-chart-card .chart-title { font-family:var(--font-mono); font-size:11px; font-weight:700; color:var(--text-dim); margin-bottom:12px; }
+.spinner { text-align:center; padding:60px 20px; color:var(--text-muted); font-family:var(--font-mono); font-size:12px; }
+.spinner-icon { font-size:28px; animation:spin 1.5s linear infinite; display:inline-block; }
+@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+
+
+.bottom-nav {
+  position:fixed; bottom:0; left:0; right:0;
+  background:rgba(10,14,26,0.96); backdrop-filter:blur(12px);
+  border-top:1px solid var(--border);
+  display:flex; justify-content:space-around;
+  padding:8px 0 calc(8px + env(safe-area-inset-bottom)); z-index:100;
+}
+.nav-btn { display:flex; flex-direction:column; align-items:center; gap:3px; background:none; border:none; cursor:pointer; padding:4px 10px; color:var(--text-muted); }
+.nav-btn.active { color:var(--accent); }
+.nav-btn .icon { font-size:18px; }
+.nav-btn .label { font-size:10px; font-family:var(--font-mono); }
+
+.table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+table { width:100%; border-collapse:collapse; font-family:var(--font-mono); font-size:11px; }
+th { text-align:left; padding:6px 10px; color:var(--text-muted); font-weight:700; letter-spacing:0.08em; border-bottom:1px solid var(--border); white-space:nowrap; }
+td { padding:8px 10px; border-bottom:1px solid rgba(30,45,69,0.5); white-space:nowrap; }
+tr:last-child td { border-bottom:none; }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left">
+    <div class="logo">⚡ NEM</div>
+    <div class="pulse-dot loading" id="statusDot"></div>
+  </div>
+  <div class="last-updated" id="lastUpdated">Loading…</div>
+  <button class="refresh-btn" onclick="fetchData()">↻</button>
+</header>
+
+<main class="main" id="mainContent">
+  <div class="state-msg"><div class="icon">⚡</div><div>Fetching NEM data…</div></div>
+</main>
+
+<nav class="bottom-nav">
+  <button class="nav-btn active" onclick="showPanel('prices')" id="nav-prices">
+    <span class="icon">💲</span><span class="label">P&amp;D</span>
+  </button>
+  <button class="nav-btn" onclick="showPanel('generation')" id="nav-generation">
+    <span class="icon">⚡</span><span class="label">Gen</span>
+  </button>
+  <button class="nav-btn" onclick="showPanel('interconnectors')" id="nav-interconnectors">
+    <span class="icon">🔗</span><span class="label">IC</span>
+  </button>
+  <button class="nav-btn" onclick="showPanel('origin')" id="nav-origin">
+    <span class="icon">🟠</span><span class="label">Origin</span>
+  </button>
+  <button class="nav-btn" onclick="showPanel('stations')" id="nav-stations">
+    <span class="icon">🏭</span><span class="label">Stations</span>
+  </button>
+  <button class="nav-btn" onclick="showPanel('weekahead')" id="nav-weekahead">
+    <span class="icon">📅</span><span class="label">Week</span>
+  </button>
+</nav>
+
+<script>
+const REGIONS = ['QLD1','NSW1','VIC1','SA1','TAS1'];
+const REGION_SHORT = {QLD1:'QLD',NSW1:'NSW',VIC1:'VIC',SA1:'SA',TAS1:'TAS'};
+const REGION_CLASS = {QLD1:'qld',NSW1:'nsw',VIC1:'vic',SA1:'sa',TAS1:'tas'};
+const REGION_COLORS = {QLD1:'#f39c12',NSW1:'#3498db',VIC1:'#2ed573',SA1:'#e74c3c',TAS1:'#9b59b6'};
+const FUEL_ICONS = {"Black Coal":"⬛","Brown Coal":"🟫","Gas":"🔥","Hydro":"💧","Wind":"🌀","Solar":"☀️","Battery":"🔋","Liquid":"🛢️","Other":"⚙️"};
+
+let currentPanel = 'prices';
+let currentGenRegion = 'NSW1';
+let charts = {};
+let latestData = null;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function priceClass(v) {
+  if (v < 0) return 'negative';
+  if (v < 100) return 'low';
+  if (v < 300) return 'medium';
+  if (v < 1000) return 'high';
+  return 'vhigh';
+}
+function fmt(n, d=0) {
+  if (n === undefined || n === null) return '—';
+  return Number(n).toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+function fmtPrice(n) {
+  if (n === undefined || n === null) return '—';
+  const v = Number(n);
+  return (v < 0 ? '-$' : '$') + Math.abs(v).toFixed(2);
+}
+function fmtTime(iso) {
+  try {
+    return new Date(iso).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Sydney'}) + ' AEST';
+  } catch { return ''; }
+}
+function nowAEST() {
+  return new Date().toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Australia/Sydney'});
+}
+function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
+const CHART_DEFAULTS = {
+  responsive:true, maintainAspectRatio:false,
+  interaction:{mode:'index',intersect:false},
+  plugins:{
+    legend:{display:false},
+    tooltip:{
+      backgroundColor:'#111827', borderColor:'#1e2d45', borderWidth:1,
+      titleColor:'#94a3b8', bodyColor:'#e2e8f0',
+      titleFont:{family:'Space Mono',size:10}, bodyFont:{family:'Space Mono',size:11}
+    }
+  },
+  scales:{
+    x:{ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxTicksLimit:8,maxRotation:0},grid:{color:'#1e2d4544'}},
+    y:{ticks:{color:'#94a3b8',font:{family:'Space Mono',size:10}},grid:{color:'#1e2d45'}}
+  }
+};
+
+function nowLinePlugin(nowIndex) {
+  return {
+    id:'nowLine',
+    afterDraw(chart) {
+      if (nowIndex < 0) return;
+      const {ctx:c,chartArea,scales} = chart;
+      const x = scales.x.getPixelForValue(nowIndex);
+      c.save();
+      c.beginPath(); c.moveTo(x,chartArea.top); c.lineTo(x,chartArea.bottom);
+      c.strokeStyle='rgba(255,255,255,0.25)'; c.lineWidth=1; c.setLineDash([3,3]); c.stroke();
+      c.setLineDash([]);
+      c.fillStyle='rgba(255,255,255,0.5)'; c.font='9px Space Mono';
+      c.fillText('NOW',x+3,chartArea.top+12); c.restore();
+    }
+  };
 }
 
-ORIGIN_DUIDS = set(ORIGIN_ASSETS.keys())
-
-
-# ---------------------------------------------------------------------------
-# HTTP helpers
-# ---------------------------------------------------------------------------
-
-SESSION = requests.Session()
-SESSION.headers.update({"User-Agent": "NEM-Dashboard/1.0"})
-
-def _get(url: str, timeout: int = 15, retries: int = 2) -> Optional[requests.Response]:
-    import time as _time
-    for attempt in range(retries + 1):
-        try:
-            r = SESSION.get(url, timeout=timeout)
-            r.raise_for_status()
-            return r
-        except Exception as e:
-            if attempt < retries:
-                _time.sleep(0.5 * (attempt + 1))  # 0.5s, 1.0s backoff
-                logger.debug(f"GET retry {attempt+1} {url}: {e}")
-            else:
-                logger.warning(f"GET failed {url}: {e}")
-    return None
-
-
-def _list_hrefs(url: str) -> list[str]:
-    r = _get(url, timeout=10)
-    if not r:
-        return []
-    found = []
-    for m in re.finditer(r'href="([^"]+\.zip)"', r.text, re.IGNORECASE):
-        href = m.group(1)
-        if href.startswith("http"):
-            found.append(href)
-        elif href.startswith("/"):
-            found.append(f"{NEMWEB_BASE}{href}")
-        else:
-            found.append(url.rstrip("/") + "/" + href)
-    return sorted(set(found))
-
-
-def _read_zip(url: str) -> str:
-    r = _get(url, timeout=30)
-    if not r:
-        return ""
-    try:
-        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
-            csvs = [n for n in z.namelist() if n.lower().endswith(".csv")]
-            if not csvs:
-                return ""
-            with z.open(csvs[0]) as f:
-                return f.read().decode("utf-8", errors="replace")
-    except Exception as e:
-        logger.warning(f"ZIP read failed {url}: {e}")
-        return ""
-
-
-# ---------------------------------------------------------------------------
-# AEMO CSV parser
-# ---------------------------------------------------------------------------
-
-def _parse_aemo(text: str, table_key: str) -> list[dict]:
-    """Return data rows for table matching table_key (checked against TABLE_SUBTABLE)."""
-    results = []
-    headers: list[str] = []
-    in_table = False
-    reader = csv.reader(io.StringIO(text))
-    for row in reader:
-        if not row:
-            continue
-        ind = row[0].strip().upper()
-        if ind == "I" and len(row) >= 5:
-            key = f"{row[1].strip()}_{row[2].strip()}".upper()
-            if table_key.upper() in key:
-                headers = [c.strip().upper() for c in row[4:] if c.strip()]
-                in_table = True
-            else:
-                in_table = False
-        elif ind == "D" and in_table and headers:
-            vals = [c.strip() for c in row[4:]]
-            vals = vals[:len(headers)]
-            while len(vals) < len(headers):
-                vals.append("")
-            results.append(dict(zip(headers, vals)))
-    return results
-
-
-def get_latest_file_url(directory_url: str, prefix: str = "") -> Optional[str]:
-    urls = _list_hrefs(directory_url)
-    if prefix:
-        urls = [u for u in urls if prefix.lower() in u.lower()]
-    return urls[-1] if urls else None
-
-
-def get_all_file_urls(directory_url: str, prefix: str = "") -> list[str]:
-    urls = _list_hrefs(directory_url)
-    if prefix:
-        urls = [u for u in urls if prefix.lower() in u.lower()]
-    return urls
-
-
-# ---------------------------------------------------------------------------
-# Dispatch IS — prices, demand, generation, interconnectors (one file fetch)
-# ---------------------------------------------------------------------------
-
-def _fetch_dispatch_is() -> str:
-    url = get_latest_file_url(DISPATCH_IS_URL, "PUBLIC_DISPATCHIS")
-    return _read_zip(url) if url else ""
-
-
-def scrape_region_summary(text: str) -> dict:
-    summary: dict[str, dict] = {}
-    for row in _parse_aemo(text, "DISPATCH_PRICE"):
-        region = row.get("REGIONID", "")
-        if region not in NEM_REGIONS:
-            continue
-        if row.get("INTERVENTION", "0") not in ("0", ""):
-            continue  # skip intervention runs
-        e = summary.setdefault(region, {})
-        for f in ["RRP"]:
-            v = row.get(f, "")
-            if v:
-                try: e[f] = round(float(v), 2)
-                except ValueError: pass
-    for row in _parse_aemo(text, "DISPATCH_REGIONSUM"):
-        region = row.get("REGIONID", "")
-        if region not in NEM_REGIONS:
-            continue
-        if row.get("INTERVENTION", "0") not in ("0", ""):
-            continue  # skip intervention runs
-        e = summary.setdefault(region, {})
-        for f in ["TOTALDEMAND","DEMANDFORECAST","INITIALSUPPLY",
-                  "DISPATCHABLEGENERATION","SEMISCHEDULE_CLEAREDMW","NETINTERCHANGE"]:
-            v = row.get(f, "")
-            if v:
-                try: e[f] = round(float(v), 1)
-                except ValueError: pass
-    return summary
-
-
-def scrape_interconnectors(text: str) -> dict:
-    flows = {}
-    for row in _parse_aemo(text, "DISPATCH_INTERCONNECTORRES"):
-        ic = row.get("INTERCONNECTORID", "")
-        if not ic:
-            continue
-        try:
-            flows[ic] = {
-                "flow":   round(float(row.get("MWFLOW", 0) or 0), 1),
-                "losses": round(float(row.get("MWLOSSES", 0) or 0), 1),
-            }
-        except ValueError:
-            pass
-    return flows
-
-
-# ---------------------------------------------------------------------------
-# SCADA — per-DUID actual MW output (for Origin assets)
-# ---------------------------------------------------------------------------
-
-def scrape_scada_duids(duids: set) -> dict:
-    """
-    Fetch DISPATCH_UNIT_SCADA and return { duid: mw } for requested DUIDs.
-    """
-    url = get_latest_file_url(SCADA_URL, "PUBLIC_DISPATCHSCADA")
-    if not url:
-        # fallback: try DispatchIS UNIT_SOLUTION
-        return {}
-    text = _read_zip(url)
-    result = {}
-    for row in _parse_aemo(text, "DISPATCH_UNIT_SCADA"):
-        duid = row.get("DUID", "").strip().upper()
-        if duid in duids:
-            v = row.get("SCADAVALUE", "")
-            try:
-                result[duid] = round(float(v), 1)
-            except (ValueError, TypeError):
-                pass
-    # Also try UNIT_SOLUTION in DispatchIS if SCADA didn't find them
-    return result
-
-
-def scrape_unit_solution(text: str, duids: set) -> dict:
-    """Extract INITIALMW from DISPATCH_UNIT_SOLUTION for given DUIDs."""
-    result = {}
-    for row in _parse_aemo(text, "DISPATCH_UNIT_SOLUTION"):
-        duid = row.get("DUID", "").strip().upper()
-        if duid in duids:
-            v = row.get("INITIALMW", row.get("TOTALCLEARED", ""))
-            try:
-                result[duid] = round(float(v), 1)
-            except (ValueError, TypeError):
-                pass
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Historical prices + demand from TradingIS CURRENT
-# Each file is ~1.5KB and covers exactly ONE 30-min interval.
-# Files are named PUBLIC_TRADINGIS_YYYYMMDDHHMM_<id>.zip
-# Contains TRADING_PRICE (actual settled RRP) and TRADING_REGIONSUM (actual demand).
-# SETTLEMENTDATE is end-of-interval — subtract 30min to get interval start.
-# ---------------------------------------------------------------------------
-
-def scrape_trading_history() -> dict:
-    """
-    Fetch today's TradingIS CURRENT files for price history.
-    Each file covers ONE 30-min interval (~1.5KB).
-    TRADING_PRICE uses INVALIDFLAG (not INTERVENTION).
-    SETTLEMENTDATE is end-of-interval — subtract 30min.
-    Returns { "prices": {region: [{interval, rrp}]} }
-    """
-    now_aest = datetime.now(AEST)
-    today_str = now_aest.strftime("%Y%m%d")
-
-    all_zips = _list_hrefs(TRADING_CURRENT)
-    today_zips = [u for u in all_zips if today_str in u]
-    if not today_zips:
-        today_zips = all_zips[-48:]
-    # Cap at 48 — one per 30-min interval, max 48 per day
-    today_zips = sorted(today_zips)[-300:]
-
-    prices: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-    fetch_ok = 0
-    fetch_fail = 0
-    fetch_empty = 0
-
-    def fetch_one(url):
-        import time as _time, random
-        _time.sleep(random.uniform(0, 0.1))  # small jitter to avoid burst
-        try:
-            text = _read_zip(url)
-            if not text:
-                return [], "empty"
-            pts = []
-            for row in _parse_aemo(text, "TRADING_PRICE"):
-                region = row.get("REGIONID", "")
-                if region not in NEM_REGIONS:
-                    continue
-                # TradingIS uses INVALIDFLAG, not INTERVENTION
-                if row.get("INVALIDFLAG", "0") not in ("0", ""):
-                    continue
-                dt_str = row.get("SETTLEMENTDATE", "")
-                rrp_str = row.get("RRP", "")
-                if not dt_str or not rrp_str:
-                    continue
-                try:
-                    dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                    pts.append((region, dt.strftime("%H:%M"), round(float(rrp_str), 2)))
-                except (ValueError, TypeError):
-                    pass
-            return pts, "ok" if pts else "empty"
-        except Exception as e:
-            logger.warning(f"fetch_one failed {url}: {e}")
-            return [], "fail"
-
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        futures = {ex.submit(fetch_one, u): u for u in today_zips}
-        for fut in as_completed(futures):
-            pts, status = fut.result()
-            if status == "ok":
-                fetch_ok += 1
-            elif status == "fail":
-                fetch_fail += 1
-            else:
-                fetch_empty += 1
-            for region, label, val in pts:
-                prices[region][label] = val
-
-    price_result = {r: [{"interval": k, "rrp": v} for k, v in sorted(s.items())]
-                    for r, s in prices.items() if s}
-
-    logger.info(f"TradingIS prices: {sum(len(v) for v in price_result.values())} pts "
-                f"from {len(today_zips)} files (ok={fetch_ok} empty={fetch_empty} fail={fetch_fail})")
-    return {"prices": price_result, "fetch_stats": {"ok": fetch_ok, "empty": fetch_empty, "fail": fetch_fail}}
-
-
-# ---------------------------------------------------------------------------
-# Historical demand from DispatchIS CURRENT (5-min intervals)
-# ---------------------------------------------------------------------------
-
-def scrape_dispatch_demand_history() -> dict:
-    """
-    Fetch today's DispatchIS files for 5-min demand history.
-    Returns { region: [{interval, demand}] }
-    Cap at 300 files (25 hours of 5-min data).
-    """
-    now_aest = datetime.now(AEST)
-    today_str = now_aest.strftime("%Y%m%d")
-
-    all_zips = _list_hrefs(DISPATCH_IS_URL)
-    today_zips = [u for u in all_zips if today_str in u and "PUBLIC_DISPATCHIS" in u.upper()]
-    if not today_zips:
-        today_zips = all_zips[-288:]
-    today_zips = sorted(today_zips)[-300:]
-
-    demand: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-    fetch_ok = 0
-    fetch_fail = 0
-    fetch_empty = 0
-
-    def fetch_one(url):
-        import time as _time, random
-        _time.sleep(random.uniform(0, 0.1))
-        try:
-            text = _read_zip(url)
-            if not text:
-                return [], "empty"
-            pts = []
-            for row in _parse_aemo(text, "DISPATCH_REGIONSUM"):
-                region = row.get("REGIONID", "")
-                if region not in NEM_REGIONS:
-                    continue
-                if row.get("INTERVENTION", "0") not in ("0", ""):
-                    continue
-                dt_str = row.get("SETTLEMENTDATE", "")
-                demand_str = row.get("TOTALDEMAND", "")
-                if not dt_str or not demand_str:
-                    continue
-                try:
-                    # SETTLEMENTDATE is end-of-interval for DispatchIS (5-min)
-                    dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=5)
-                    pts.append((region, dt.strftime("%H:%M"), round(float(demand_str), 1)))
-                except (ValueError, TypeError):
-                    pass
-            return pts, "ok" if pts else "empty"
-        except Exception as e:
-            logger.warning(f"dispatch_demand fetch_one failed {url}: {e}")
-            return [], "fail"
-
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        futures = {ex.submit(fetch_one, u): u for u in today_zips}
-        for fut in as_completed(futures):
-            pts, status = fut.result()
-            if status == "ok":
-                fetch_ok += 1
-            elif status == "fail":
-                fetch_fail += 1
-            else:
-                fetch_empty += 1
-            for region, label, val in pts:
-                demand[region][label] = val
-
-    result = {r: [{"interval": k, "demand": v} for k, v in sorted(s.items())]
-              for r, s in demand.items() if s}
-    logger.info(f"DispatchIS demand history: {sum(len(v) for v in result.values())} pts "
-                f"from {len(today_zips)} files (ok={fetch_ok} empty={fetch_empty} fail={fetch_fail})")
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Predispatch
-# ---------------------------------------------------------------------------
-
-def _fetch_predispatch() -> str:
-    url = get_latest_file_url(PREDISPATCH_URL, "PUBLIC_PREDISPATCHIS")
-    return _read_zip(url) if url else ""
-
-
-def scrape_predispatch_prices(text: str) -> dict:
-    now_aest = datetime.now(AEST).replace(tzinfo=None)
-    today    = now_aest.date()
-    region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-    for tk in ["PREDISPATCH_REGION_PRICES", "PREDISPATCH_PRICE", "PREDISPATCH_REGIONPRICE"]:
-        rows = _parse_aemo(text, tk)
-        if not rows:
-            continue
-        for row in rows:
-            region = row.get("REGIONID", "")
-            if region not in NEM_REGIONS:
-                continue
-            if row.get("INTERVENTION", "0") not in ("0", ""):
-                continue
-            dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", ""))
-            rrp_str = row.get("RRP", "")
-            if not dt_str or not rrp_str:
-                continue
-            try:
-                rrp = round(float(rrp_str), 2)
-                # DATETIME is end-of-interval; shift back 30min for display
-                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                # Only keep today's intervals (AEST) that are >= now
-                if dt.date() == today and dt >= now_aest:
-                    region_series[region][dt.strftime("%H:%M")] = rrp
-            except (ValueError, TypeError):
-                pass
-        break
-    result = {}
-    for region, series in region_series.items():
-        if series:
-            result[region] = [{"interval": k, "rrp": v} for k, v in sorted(series.items())]
-    logger.info(f"Predispatch prices: {sum(len(v) for v in result.values())} pts")
-    return result
-
-
-def scrape_predispatch_demand(text: str) -> dict:
-    now_aest = datetime.now(AEST).replace(tzinfo=None)
-    today    = now_aest.date()
-    region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-    for tk in ["PREDISPATCH_REGION_SOLUTION", "PREDISPATCH_REGIONSOLUTION"]:
-        rows = _parse_aemo(text, tk)
-        if not rows:
-            continue
-        for row in rows:
-            region = row.get("REGIONID", "")
-            if region not in NEM_REGIONS:
-                continue
-            if row.get("INTERVENTION", "0") not in ("0", ""):
-                continue
-            dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", ""))
-            demand_str = row.get("TOTALDEMAND", row.get("DEMAND", ""))
-            if not dt_str or not demand_str:
-                continue
-            try:
-                demand = round(float(demand_str), 1)
-                # DATETIME is end-of-interval; shift back 30min for display
-                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                if dt.date() == today and dt >= now_aest:
-                    region_series[region][dt.strftime("%H:%M")] = demand
-            except (ValueError, TypeError):
-                pass
-        break
-    result = {}
-    for region, series in region_series.items():
-        if series:
-            result[region] = [{"interval": k, "demand": v} for k, v in sorted(series.items())]
-    return result
-
-
-def scrape_predispatch_generation(text: str) -> dict:
-    now_aest = datetime.now(AEST).replace(tzinfo=None)
-    region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-    for tk in ["PREDISPATCH_REGION_SOLUTION", "PREDISPATCH_REGIONSOLUTION"]:
-        rows = _parse_aemo(text, tk)
-        if not rows:
-            continue
-        for row in rows:
-            region = row.get("REGIONID", "")
-            if region not in NEM_REGIONS:
-                continue
-            dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", ""))
-            ss  = row.get("SEMISCHEDULEDGENERATION", "")
-            sch = row.get("DISPATCHABLEGENERATION", "")
-            if not dt_str:
-                continue
-            try:
-                dt = datetime.fromisoformat(dt_str.replace("/", "-"))
-                if dt.replace(tzinfo=None) >= now_aest:
-                    region_series[region][dt.strftime("%H:%M")] = {
-                        "SemiScheduled": round(float(ss), 1) if ss else 0,
-                        "Scheduled":     round(float(sch), 1) if sch else 0,
-                    }
-            except (ValueError, TypeError):
-                pass
-        break
-    result = {}
-    for region, series in region_series.items():
-        if series:
-            result[region] = [{"interval": k, **v} for k, v in sorted(series.items())]
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Fuel mix — OpenNEM (single NEM-wide call, not 5 calls)
-# ---------------------------------------------------------------------------
-
-def _normalise_fuel(fuel: str) -> str:
-    f = fuel.upper()
-    if "COAL_BLACK" in f or "BLACK" in f:          return "Black Coal"
-    if "COAL_BROWN" in f or "BROWN" in f:          return "Brown Coal"
-    if "GAS" in f or "OCGT" in f or "CCGT" in f:  return "Gas"
-    if "HYDRO" in f or "WATER" in f:               return "Hydro"
-    if "WIND" in f:                                return "Wind"
-    if "SOLAR" in f or "ROOFTOP" in f:             return "Solar"
-    if "BATTERY" in f or "STORAGE" in f:           return "Battery"
-    if "LIQUID" in f or "DISTILLATE" in f:         return "Liquid"
-    return "Other"
-
-
-def scrape_fuel_mix_live() -> dict:
-    """
-    Compute current fuel mix from SCADA output + registration list.
-    Returns { region: { fuel: mw } } — a single snapshot (not history).
-    Used as primary source; OpenNEM used for history if available.
-    """
-    try:
-        scada = _fetch_full_scada()
-        reg   = _load_registration_list()
-        if not scada or not reg:
-            return {}
-
-        result: dict[str, dict[str, float]] = {r: {} for r in NEM_REGIONS}
-        for duid, mw in scada.items():
-            info = reg.get(duid, {})
-            region = info.get("region", "")
-            fuel   = info.get("fuel", "Other")
-            if region not in NEM_REGIONS or mw is None or mw <= 0:
-                continue
-            result[region][fuel] = round(result[region].get(fuel, 0) + mw, 1)
-
-        final = {r: v for r, v in result.items() if v}
-        logger.info(f"Live fuel mix: {len(final)} regions")
-        return final
-    except Exception as e:
-        logger.warning(f"Live fuel mix failed: {e}")
-        return {}
-
-
-def scrape_fuel_mix_history_opennem() -> dict:
-    """
-    Fetch fuel mix history from OpenNEM API.
-    Returns { region: [ {interval, Black Coal, Gas, ...}, ... ] }
-    Falls back to live SCADA snapshot if OpenNEM is unavailable.
-    """
-    try:
-        url = f"{OPENNEM_API}/v4/stats/power/network/NEM?interval=5m&period=1d"
-        r = _get(url, timeout=15)
-        if not r or r.status_code != 200:
-            raise ValueError(f"OpenNEM returned {r.status_code if r else 'no response'}")
-        data = r.json()
-        # result: region -> interval_str -> fuel -> mw
-        result: dict[str, dict] = {}
-        for series in data.get("data", []):
-            fuel_raw = series.get("fuel_tech") or series.get("type") or ""
-            net_region = series.get("network_region", "")
-            if not fuel_raw or not net_region:
-                continue
-            region = net_region if net_region.endswith("1") else net_region + "1"
-            if region not in NEM_REGIONS:
-                continue
-            fuel = _normalise_fuel(fuel_raw)
-            history = series.get("history", {})
-            start_str = history.get("start", "")
-            interval_mins = history.get("interval", 5)
-            values = history.get("data", []) or []
-            if not start_str or not values:
-                continue
-            try:
-                start_dt = datetime.fromisoformat(start_str.replace("Z", "+00:00")).astimezone(AEST)
-                for i, val in enumerate(values):
-                    if val is None:
-                        continue
-                    slot = (start_dt + timedelta(minutes=i * interval_mins)).strftime("%H:%M")
-                    rd = result.setdefault(region, {})
-                    sd = rd.setdefault(slot, {})
-                    sd[fuel] = sd.get(fuel, 0) + round(float(val), 1)
-            except (ValueError, TypeError):
-                pass
-        final = {}
-        for region, series in result.items():
-            if series:
-                final[region] = [{"interval": k, **v} for k, v in sorted(series.items())]
-        if final:
-            logger.info(f"Fuel mix (OpenNEM): {sum(len(v) for v in final.values())} pts across {len(final)} regions")
-            return final
-        raise ValueError("OpenNEM returned empty data")
-    except Exception as e:
-        logger.warning(f"OpenNEM fuel mix failed: {e} — using live SCADA snapshot")
-        # Fall back: wrap live snapshot as single-point history
-        live = scrape_fuel_mix_live()
-        now_label = datetime.now(AEST).strftime("%H:%M")
-        return {r: [{"interval": now_label, **fuels}] for r, fuels in live.items()}
-
-
-# ---------------------------------------------------------------------------
-# In-memory demand history — lightweight fallback used only if TradingIS fetch fails
-# ---------------------------------------------------------------------------
-
-_demand_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-
-
-def _update_demand_history(region_summary: dict) -> None:
-    label = datetime.now(AEST).strftime("%H:%M")
-    for region, data in region_summary.items():
-        if region in NEM_REGIONS and "TOTALDEMAND" in data:
-            _demand_history[region][label] = data["TOTALDEMAND"]
-
-
-def _get_demand_history() -> dict:
-    result = {}
-    for region, series in _demand_history.items():
-        if series:
-            result[region] = [{"interval": k, "demand": v} for k, v in sorted(series.items())]
-    return result
-
-
-# ---------------------------------------------------------------------------
-# In-memory interconnector history + predispatch IC flows
-# ---------------------------------------------------------------------------
-
-_ic_history: dict[str, dict] = {}
-
-
-def _update_ic_history(ic_snapshot: dict) -> None:
-    label = datetime.now(AEST).strftime("%H:%M")
-    for ic_id, vals in ic_snapshot.items():
-        if ic_id not in _ic_history:
-            _ic_history[ic_id] = {}
-        _ic_history[ic_id][label] = vals.get("flow", 0)
-
-
-def _get_ic_history() -> dict:
-    result = {}
-    for ic_id, series in _ic_history.items():
-        if series:
-            result[ic_id] = [{"interval": k, "flow": v} for k, v in sorted(series.items())]
-    return result
-
-
-def scrape_predispatch_interconnectors(text: str) -> dict:
-    now_aest = datetime.now(AEST).replace(tzinfo=None)
-    ic_series: dict[str, dict] = {}
-    for tk in ["PREDISPATCH_INTERCONNECTOR_SOLN", "PREDISPATCH_INTERCONNECTORSOLN"]:
-        rows = _parse_aemo(text, tk)
-        if not rows:
-            continue
-        for row in rows:
-            ic = row.get("INTERCONNECTORID", "").strip()
-            dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", ""))
-            flow_str = row.get("MWFLOW", "")
-            if not ic or not dt_str or not flow_str:
-                continue
-            try:
-                flow = round(float(flow_str), 1)
-                dt = datetime.fromisoformat(dt_str.replace("/", "-"))
-                if dt.replace(tzinfo=None) >= now_aest:
-                    ic_series.setdefault(ic, {})[dt.strftime("%H:%M")] = flow
-            except (ValueError, TypeError):
-                pass
-        break
-    return {ic: [{"interval": k, "flow": v} for k, v in sorted(s.items())]
-            for ic, s in ic_series.items() if s}
-
-
-# ---------------------------------------------------------------------------
-# Main scrape_all — parallel fetches
-# ---------------------------------------------------------------------------
-
-def scrape_all() -> dict:
-    logger.info("scrape_all starting...")
-
-    # Run all IO-bound fetches concurrently
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        f_dispatch_is   = ex.submit(_fetch_dispatch_is)
-        f_predispatch   = ex.submit(_fetch_predispatch)
-        f_trading       = ex.submit(scrape_trading_history)
-        f_demand_hist   = ex.submit(scrape_dispatch_demand_history)
-        f_fuel_mix      = ex.submit(scrape_fuel_mix_history_opennem)
-        f_scada         = ex.submit(scrape_scada_duids, ORIGIN_DUIDS)
-
-    dispatch_text    = f_dispatch_is.result()
-    predispatch_text = f_predispatch.result()
-    trading          = f_trading.result()   # {"prices": {...}}
-    dispatch_demand  = f_demand_hist.result()
-    fuel_mix         = f_fuel_mix.result()
-    scada_vals       = f_scada.result()
-
-    # Parse live dispatch snapshot (prices, demand, generation, ICs)
-    region_summary  = scrape_region_summary(dispatch_text)
-    interconnectors = scrape_interconnectors(dispatch_text)
-
-    # Supplement SCADA with unit solution if needed
-    missing = ORIGIN_DUIDS - set(scada_vals.keys())
-    if missing:
-        unit_sol = scrape_unit_solution(dispatch_text, missing)
-        scada_vals.update(unit_sol)
-
-    # Parse predispatch (future forecasts only)
-    pd_prices = scrape_predispatch_prices(predispatch_text)
-    pd_demand = scrape_predispatch_demand(predispatch_text)
-    pd_gen    = scrape_predispatch_generation(predispatch_text)
-
-    # In-memory accumulators — IC builds up over process lifetime
-    _update_demand_history(region_summary)
-    _update_ic_history(interconnectors)
-    # Use DispatchIS history for demand (full day), fall back to in-memory if empty
-    demand_history     = dispatch_demand if dispatch_demand else _get_demand_history()
-    ic_history         = _get_ic_history()
-    pd_interconnectors = scrape_predispatch_interconnectors(predispatch_text)
-
-    # Live current values from latest dispatch interval
-    prices     = {r: d["RRP"]         for r, d in region_summary.items() if "RRP" in d}
-    demand     = {r: d["TOTALDEMAND"] for r, d in region_summary.items() if "TOTALDEMAND" in d}
-    generation = {r: {
-        "Scheduled":      d.get("DISPATCHABLEGENERATION", 0),
-        "Semi-Scheduled": d.get("SEMISCHEDULE_CLEAREDMW", 0),
-        "Net Interchange":d.get("NETINTERCHANGE", 0),
-    } for r, d in region_summary.items() if "DISPATCHABLEGENERATION" in d}
-
-    # Build Origin assets output
-    origin_assets_out = {}
-    for duid, info in ORIGIN_ASSETS.items():
-        mw = scada_vals.get(duid)
-        origin_assets_out[duid] = {
-            **info,
-            "mw":     mw,
-            "pct":    round(mw / info["capacity"] * 100, 1) if mw is not None and info["capacity"] else None,
-            "status": "running" if (mw is not None and mw > 5) else ("off" if mw is not None else "unknown"),
+// ── Navigation ────────────────────────────────────────────────────────────────
+
+function showPanel(name) {
+  currentPanel = name;
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('nav-' + name);
+  if (btn) btn.classList.add('active');
+  if (latestData) renderPanel(name, latestData);
+}
+
+// ── Prices ────────────────────────────────────────────────────────────────────
+
+function renderPrices(data) {
+  const prices = data.prices || {};
+  const demand = data.demand || {};
+  let html = '<div class="section-title">Latest Spot Prices ($/MWh)</div><div class="price-grid">';
+  for (const r of REGIONS) {
+    const p = prices[r];
+    const cls = p !== undefined ? priceClass(p) : 'low';
+    html += `<div class="price-card ${REGION_CLASS[r]}">
+      <div class="region">${REGION_SHORT[r]}</div>
+      <div class="price ${cls}">${p !== undefined ? fmtPrice(p) : '—'}</div>
+      <div class="unit">$/MWh</div></div>`;
+  }
+  html += '</div>';
+  html += '<div class="section-title">Price History + Predispatch</div>';
+  html += '<div class="chart-card"><div class="chart-title">30-min Trading — Actual (solid) · Predispatch (dashed)</div>';
+  html += '<div class="chart-container" style="height:250px"><canvas id="priceHistChart"></canvas></div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+  for (const r of REGIONS) {
+    html += `<button onclick="togglePriceRegion('${r}')" id="pr-${r}" data-on="1"
+      style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;
+      border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;color:${REGION_COLORS[r]};cursor:pointer"
+      >${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div></div>';
+  html += '<div class="section-title">Total Demand (MW)</div><div class="demand-grid">';
+  for (const r of REGIONS) {
+    const d = demand[r];
+    html += `<div class="demand-card">
+      <div class="region" style="color:${REGION_COLORS[r]}">${REGION_SHORT[r]}</div>
+      <div class="value">${d !== undefined ? fmt(d) : '—'}</div>
+      <div class="unit">MW</div></div>`;
+  }
+  html += '</div>';
+  html += '<div class="section-title">Demand History + Predispatch</div>';
+  html += '<div class="chart-card"><div class="chart-title">Total Demand — Actual (bright) · Predispatch (faded)</div>';
+  html += '<div class="chart-container" style="height:220px"><canvas id="demandHistChart"></canvas></div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+  for (const r of REGIONS) {
+    html += `<button onclick="toggleDemandRegion('${r}')" id="dr-${r}" data-on="1"
+      style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;
+      border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;color:${REGION_COLORS[r]};cursor:pointer"
+      >${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div></div>';
+  return html;
+}
+
+function togglePriceRegion(r) {
+  if (!charts.priceHist) return;
+  const btn = document.getElementById('pr-' + r);
+  const on = btn.dataset.on === '1';
+  btn.dataset.on = on ? '0' : '1';
+  btn.style.opacity = on ? '0.35' : '1';
+  charts.priceHist.data.datasets.forEach((ds, i) => {
+    if (ds.regionId === r) charts.priceHist.getDatasetMeta(i).hidden = on;
+  });
+  charts.priceHist.update();
+}
+
+function drawPriceChart(data) {
+  destroyChart('priceHist');
+  const ctx = document.getElementById('priceHistChart');
+  if (!ctx) return;
+  const hist = data.historical_prices || {};
+  const pd   = data.predispatch_prices || {};
+  const livePrice = data.prices || {};   // current 5-min spot price
+  const now = nowAEST();
+
+  // Fixed 5-min spine from 00:00 to end of predispatch (or 23:55)
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  // Find last label that has any data (hist or predispatch)
+  const hasData = new Set();
+  for (const r of REGIONS) {
+    (hist[r] || []).forEach(p => hasData.add(p.interval));
+    (pd[r]   || []).forEach(p => hasData.add(p.interval));
+  }
+  const lastSlot = allSlots.filter(s => hasData.has(s)).pop() || allSlots[allSlots.length-1];
+  const labels = allSlots.slice(0, allSlots.indexOf(lastSlot) + 1);
+
+  // Snap now to nearest 5-min slot by numeric time distance
+  const [nh, nm] = now.split(':').map(Number);
+  const nowMins = nh * 60 + nm;
+  const nowSnap = allSlots.length ? allSlots.reduce((a, b) => {
+    const [ah, am] = a.split(':').map(Number);
+    const [bh, bm] = b.split(':').map(Number);
+    return Math.abs(bh*60+bm - nowMins) < Math.abs(ah*60+am - nowMins) ? b : a;
+  }) : '00:00';
+
+  if (labels.length <= 1) {
+  const nowIdx = labels.indexOf(nowSnap);
+  const datasets = [];
+  for (const r of REGIONS) {
+    const color = REGION_COLORS[r];
+    const hm = {}; (hist[r] || []).forEach(p => hm[p.interval] = p.rrp);
+    // Inject live spot price at snapped NOW slot
+    if (livePrice[r] !== undefined && livePrice[r] !== null) hm[nowSnap] = livePrice[r];
+    const pm = {}; (pd[r]   || []).forEach(p => pm[p.interval] = p.rrp);
+    datasets.push({
+      label: REGION_SHORT[r], regionId: r, isPD: false,
+      data: labels.map(l => hm[l] !== undefined ? hm[l] : null),
+      borderColor: color, backgroundColor:'transparent',
+      borderWidth:3, pointRadius:0, tension:0.3, spanGaps:false
+    });
+    datasets.push({
+      label: REGION_SHORT[r]+' PD', regionId: r, isPD: true,
+      data: labels.map(l => pm[l] !== undefined ? pm[l] : null),
+      borderColor: color+'55', backgroundColor:'transparent',
+      borderWidth:1.5, pointRadius:0, tension:0.3, spanGaps:false,
+      borderDash:[4,4]
+    });
+  }
+  charts.priceHist = new Chart(ctx, {
+    type:'line', data:{labels,datasets},
+    options:{...CHART_DEFAULTS,
+      plugins:{...CHART_DEFAULTS.plugins,
+        tooltip:{...CHART_DEFAULTS.plugins.tooltip,
+          filter:i=>i.raw!==null,
+          callbacks:{label:c=>c.raw===null?null:` ${c.dataset.label}: $${c.raw.toFixed(2)}/MWh`}
         }
+      },
+      scales:{...CHART_DEFAULTS.scales,
+        y:{...CHART_DEFAULTS.scales.y, ticks:{...CHART_DEFAULTS.scales.y.ticks, callback:v=>'$'+v.toFixed(0)}}
+      }
+    },
+    plugins:[nowLinePlugin(nowIdx)]
+  });
+}
 
-    logger.info(
-        f"scrape_all done — prices:{list(prices.keys())} "
-        f"origin_duids_found:{len(scada_vals)} "
-        f"fuel_mix_regions:{list(fuel_mix.keys())}"
-    )
+// ── Generation ────────────────────────────────────────────────────────────────
 
-    return {
-        "timestamp":          datetime.now(timezone.utc).isoformat(),
-        "prices":             prices,
-        "demand":             demand,
-        "generation":         generation,
-        "interconnectors":    interconnectors,
-        "raw_summary":        region_summary,
-        "historical_prices":  trading["prices"],
-        "price_fetch_stats":  trading.get("fetch_stats", {}),
-        "predispatch_prices": pd_prices,
-        "demand_history":     demand_history,
-        "predispatch_demand": pd_demand,
-        "fuel_mix_history":   fuel_mix,
-        "predispatch_gen":    pd_gen,
-        "ic_history":         ic_history,
-        "predispatch_ic":     pd_interconnectors,
-        "origin_assets":      origin_assets_out,
-        "fuel_colors":        FUEL_COLORS,
-        "all_fuels":          ALL_FUELS,
+function renderGeneration(data) {
+  const fc = data.fuel_colors || {};
+  let html = '<div class="section-title">NEM Generation — Fuel Mix</div>';
+  html += '<div class="chart-card"><div class="chart-title">All regions stacked by fuel type</div>';
+  html += '<div class="chart-container" style="height:320px"><canvas id="fuelChart"></canvas></div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+  for (const [fuel, color] of Object.entries(fc)) {
+    html += `<div style="display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10px;color:#94a3b8"><div style="width:10px;height:10px;border-radius:2px;background:${color}"></div>${fuel}</div>`;
+  }
+  html += '</div></div>';
+  const gen = data.generation || {};
+  const raw = data.raw_summary || {};
+  html += '<div class="chart-card"><div class="chart-title">Current Generation by Region</div>';
+  html += '<div class="table-wrap"><table><tr><th>Region</th><th>Scheduled</th><th>Semi-Sched</th><th>Net Int.</th></tr>';
+  for (const r of REGIONS) {
+    const g = gen[r] || {}, rw = raw[r] || {};
+    const ni = (g["Net Interchange"] !== undefined ? g["Net Interchange"] : (rw.NETINTERCHANGE !== undefined ? rw.NETINTERCHANGE : 0));
+    const sched = g.Scheduled !== undefined ? g.Scheduled : rw.DISPATCHABLEGENERATION;
+    const semi  = g["Semi-Scheduled"] !== undefined ? g["Semi-Scheduled"] : rw.SEMISCHEDULEDGENERATION;
+    html += `<tr><td style="color:${REGION_COLORS[r]};font-weight:700">${REGION_SHORT[r]}</td><td>${fmt(sched)} MW</td><td>${fmt(semi)} MW</td><td style="color:${ni>=0?"#00d4ff":"#ff6b35"}">${fmt(ni)} MW</td></tr>`;
+  }
+  html += '</table></div></div>';
+  return html;
+}
+
+function selectGenRegion(region) {
+  currentGenRegion = region;
+  for (const r of REGIONS) {
+    const btn = document.getElementById('gr-' + r);
+    if (!btn) continue;
+    const active = r === region;
+    btn.style.background = active ? REGION_COLORS[r] + '88' : REGION_COLORS[r] + '33';
+    btn.style.fontWeight = active ? '700' : '400';
+  }
+  if (latestData) drawGenChart(latestData);
+}
+
+function drawGenChart(data) {
+  destroyChart('gen');
+  const ctx = document.getElementById('fuelChart');
+  if (!ctx) return;
+  const fc = data.fuel_colors || {};
+  const fuels = data.all_fuels || Object.keys(fc);
+  const fuelMix = data.fuel_mix_history || {};
+
+  // Merge all regions into NEM-wide totals per interval per fuel
+  const nemMap = {};  // interval -> fuel -> mw
+  for (const r of REGIONS) {
+    for (const pt of (fuelMix[r] || [])) {
+      const slot = nemMap[pt.interval] = nemMap[pt.interval] || {};
+      for (const fuel of fuels) {
+        if (pt[fuel]) slot[fuel] = (slot[fuel] || 0) + pt[fuel];
+      }
     }
+  }
+  const labels = Object.keys(nemMap).sort();
 
+  // If OpenNEM fuel mix isn't available, fall back to dispatch_history (scheduled+semi by region)
+  if (labels.length === 0) {
+    const dispHist = data.dispatch_history || {};
+    const pdGen = data.predispatch_gen || {};
+    const dLabelSet = new Set();
+    for (const r of REGIONS) {
+      (dispHist[r] || []).forEach(p => dLabelSet.add(p.interval));
+      (pdGen[r]    || []).forEach(p => dLabelSet.add(p.interval));
+    }
+    const dLabels = Array.from(dLabelSet).sort();
+    if (dLabels.length === 0) {
+      ctx.closest('.chart-card').querySelector('.chart-title').textContent = 'Generation data loading…';
+      ctx.style.display = 'none';
+      return;
+    }
+    const now2 = nowAEST();
+    const nowIdx2 = dLabels.findIndex(l => l >= now2);
+    const dDatasets = [];
+    for (const r of REGIONS) {
+      const color = REGION_COLORS[r];
+      const hm = {}; (dispHist[r] || []).forEach(p => { if (p.scheduled !== null) hm[p.interval] = (p.scheduled || 0) + (p.semi || 0); });
+      const pm = {}; (pdGen[r] || []).forEach(p => { pm[p.interval] = (p.Scheduled || 0) + (p.SemiScheduled || 0); });
+      dDatasets.push({ label: REGION_SHORT[r], regionId: r, stack: 'actual',
+        data: dLabels.map(l => hm[l] !== undefined ? hm[l] : null),
+        backgroundColor: color + '99', borderColor: color, borderWidth: 1,
+        fill: true, pointRadius: 0, tension: 0.2, spanGaps: true });
+      dDatasets.push({ label: REGION_SHORT[r] + ' PD', regionId: r, stack: 'pd',
+        data: dLabels.map(l => pm[l] !== undefined ? pm[l] : null),
+        backgroundColor: color + '44', borderColor: color + '66', borderWidth: 1,
+        fill: true, pointRadius: 0, tension: 0.2, spanGaps: false, borderDash: [4, 4] });
+    }
+    charts.gen = new Chart(ctx, {
+      type: 'line', data: {labels: dLabels, datasets: dDatasets},
+      options: {...CHART_DEFAULTS,
+        plugins: {...CHART_DEFAULTS.plugins, legend: {display: false},
+          tooltip: {...CHART_DEFAULTS.plugins.tooltip,
+            filter: i => i.raw !== null && i.raw > 0 && !i.dataset.label.endsWith(' PD'),
+            callbacks: {label: c => ` ${c.dataset.label}: ${fmt(c.raw)} MW`}
+          }
+        },
+        scales: {
+          x: {stacked: true, ticks: {color:'#64748b',font:{family:'Space Mono',size:9},maxTicksLimit:8,maxRotation:0}, grid: {color:'#1e2d4544'}},
+          y: {stacked: true, ticks: {color:'#94a3b8',font:{family:'Space Mono',size:10},callback: v => v.toLocaleString()+' MW'}, grid: {color:'#1e2d45'}}
+        }
+      },
+      plugins: [nowLinePlugin(nowIdx2)]
+    });
+    ctx.closest('.chart-card').querySelector('.chart-title').textContent = 'NEM Generation by Region — Scheduled + Semi-Sched (fuel type loading…)';
+    return;
+  }
+  const now = nowAEST();
+  const nowIdx = labels.findIndex(l => l >= now);
+  const activeFuels = fuels.filter(f => labels.some(l => nemMap[l] && nemMap[l][f] > 0));
+  const datasets = activeFuels.map(fuel => ({
+    label: fuel,
+    data: labels.map(l => Math.max(0, (nemMap[l] && nemMap[l][fuel]) || 0)),
+    backgroundColor: (fc[fuel] || '#95a5a6') + 'cc',
+    borderColor: fc[fuel] || '#95a5a6',
+    borderWidth: 1,
+    fill: true, pointRadius: 0, tension: 0.2, stack: 'nem'
+  }));
+  charts.gen = new Chart(ctx, {
+    type: 'line', data: {labels, datasets},
+    options: {...CHART_DEFAULTS,
+      plugins: {...CHART_DEFAULTS.plugins,
+        legend: {display: false},
+        tooltip: {...CHART_DEFAULTS.plugins.tooltip,
+          filter: i => i.raw > 0,
+          callbacks: {label: c => c.raw > 0 ? ` ${c.dataset.label}: ${fmt(c.raw)} MW` : null}
+        }
+      },
+      scales: {
+        x: {stacked: true, ticks: {color:'#64748b',font:{family:'Space Mono',size:9},maxTicksLimit:8,maxRotation:0}, grid: {color:'#1e2d4544'}},
+        y: {stacked: true, ticks: {color:'#94a3b8',font:{family:'Space Mono',size:10},callback: v => (v/1000).toFixed(0)+'GW'}, grid: {color:'#1e2d45'}}
+      }
+    },
+    plugins: [nowLinePlugin(nowIdx)]
+  });
+}
+// ── Demand ────────────────────────────────────────────────────────────────────
 
-# ---------------------------------------------------------------------------
-# Registration list cache — DUID -> {station, fuel, region, capacity}
-# ---------------------------------------------------------------------------
+function renderDemand(data) {
+  const demand = data.demand || {}, raw = data.raw_summary || {};
+  let html = '<div class="section-title">Latest Demand (MW)</div><div class="demand-grid">';
+  for (const r of REGIONS) {
+    const d = demand[r];
+    html += `<div class="demand-card">
+      <div class="region" style="color:${REGION_COLORS[r]}">${REGION_SHORT[r]}</div>
+      <div class="value">${d !== undefined ? fmt(d) : '—'}</div>
+      <div class="unit">MW</div></div>`;
+  }
+  html += '</div>';
+  html += '<div class="section-title">Demand History + Predispatch</div>';
+  html += '<div class="chart-card"><div class="chart-title">Total Demand — Actual (solid) · Predispatch (dashed)</div>';
+  html += '<div class="chart-container" style="height:250px"><canvas id="demandHistChart"></canvas></div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+  for (const r of REGIONS) {
+    html += `<button onclick="toggleDemandRegion('${r}')" id="dr-${r}" data-on="1"
+      style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;
+      border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;color:${REGION_COLORS[r]};cursor:pointer"
+      >${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div></div>';
+  html += '<div class="chart-card"><div class="chart-title">Demand Details</div>';
+  html += '<div class="table-wrap"><table><tr><th>Region</th><th>Demand</th><th>Forecast</th><th>Initial Supply</th></tr>';
+  for (const r of REGIONS) {
+    const rw = raw[r] || {};
+    const d = demand[r] !== undefined ? demand[r] : rw.TOTALDEMAND;
+    html += `<tr>
+      <td style="color:${REGION_COLORS[r]};font-weight:700">${REGION_SHORT[r]}</td>
+      <td>${fmt(d)} MW</td><td>${fmt(rw.DEMANDFORECAST)} MW</td><td>${fmt(rw.INITIALSUPPLY)} MW</td></tr>`;
+  }
+  html += '</table></div></div>';
+  return html;
+}
 
-_reg_cache: dict = {}
-_reg_cache_date: str = ""
+function toggleDemandRegion(r) {
+  if (!charts.demandHist) return;
+  const btn = document.getElementById('dr-' + r);
+  const on = btn.dataset.on === '1';
+  btn.dataset.on = on ? '0' : '1';
+  btn.style.opacity = on ? '0.35' : '1';
+  charts.demandHist.data.datasets.forEach((ds, i) => {
+    if (ds.regionId === r) charts.demandHist.getDatasetMeta(i).hidden = on;
+  });
+  charts.demandHist.update();
+}
 
+function drawDemandChart(data) {
+  destroyChart('demandHist');
+  const ctx = document.getElementById('demandHistChart');
+  if (!ctx) return;
+  // Prefer full-day dispatch archive history, fall back to in-memory snapshots
+  const dispHist = data.dispatch_history || {};
+  const snapHist = data.demand_history || {};
+  const pd = data.predispatch_demand || {};
+  const liveDemand = data.demand || {};   // current 5-min live reading
+  const now = nowAEST();
 
-def _fuel_from_reg(fuel_raw: str) -> str:
-    """Map AEMO registration fuel source string to display fuel."""
-    f = (fuel_raw or "").upper()
-    if "BLACK COAL" in f or "COAL" in f and "BROWN" not in f: return "Black Coal"
-    if "BROWN COAL" in f or "BROWN" in f:                      return "Brown Coal"
-    if "GAS" in f or "OCGT" in f or "CCGT" in f or "LIQUID FUEL" in f and "GAS" in f: return "Gas"
-    if "HYDRO" in f or "WATER" in f:                           return "Hydro"
-    if "WIND" in f:                                             return "Wind"
-    if "SOLAR" in f or "PHOTOVOLTAIC" in f:                    return "Solar"
-    if "BATTERY" in f or "STORAGE" in f:                       return "Battery"
-    if "LIQUID" in f or "DISTILLATE" in f or "DIESEL" in f:   return "Liquid"
-    return "Other"
+  // Fixed 5-min spine from 00:00 to end of predispatch (or current data)
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
 
+  const hasData = new Set();
+  for (const r of REGIONS) {
+    const src = dispHist[r] || snapHist[r] || [];
+    src.forEach(p => hasData.add(p.interval));
+    (pd[r] || []).forEach(p => hasData.add(p.interval));
+  }
+  const lastSlot = allSlots.filter(s => hasData.has(s)).pop() || allSlots[allSlots.length-1];
+  const labels = allSlots.slice(0, allSlots.indexOf(lastSlot) + 1);
 
-def _load_registration_list() -> dict:
-    """
-    Download and parse AEMO NEM Registration and Exemption List (.xls).
-    Returns { DUID: {station, fuel, region, capacity_mw, participant} }
-    Cached once per day.
-    """
-    global _reg_cache, _reg_cache_date
-    today = datetime.now(AEST).strftime("%Y-%m-%d")
-    if _reg_cache and _reg_cache_date == today:
-        return _reg_cache
+  const [nh, nm] = now.split(':').map(Number);
+  const nowMins = nh * 60 + nm;
+  const nowSnap = allSlots.length ? allSlots.reduce((a, b) => {
+    const [ah, am] = a.split(':').map(Number);
+    const [bh, bm] = b.split(':').map(Number);
+    return Math.abs(bh*60+bm - nowMins) < Math.abs(ah*60+am - nowMins) ? b : a;
+  }) : '00:00';
 
-    try:
-        import xlrd
-    except ImportError:
-        logger.warning("xlrd not installed; registration list unavailable")
-        return _reg_cache
+  if (labels.length <= 1) {
+    ctx.closest('.chart-card').querySelector('.chart-title').textContent = 'Demand history — data loading on next refresh';
+    ctx.style.display = 'none';
+    return;
+  }
+  const nowIdx = labels.indexOf(nowSnap);
+  const datasets = [];
+  for (const r of REGIONS) {
+    const color = REGION_COLORS[r];
+    const src = dispHist[r] || snapHist[r] || [];
+    const hm = {};
+    src.forEach(p => { if (p.demand !== null && p.demand !== undefined) hm[p.interval] = p.demand; });
+    // Inject live reading at snapped NOW slot
+    if (liveDemand[r] !== undefined && liveDemand[r] !== null) hm[nowSnap] = liveDemand[r];
+    const pm = {};
+    (pd[r] || []).forEach(p => pm[p.interval] = p.demand);
+    datasets.push({
+      label: REGION_SHORT[r], regionId: r,
+      data: labels.map(l => hm[l] !== undefined ? hm[l] : null),
+      borderColor: color, backgroundColor: 'transparent',
+      borderWidth: 2.5, pointRadius: 0, tension: 0.3, spanGaps: true
+    });
+    datasets.push({
+      label: REGION_SHORT[r] + ' PD', regionId: r,
+      data: labels.map(l => pm[l] !== undefined ? pm[l] : null),
+      borderColor: color + '55', backgroundColor: 'transparent',
+      borderWidth: 1.5, pointRadius: 0, tension: 0.3, spanGaps: false, borderDash: [4, 4]
+    });
+  }
+  charts.demandHist = new Chart(ctx, {
+    type: 'line', data: {labels, datasets},
+    options: {...CHART_DEFAULTS,
+      plugins: {...CHART_DEFAULTS.plugins,
+        tooltip: {...CHART_DEFAULTS.plugins.tooltip,
+          filter: i => i.raw !== null,
+          callbacks: {label: c => c.raw === null ? null : ` ${c.dataset.label}: ${fmt(c.raw)} MW`}
+        }
+      },
+      scales: {...CHART_DEFAULTS.scales,
+        y: {...CHART_DEFAULTS.scales.y, ticks: {...CHART_DEFAULTS.scales.y.ticks, callback: v => v.toLocaleString() + ' MW'}}
+      }
+    },
+    plugins: [nowLinePlugin(nowIdx)]
+  });
+}
 
-    try:
-        r = _get(AEMO_REG_LIST_URL, timeout=30)
-        if not r:
-            return _reg_cache
+// ── Interconnectors ───────────────────────────────────────────────────────────
 
-        wb = xlrd.open_workbook(file_contents=r.content)
-        logger.info(f"Registration XLS: sheets={wb.sheet_names()}, size={len(r.content)} bytes")
-        # Find the generators sheet
-        sheet = None
-        for name in wb.sheet_names():
-            if "generator" in name.lower() or "scheduled" in name.lower():
-                sheet = wb.sheet_by_name(name)
-                logger.info(f"Registration XLS: using sheet '{name}' ({sheet.nrows} rows, {sheet.ncols} cols)")
-                break
-        if sheet is None:
-            sheet = wb.sheet_by_index(0)
-            logger.info(f"Registration XLS: falling back to sheet 0 '{wb.sheet_names()[0]}' ({sheet.nrows} rows)")
-        if sheet is None:
-            return _reg_cache
+function renderInterconnectors(data) {
+  const ics = data.interconnectors || {};
+  const icIds = Object.keys(ics).sort();
+  let html = '<div class="section-title">Interconnector Flows — Today</div>';
+  html += '<div class="chart-card"><div class="chart-title">Daily actuals (bright) · Predispatch (faded)</div>';
+  html += '<div class="chart-container" style="height:300px"><canvas id="icTimeChart"></canvas></div>';
+  // Legend
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+  const IC_COLORS = ['#00d4ff','#ff6b35','#2ed573','#ffd32a','#9b59b6','#e74c3c'];
+  icIds.forEach((id, i) => {
+    const color = IC_COLORS[i % IC_COLORS.length];
+    html += `<div style="display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10px;color:${color}"><div style="width:16px;height:2px;background:${color};border-radius:1px"></div>${id}</div>`;
+  });
+  html += '</div></div>';
+  // Current snapshot bars
+  html += '<div class="section-title">Current Snapshot</div>';
+  if (icIds.length === 0) return html + '<div class="state-msg"><div class="icon">🔗</div><div>No data</div></div>';
+  const sorted = Object.entries(ics).sort((a,b) => Math.abs(b[1].flow)-Math.abs(a[1].flow));
+  const maxFlow = Math.max(...sorted.map(([,v]) => Math.abs(v.flow)), 1);
+  html += '<div class="ic-list">';
+  for (const [id, val] of sorted) {
+    const flow = val.flow || 0, pos = flow >= 0;
+    const pct = Math.min(Math.abs(flow)/maxFlow*50, 50);
+    html += `<div class="ic-row">
+      <div class="ic-name">${id}</div>
+      <div class="ic-bar-wrap"><div class="ic-midpoint"></div><div class="ic-bar ${pos?"positive":"negative"}" style="width:${pct}%"></div></div>
+      <div class="ic-value ${pos?"positive":"negative"}">${flow>0?"+":""}${fmt(flow)} <span style="font-size:9px;opacity:0.6">MW</span></div>
+    </div>`;
+  }
+  html += '</div>';
+  return html;
+}
 
-        # Find header row (contains DUID) — search first 20 rows
-        header_row_idx = None
-        for i in range(min(20, sheet.nrows)):
-            cells = [str(sheet.cell_value(i, j)).upper() for j in range(sheet.ncols)]
-            logger.debug(f"Row {i}: {cells[:6]}")
-            if any("DUID" in c for c in cells):
-                header_row_idx = i
-                logger.info(f"Registration XLS: header at row {i}, headers={cells[:8]}")
-                break
-        if header_row_idx is None:
-            # Log first few rows to diagnose
-            for i in range(min(5, sheet.nrows)):
-                cells = [str(sheet.cell_value(i, j)).upper() for j in range(min(8, sheet.ncols))]
-                logger.warning(f"Registration XLS no DUID found, row {i}: {cells}")
-            return _reg_cache
+function drawIcChart(data) {
+  destroyChart('icTime');
+  const ctx = document.getElementById('icTimeChart');
+  if (!ctx) return;
+  const hist = data.ic_history || {};
+  const pd   = data.predispatch_ic || {};
+  const icIds = [...new Set([...Object.keys(hist), ...Object.keys(pd)])].sort();
+  const labelSet = new Set();
+  icIds.forEach(id => {
+    (hist[id] || []).forEach(p => labelSet.add(p.interval));
+    (pd[id]   || []).forEach(p => labelSet.add(p.interval));
+  });
+  const labels = Array.from(labelSet).sort();
+  if (labels.length === 0) {
+    ctx.closest('.chart-card').querySelector('.chart-title').textContent = 'IC history — accumulating data (refreshes every 5 min)';
+    ctx.style.display = 'none';
+    return;
+  }
+  const now = nowAEST();
+  const nowIdx = labels.findIndex(l => l >= now);
+  const IC_COLORS = ['#00d4ff','#ff6b35','#2ed573','#ffd32a','#9b59b6','#e74c3c'];
+  const datasets = [];
+  icIds.forEach((id, i) => {
+    const color = IC_COLORS[i % IC_COLORS.length];
+    const hm = {}; (hist[id] || []).forEach(p => hm[p.interval] = p.flow);
+    const pm = {}; (pd[id]   || []).forEach(p => pm[p.interval] = p.flow);
+    datasets.push({
+      label: id, icId: id,
+      data: labels.map(l => hm[l] !== undefined ? hm[l] : null),
+      borderColor: color, backgroundColor: 'transparent',
+      borderWidth: 2.5, pointRadius: 0, tension: 0.3, spanGaps: false
+    });
+    datasets.push({
+      label: id + ' PD', icId: id,
+      data: labels.map(l => pm[l] !== undefined ? pm[l] : null),
+      borderColor: color + '55', backgroundColor: 'transparent',
+      borderWidth: 1.5, pointRadius: 0, tension: 0.3, spanGaps: false, borderDash: [4,4]
+    });
+  });
+  charts.icTime = new Chart(ctx, {
+    type: 'line', data: {labels, datasets},
+    options: {...CHART_DEFAULTS,
+      plugins: {...CHART_DEFAULTS.plugins,
+        tooltip: {...CHART_DEFAULTS.plugins.tooltip,
+          filter: i => i.raw !== null && !i.dataset.label.endsWith(' PD'),
+          callbacks: {label: c => c.raw !== null ? ` ${c.dataset.label}: ${c.raw > 0 ? "+" : ""}${fmt(c.raw)} MW` : null}
+        }
+      },
+      scales: {...CHART_DEFAULTS.scales,
+        y: {...CHART_DEFAULTS.scales.y, ticks: {...CHART_DEFAULTS.scales.y.ticks, callback: v => (v>0?"+":"")+v.toLocaleString()+" MW"}}
+      }
+    },
+    plugins: [nowLinePlugin(nowIdx)]
+  });
+}
+// ── Origin ────────────────────────────────────────────────────────────────────
 
-        headers = [str(sheet.cell_value(header_row_idx, j)).strip().upper()
-                   for j in range(sheet.ncols)]
+function renderOrigin(data) {
+  const assets = data.origin_assets || {};
+  const prices = data.prices || {};
+  const fc = data.fuel_colors || {};
 
-        def col(name_parts):
-            for i, h in enumerate(headers):
-                if any(p.upper() in h for p in name_parts):
-                    return i
-            return None
+  // Group by station
+  const stations = {};
+  for (const [duid, a] of Object.entries(assets)) {
+    if (!stations[a.station]) stations[a.station] = {fuel:a.fuel, region:a.region, units:[], totalMw:0, totalCap:0};
+    stations[a.station].units.push({duid, ...a});
+    if (a.mw !== null && a.mw !== undefined) stations[a.station].totalMw += a.mw;
+    stations[a.station].totalCap += a.capacity || 0;
+  }
 
-        ci_duid     = col(["DUID"])
-        ci_station  = col(["STATION NAME", "STATION"])
-        ci_fuel     = col(["FUEL SOURCE - DESCRIPTOR", "FUEL SOURCE", "FUEL"])
-        ci_region   = col(["REGION"])
-        ci_capacity = col(["REG CAP", "REGISTERED CAPACITY", "MAX CAP", "CAPACITY"])
-        ci_part     = col(["PARTICIPANT"])
+  // Fuel totals
+  const fuelTotals = {};
+  for (const a of Object.values(assets)) {
+    if (a.mw !== null && a.mw !== undefined) fuelTotals[a.fuel] = (fuelTotals[a.fuel]||0) + a.mw;
+  }
+  const totalMw = Object.values(fuelTotals).reduce((s,v)=>s+v,0);
+  const totalCap = Object.values(assets).reduce((s,a)=>s+(a.capacity||0),0);
 
-        result = {}
-        for i in range(header_row_idx + 1, sheet.nrows):
-            if ci_duid is None:
-                continue
-            duid = str(sheet.cell_value(i, ci_duid)).strip().upper()
-            if not duid or duid == "DUID" or duid == "":
-                continue
-            station  = str(sheet.cell_value(i, ci_station)).strip()  if ci_station  is not None else ""
-            fuel_raw = str(sheet.cell_value(i, ci_fuel)).strip()     if ci_fuel     is not None else ""
-            region   = str(sheet.cell_value(i, ci_region)).strip()   if ci_region   is not None else ""
-            cap_raw  = sheet.cell_value(i, ci_capacity)               if ci_capacity is not None else None
-            part     = str(sheet.cell_value(i, ci_part)).strip()     if ci_part     is not None else ""
-            try:
-                capacity = round(float(cap_raw), 1) if cap_raw not in (None, "") else None
-            except (ValueError, TypeError):
-                capacity = None
-            if region and not region.endswith("1"):
-                region = region + "1"
-            result[duid] = {
-                "station":     station or duid,
-                "fuel":        _fuel_from_reg(fuel_raw),
-                "fuel_raw":    fuel_raw,
-                "region":      region,
-                "capacity":    capacity,
-                "participant": part,
+  let html = '<div class="section-title">Origin Portfolio</div>';
+
+  // Fuel summary
+  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">';
+  for (const [fuel, mw] of Object.entries(fuelTotals).sort((a,b)=>b[1]-a[1])) {
+    const color = fc[fuel] || '#95a5a6';
+    html += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
+      padding:10px 8px;text-align:center;border-top:3px solid ${color}">
+      <div style="font-size:16px;margin-bottom:2px">${FUEL_ICONS[fuel]||'⚡'}</div>
+      <div style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:${color}">${fmt(mw)} <span style="font-size:9px;color:var(--text-muted)">MW</span></div>
+      <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-top:2px">${fuel}</div>
+    </div>`;
+  }
+  html += '</div>';
+
+  // Total bar
+  const pct = totalCap > 0 ? Math.min(totalMw/totalCap*100, 100) : 0;
+  html += `<div class="chart-card" style="margin:10px 0">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim)">Total Output</div>
+      <div style="font-family:var(--font-mono);font-size:14px;font-weight:700;color:#ff6b35">${fmt(totalMw)} <span style="font-size:10px;color:var(--text-muted)">/ ${fmt(totalCap)} MW</span></div>
+    </div>
+    <div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden">
+      <div style="height:100%;width:${pct.toFixed(1)}%;background:linear-gradient(90deg,#ff6b35,#ffd32a);border-radius:4px"></div>
+    </div>
+    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);margin-top:4px;text-align:right">${pct.toFixed(1)}% capacity</div>
+  </div>`;
+
+  // Stations
+  html += '<div class="section-title">Stations</div>';
+  for (const [name, st] of Object.entries(stations).sort((a,b)=>b[1].totalMw-a[1].totalMw)) {
+    const color = fc[st.fuel] || '#95a5a6';
+    const icon = FUEL_ICONS[st.fuel] || '⚡';
+    const sPct = st.totalCap > 0 ? Math.min(st.totalMw/st.totalCap*100,100) : 0;
+    const rrp = prices[st.region];
+    const rc = REGION_COLORS[st.region] || '#64748b';
+    html += `<div class="chart-card" style="margin-bottom:8px;border-left:3px solid ${color}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div>
+          <div style="font-family:var(--font-mono);font-size:12px;font-weight:700">${icon} ${name}</div>
+          <div style="font-family:var(--font-mono);font-size:9px;color:${color};margin-top:2px">
+            ${st.fuel} · <span style="color:${rc}">${REGION_SHORT[st.region]||st.region}</span>${rrp!==undefined?' · $'+rrp.toFixed(2)+'/MWh':''}
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:${st.totalMw>0?'#2ed573':'#64748b'}">${fmt(st.totalMw)}</div>
+          <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted)">/ ${fmt(st.totalCap)} MW</div>
+        </div>
+      </div>
+      <div style="height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-bottom:8px">
+        <div style="height:100%;width:${sPct.toFixed(1)}%;background:${color};opacity:0.8;border-radius:3px"></div>
+      </div>`;
+    if (st.units.length > 1) {
+      html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:4px">';
+      for (const u of st.units.sort((a,b)=>a.duid.localeCompare(b.duid))) {
+        const on = u.mw !== null && u.mw > 5;
+        const uPct = (u.mw !== null && u.capacity) ? Math.min(u.mw/u.capacity*100,100).toFixed(0) : 0;
+        html += `<div style="background:var(--surface2);border-radius:6px;padding:5px 7px;border:1px solid ${on?color+'55':'var(--border)'}">
+          <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted)">${u.duid}</div>
+          <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:${on?color:'#475569'};margin-top:2px">${u.mw!==null?fmt(u.mw)+' MW':'—'}</div>
+          <div style="height:3px;background:var(--surface);border-radius:2px;margin-top:3px;overflow:hidden">
+            <div style="height:100%;width:${uPct}%;background:${color};opacity:0.7"></div>
+          </div>
+        </div>`;
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+  return html;
+}
+
+// ── Stations (all NEM generators) ────────────────────────────────────────────
+
+let stationsRegionFilter = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
+let slowData = null;
+
+function toggleStationRegion(region) {
+  if (stationsRegionFilter.has(region)) {
+    if (stationsRegionFilter.size > 1) stationsRegionFilter.delete(region);
+  } else {
+    stationsRegionFilter.add(region);
+  }
+  if (slowData) renderPanel('stations', latestData);
+}
+
+function renderStations(fastData) {
+  if (!slowData || !slowData.generators) {
+    return `<div class="spinner"><div class="spinner-icon">⚙️</div><br>Loading generator data…<br><span style="font-size:10px;margin-top:8px;display:block">This page fetches from AEMO — may take 20–30s</span></div>`;
+  }
+  const { grouped, summary, fuel_colors: fc } = slowData.generators;
+  const prices = (fastData || {}).prices || {};
+  const FUEL_ORDER = ['Black Coal','Brown Coal','Gas','Hydro','Wind','Solar','Battery','Liquid','Other'];
+
+  // Build region pills
+  let html = '<div class="section-title">All NEM Generators</div>';
+  html += '<div class="region-pills">';
+  for (const r of REGIONS) {
+    const active = stationsRegionFilter.has(r) ? 'active' : '';
+    const color = REGION_COLORS[r];
+    html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="toggleStationRegion('${r}')">${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div>';
+
+  // Collect all stations across selected regions, group by fuel
+  const byFuel = {};
+  for (const region of REGIONS) {
+    if (!stationsRegionFilter.has(region)) continue;
+    const regionFuels = grouped[region] || {};
+    for (const fuel of FUEL_ORDER) {
+      const units = regionFuels[fuel] || [];
+      if (!units.length) continue;
+      // Aggregate to station level
+      const stationMap = {};
+      for (const u of units) {
+        const key = u.station || u.duid;
+        if (!stationMap[key]) stationMap[key] = { name: key, region, fuel, totalMw: 0, totalCap: 0, units: [] };
+        stationMap[key].totalMw += u.mw || 0;
+        stationMap[key].totalCap += u.capacity || 0;
+        stationMap[key].units.push(u);
+      }
+      if (!byFuel[fuel]) byFuel[fuel] = [];
+      byFuel[fuel].push(...Object.values(stationMap));
+    }
+  }
+
+  for (const fuel of FUEL_ORDER) {
+    const stations = byFuel[fuel];
+    if (!stations || !stations.length) continue;
+    stations.sort((a, b) => (b.totalMw || 0) - (a.totalMw || 0));
+    const color = (fc || {})[fuel] || '#95a5a6';
+    const totalMw = stations.reduce((s, x) => s + (x.totalMw || 0), 0);
+    const totalCap = stations.reduce((s, x) => s + (x.totalCap || 0), 0);
+    html += `<div class="fuel-group">
+      <div class="fuel-group-header" style="border-top:3px solid ${color}">
+        <span style="color:${color}">${FUEL_ICONS[fuel] || '⚡'} ${fuel}</span>
+        <span class="fuel-group-total">${fmt(totalMw, 0)} / ${fmt(totalCap, 0)} MW</span>
+      </div>`;
+    for (const st of stations) {
+      const pct = st.totalCap > 0 ? Math.min(st.totalMw / st.totalCap * 100, 100) : 0;
+      const rc = REGION_COLORS[st.region] || '#64748b';
+      const mwColor = st.totalMw > 5 ? color : 'var(--text-muted)';
+      html += `<div class="station-row">
+        <div>
+          <div class="station-name">${st.name}</div>
+          <div class="station-region" style="color:${rc}">${REGION_SHORT[st.region] || st.region}</div>
+        </div>
+        <div class="station-bar-wrap">
+          <div class="station-bar" style="width:${pct.toFixed(1)}%;background:${color}"></div>
+        </div>
+        <div>
+          <div class="station-mw" style="color:${mwColor}">${fmt(st.totalMw, 0)}<span style="font-size:9px;color:var(--text-muted)"> MW</span></div>
+          <div class="station-cap">${st.totalCap > 0 ? fmt(st.totalCap, 0) + ' cap' : ''}</div>
+        </div>
+      </div>`;
+    }
+    html += '</div>';
+  }
+  return html;
+}
+
+// ── Week Ahead ────────────────────────────────────────────────────────────────
+
+let weekRegionFilter = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
+
+function toggleWeekRegion(region) {
+  if (weekRegionFilter.has(region)) {
+    if (weekRegionFilter.size > 1) weekRegionFilter.delete(region);
+  } else {
+    weekRegionFilter.add(region);
+  }
+  if (latestData) renderPanel('weekahead', latestData);
+}
+
+function renderWeekAhead(fastData) {
+  let html = '<div class="section-title">Week Ahead</div>';
+
+  // Region filter pills
+  html += '<div class="region-pills">';
+  for (const r of REGIONS) {
+    const active = weekRegionFilter.has(r) ? 'active' : '';
+    const color = REGION_COLORS[r];
+    html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="toggleWeekRegion('${r}')">${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div>';
+
+  // Today's fuel mix (from fast data)
+  const fm = (fastData || {}).fuel_mix_history || {};
+  const fc = (fastData || {}).fuel_colors || {};
+  const fuels = (fastData || {}).all_fuels || [];
+  html += `<div class="week-chart-card"><div class="chart-title">Today's Generation by Fuel (NEM-wide)</div><div style="position:relative;height:200px"><canvas id="weekFuelChart"></canvas></div></div>`;
+
+  // ST PASA demand forecast
+  const hasSlowPasa = slowData && slowData.stpasa_demand && Object.keys(slowData.stpasa_demand).length > 0;
+  if (!hasSlowPasa) {
+    html += `<div class="week-chart-card"><div class="chart-title">7-Day Demand Forecast (ST PASA)</div><div class="spinner"><div class="spinner-icon">📡</div><br>Loading forecast data…</div></div>`;
+  } else {
+    html += `<div class="week-chart-card"><div class="chart-title">7-Day Demand Forecast — ST PASA (50% probability)</div><div style="position:relative;height:220px"><canvas id="weekPasaChart"></canvas></div></div>`;
+  }
+  return html;
+}
+
+function drawWeekCharts(fastData) {
+  // Today's fuel mix
+  const fm = (fastData || {}).fuel_mix_history || {};
+  const fc = (fastData || {}).fuel_colors || {};
+  const fuels = (fastData || {}).all_fuels || [];
+
+  // Build NEM-wide totals
+  const nemMap = {};
+  for (const r of REGIONS) {
+    for (const pt of (fm[r] || [])) {
+      const slot = nemMap[pt.interval] = nemMap[pt.interval] || {};
+      for (const fuel of fuels) {
+        if (pt[fuel]) slot[fuel] = (slot[fuel] || 0) + pt[fuel];
+      }
+    }
+  }
+  const fuelLabels = Object.keys(nemMap).sort();
+  const activeFuels = fuels.filter(f => fuelLabels.some(l => nemMap[l] && nemMap[l][f] > 0));
+
+  destroyChart('weekFuel');
+  const ctx1 = document.getElementById('weekFuelChart');
+  if (ctx1 && fuelLabels.length > 0) {
+    charts.weekFuel = new Chart(ctx1, {
+      type: 'line',
+      data: {
+        labels: fuelLabels,
+        datasets: activeFuels.map(fuel => ({
+          label: fuel,
+          data: fuelLabels.map(l => Math.max(0, (nemMap[l] && nemMap[l][fuel]) || 0)),
+          backgroundColor: (fc[fuel] || '#95a5a6') + 'cc',
+          borderColor: fc[fuel] || '#95a5a6',
+          borderWidth: 1, fill: true, pointRadius: 0, tension: 0.2, stack: 'nem'
+        }))
+      },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins, legend: { display: false },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw > 0,
+            callbacks: { label: c => c.raw > 0 ? ` ${c.dataset.label}: ${fmt(c.raw)} MW` : null }
+          }
+        },
+        scales: {
+          x: { stacked: true, ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxTicksLimit:8, maxRotation:0 }, grid:{color:'#1e2d4544'} },
+          y: { stacked: true, ticks: { color:'#94a3b8', font:{family:'Space Mono',size:10}, callback: v => (v/1000).toFixed(0)+'GW' }, grid:{color:'#1e2d45'} }
+        }
+      }
+    });
+  } else if (ctx1) {
+    ctx1.closest('.week-chart-card').querySelector('.chart-title').textContent = 'Today\'s fuel mix — loading…';
+  }
+
+  // ST PASA demand forecast
+  if (!slowData || !slowData.stpasa_demand) return;
+  const pasa = slowData.stpasa_demand;
+  const pasaLabelSet = new Set();
+  for (const r of REGIONS) {
+    if (!weekRegionFilter.has(r)) continue;
+    (pasa[r] || []).forEach(p => pasaLabelSet.add(p.interval));
+  }
+  const pasaLabels = Array.from(pasaLabelSet).sort();
+  if (!pasaLabels.length) return;
+
+  const pasaDatasets = [];
+  for (const r of REGIONS) {
+    if (!weekRegionFilter.has(r)) continue;
+    const color = REGION_COLORS[r];
+    const pm = {};
+    (pasa[r] || []).forEach(p => { if (p.demand_50 !== null) pm[p.interval] = p.demand_50; });
+    pasaDatasets.push({
+      label: REGION_SHORT[r],
+      data: pasaLabels.map(l => pm[l] !== undefined ? pm[l] : null),
+      borderColor: color, backgroundColor: 'transparent',
+      borderWidth: 2, pointRadius: 0, tension: 0.3, spanGaps: true
+    });
+  }
+
+  destroyChart('weekPasa');
+  const ctx2 = document.getElementById('weekPasaChart');
+  if (ctx2 && pasaDatasets.length) {
+    charts.weekPasa = new Chart(ctx2, {
+      type: 'line',
+      data: { labels: pasaLabels, datasets: pasaDatasets },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins,
+          legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:12, padding:8 } },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
+            callbacks: { label: c => c.raw !== null ? ` ${c.dataset.label}: ${fmt(c.raw)} MW` : null,
+              title: ts => { try { const d = new Date(ts[0].label.replace(' ','T')); return d.toLocaleDateString('en-AU',{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Australia/Sydney'}); } catch { return ts[0].label; } }
             }
+          }
+        },
+        scales: {
+          x: { ticks: { color:'#64748b', font:{family:'Space Mono',size:8}, maxTicksLimit:8, maxRotation:0,
+            callback: function(v,i) { const l = this.getLabelForValue(v); try { const d = new Date(l.replace(' ','T')); return d.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',timeZone:'Australia/Sydney'}); } catch { return l; } }
+          }, grid:{color:'#1e2d4544'} },
+          y: { ticks: { color:'#94a3b8', font:{family:'Space Mono',size:10}, callback: v => v.toLocaleString()+' MW' }, grid:{color:'#1e2d45'} }
+        }
+      }
+    });
+  }
+}
 
-        _reg_cache = result
-        _reg_cache_date = today
-        logger.info(f"Registration list loaded: {len(result)} DUIDs")
-        return result
+// ── Panel router ──────────────────────────────────────────────────────────────
 
-    except Exception as e:
-        logger.warning(f"Registration list load failed: {e}", exc_info=True)
-        return _reg_cache
-
-
-# ---------------------------------------------------------------------------
-# Full SCADA fetch — all DUIDs (not just Origin)
-# ---------------------------------------------------------------------------
-
-def _fetch_full_scada() -> dict:
-    """Return { DUID: mw } for every unit in DISPATCH_UNIT_SCADA."""
-    url = get_latest_file_url(SCADA_URL, "PUBLIC_DISPATCHSCADA")
-    if not url:
-        return {}
-    text = _read_zip(url)
-    result = {}
-    for row in _parse_aemo(text, "DISPATCH_UNIT_SCADA"):
-        duid = row.get("DUID", "").strip().upper()
-        v = row.get("SCADAVALUE", "")
-        try:
-            result[duid] = round(float(v), 1)
-        except (ValueError, TypeError):
-            pass
-    logger.info(f"Full SCADA: {len(result)} DUIDs")
-    return result
-
-
-# ---------------------------------------------------------------------------
-# ST PASA — 7-day ahead regional demand forecast
-# ---------------------------------------------------------------------------
-
-def scrape_stpasa_demand() -> dict:
-    """
-    Fetch latest ST PASA file and extract STPASA_REGIONSOLUTION.
-    Returns { region: [{interval, demand_50, demand_10}] } for next ~7 days.
-    """
-    try:
-        urls = _list_hrefs(ST_PASA_URL)
-        # Find latest STPASA file
-        pasa_urls = sorted([u for u in urls if "STPASA" in u.upper()])
-        if not pasa_urls:
-            logger.warning("No ST PASA files found")
-            return {}
-        url = pasa_urls[-1]
-        text = _read_zip(url)
-
-        now_aest = datetime.now(AEST).replace(tzinfo=None)
-        region_series: dict = {r: {} for r in NEM_REGIONS}
-
-        for tk in ["STPASA_REGIONSOLUTION", "ST_PASA_REGIONSOLUTION"]:
-            rows = _parse_aemo(text, tk)
-            if not rows:
-                continue
-            for row in rows:
-                region = row.get("REGIONID", "").strip()
-                if region not in NEM_REGIONS:
-                    continue
-                dt_str = row.get("INTERVAL_DATETIME", row.get("SETTLEMENTDATE", ""))
-                d50 = row.get("DEMAND50", row.get("TOTALDEMAND", ""))
-                d10 = row.get("DEMAND10", "")
-                if not dt_str:
-                    continue
-                try:
-                    dt = datetime.fromisoformat(dt_str.replace("/", "-"))
-                    if dt.replace(tzinfo=None) < now_aest:
-                        continue
-                    label = dt.strftime("%Y-%m-%d %H:%M")
-                    region_series[region][label] = {
-                        "demand_50": round(float(d50), 1) if d50 else None,
-                        "demand_10": round(float(d10), 1) if d10 else None,
-                    }
-                except (ValueError, TypeError):
-                    pass
-            if any(region_series.values()):
-                break
-
-        result = {}
-        for region, series in region_series.items():
-            if series:
-                result[region] = [{"interval": k, **v} for k, v in sorted(series.items())]
-        logger.info(f"ST PASA: {sum(len(v) for v in result.values())} pts across {len(result)} regions")
-        return result
-    except Exception as e:
-        logger.warning(f"ST PASA fetch failed: {e}")
-        return {}
-
-
-# ---------------------------------------------------------------------------
-# All-generators scrape (for /api/slow endpoint)
-# ---------------------------------------------------------------------------
-
-def scrape_all_generators() -> dict:
-    """
-    Fetch full SCADA output for all NEM DUIDs, join with registration list.
-    Returns grouped structure: { region: { fuel: [ {duid, station, mw, capacity, pct} ] } }
-    """
-    # Fetch SCADA and registration list concurrently
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        f_scada = ex.submit(_fetch_full_scada)
-        f_reg   = ex.submit(_load_registration_list)
-    scada  = f_scada.result()
-    reg    = f_reg.result()
-
-    timestamp = datetime.now(timezone.utc).isoformat()
-
-    # Group by region → fuel → list of units
-    grouped: dict = {}
-    for duid, mw in scada.items():
-        info = reg.get(duid, {})
-        region   = info.get("region", "UNKNOWN")
-        fuel     = info.get("fuel", "Other")
-        station  = info.get("station", duid)
-        capacity = info.get("capacity")
-        pct = round(mw / capacity * 100, 1) if (mw is not None and capacity and capacity > 0) else None
-
-        if region not in NEM_REGIONS:
-            continue  # skip non-NEM (WA, etc.)
-
-        rg = grouped.setdefault(region, {})
-        fg = rg.setdefault(fuel, [])
-        fg.append({
-            "duid":     duid,
-            "station":  station,
-            "mw":       round(mw, 1) if mw is not None else None,
-            "capacity": capacity,
-            "pct":      pct,
-            "participant": info.get("participant", ""),
-        })
-
-    # Sort within each fuel group by MW descending
-    for region in grouped:
-        for fuel in grouped[region]:
-            grouped[region][fuel].sort(key=lambda x: x["mw"] or 0, reverse=True)
-
-    # Summary stats per region/fuel
-    summary: dict = {}
-    for region, fuels in grouped.items():
-        summary[region] = {}
-        for fuel, units in fuels.items():
-            total_mw  = sum(u["mw"] or 0 for u in units)
-            total_cap = sum(u["capacity"] or 0 for u in units)
-            summary[region][fuel] = {
-                "total_mw":  round(total_mw, 1),
-                "total_cap": round(total_cap, 1),
-                "unit_count": len(units),
-            }
-
-    logger.info(f"scrape_all_generators: {sum(len(v) for r in grouped.values() for v in r.values())} units across {len(grouped)} regions")
-    return {
-        "timestamp":      datetime.now(timezone.utc).isoformat(),
-        "grouped":        grouped,
-        "summary":        summary,
-        "fuel_colors":    FUEL_COLORS,
-        "reg_list_count": len(reg),
-        "scada_count":    len(scada),
+function renderPanel(panel, data) {
+  const main = document.getElementById('mainContent');
+  let html = '';
+  try {
+    if (panel === 'prices')          html = renderPrices(data);
+    else if (panel === 'generation') html = renderGeneration(data);
+    else if (panel === 'demand')     html = renderDemand(data);
+    else if (panel === 'interconnectors') html = renderInterconnectors(data);
+    else if (panel === 'origin')     html = renderOrigin(data);
+    else if (panel === 'stations')   html = renderStations(data);
+    else if (panel === 'weekahead')  html = renderWeekAhead(data);
+  } catch(e) {
+    console.error('Render error:', e);
+    html = `<div class="state-msg"><div class="icon">⚠️</div><div style="font-size:11px">${e.message}</div></div>`;
+  }
+  main.innerHTML = html;
+  requestAnimationFrame(() => {
+    try {
+      if (panel === 'prices')          { drawPriceChart(data); drawDemandChart(data); }
+      else if (panel === 'generation') drawGenChart(data);
+      else if (panel === 'demand')     drawDemandChart(data);
+      else if (panel === 'interconnectors') drawIcChart(data);
+      else if (panel === 'weekahead')  drawWeekCharts(data);
+    } catch(e) {
+      console.error('Chart error:', e);
     }
+  });
+}
 
+// ── Data fetching ─────────────────────────────────────────────────────────────
 
-# ---------------------------------------------------------------------------
-# scrape_slow — background fetch for generators + week-ahead
-# ---------------------------------------------------------------------------
-
-def scrape_slow() -> dict:
-    """
-    Heavy scrape for generators page and week-ahead page.
-    Runs in background after fast scrape completes.
-    """
-    logger.info("scrape_slow starting...")
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        f_gens   = ex.submit(scrape_all_generators)
-        f_pasa   = ex.submit(scrape_stpasa_demand)
-        f_fuel7  = ex.submit(scrape_fuel_mix_history_opennem)  # reuse for week-ahead fuel context
-
-    gens  = f_gens.result()
-    pasa  = f_pasa.result()
-    fuel7 = f_fuel7.result()
-
-    logger.info("scrape_slow done")
-    return {
-        "timestamp":        datetime.now(timezone.utc).isoformat(),
-        "generators":       gens,
-        "stpasa_demand":    pasa,
-        "fuel_mix_today":   fuel7,
-        "fuel_colors":      FUEL_COLORS,
-        "all_fuels":        ALL_FUELS,
+async function fetchSlowData() {
+  try {
+    const resp = await fetch('/api/slow');
+    if (resp.status === 202) {
+      // Still loading — retry in 10s
+      setTimeout(fetchSlowData, 10000);
+      return;
     }
-
-
-# ---------------------------------------------------------------------------
-# Quick test
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    import json
-    logging.basicConfig(level=logging.INFO)
-    data = scrape_all()
-    summary = {
-        "prices":       data["prices"],
-        "hist_prices":  {r: len(v) for r, v in data["historical_prices"].items()},
-        "pd_prices":    {r: len(v) for r, v in data["predispatch_prices"].items()},
-        "demand_hist":  {r: len(v) for r, v in data["demand_history"].items()},
-        "fuel_mix":     {r: len(v) for r, v in data["fuel_mix_history"].items()},
-        "origin_found": {k: v["mw"] for k, v in data["origin_assets"].items() if v["mw"] is not None},
+    if (resp.ok) {
+      slowData = await resp.json();
+      // Re-render if on a slow-data panel
+      if (currentPanel === 'stations' || currentPanel === 'weekahead') {
+        renderPanel(currentPanel, latestData);
+      }
     }
-    print(json.dumps(summary, indent=2))
+  } catch(e) {
+    console.error('Slow data fetch failed:', e);
+    setTimeout(fetchSlowData, 30000);
+  }
+}
+
+async function fetchData() {
+  const dot = document.getElementById('statusDot');
+  const upd = document.getElementById('lastUpdated');
+  dot.className = 'pulse-dot loading';
+  try {
+    const resp = await fetch('/api/data');
+    if (resp.status === 503 || resp.status === 202) {
+      upd.textContent = 'Waiting for data…';
+      setTimeout(fetchData, 5000);
+      return;
+    }
+    const data = await resp.json();
+    latestData = data;
+    dot.className = 'pulse-dot';
+    upd.textContent = data.last_updated ? fmtTime(data.last_updated) : 'Just now';
+    renderPanel(currentPanel, data);
+  } catch(err) {
+    console.error(err);
+    dot.className = 'pulse-dot error';
+    upd.textContent = 'Error';
+    document.getElementById('mainContent').innerHTML =
+      `<div class="state-msg"><div class="icon">⚠️</div><div>Could not load data</div><div style="margin-top:8px;font-size:11px;color:#475569">${err.message}</div></div>`;
+  }
+}
+
+fetchData();
+setInterval(fetchData, 300000);
+// Start slow data fetch 3s after fast data — doesn't block initial render
+setTimeout(fetchSlowData, 3000);
+setInterval(fetchSlowData, 1800000);
+</script>
+</body>
+</html>

@@ -5,6 +5,7 @@ Slow cache: all generators, ST PASA week-ahead — refreshed every 30 min
 """
 
 import asyncio
+import io
 import logging
 import time
 import traceback
@@ -325,6 +326,7 @@ async def reg_test():
 
 
 
+@app.get("/", response_class=HTMLResponse)
 async def dashboard():
     html_path = Path(__file__).parent / "static" / "index.html"
     if html_path.exists():

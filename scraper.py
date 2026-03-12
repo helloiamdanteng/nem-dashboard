@@ -743,6 +743,34 @@ def scrape_fuel_mix_history_opennem() -> dict:
 
 _demand_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
 
+# ---------------------------------------------------------------------------
+# In-memory fuel mix history — populated by scrape_gen every 15 min
+# { region: { "HH:MM": { fuel: mw } } }
+# Keyed by AEST time string; old entries pruned to keep only today's data.
+# ---------------------------------------------------------------------------
+_fuel_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
+
+def _update_fuel_history(fuel_mix: dict) -> None:
+    """Store a fuel mix snapshot. Prune entries from before midnight today."""
+    label = datetime.now(AEST).strftime("%H:%M")
+    today = datetime.now(AEST).date()
+    for region in NEM_REGIONS:
+        if region not in fuel_mix:
+            continue
+        _fuel_history[region][label] = dict(fuel_mix[region])
+        # Prune old entries — only keep today (handles midnight rollover)
+        # We can't compare HH:MM to dates easily, so just keep last 290 slots (24hrs @ 5min)
+        if len(_fuel_history[region]) > 290:
+            oldest = sorted(_fuel_history[region].keys())[0]
+            del _fuel_history[region][oldest]
+
+def _get_fuel_history() -> dict:
+    result = {}
+    for region, series in _fuel_history.items():
+        if series:
+            result[region] = [{"interval": k, **v} for k, v in sorted(series.items())]
+    return result
+
 
 def _update_demand_history(region_summary: dict) -> None:
     label = datetime.now(AEST).strftime("%H:%M")
@@ -1340,17 +1368,21 @@ def scrape_gen() -> dict:
         for fuel in grouped[region]:
             grouped[region][fuel].sort(key=lambda x: x["mw"] or 0, reverse=True)
 
+    # Accumulate into in-memory history
+    _update_fuel_history(fuel_mix)
+
     logger.info(f"scrape_gen done — {len(scada)} SCADA DUIDs, "
                 f"reg={len(reg)}, buckets={sum(len(v) for v in fuel_mix.values())}")
     return {
-        "timestamp":   datetime.now(timezone.utc).isoformat(),
-        "fuel_mix":    fuel_mix,
-        "nem_totals":  nem_totals,
-        "grouped":     grouped,
-        "fuel_colors": FUEL_COLORS,
-        "all_fuels":   ALL_FUELS,
-        "scada_count": len(scada),
-        "reg_count":   len(reg),
+        "timestamp":     datetime.now(timezone.utc).isoformat(),
+        "fuel_mix":      fuel_mix,
+        "fuel_history":  _get_fuel_history(),
+        "nem_totals":    nem_totals,
+        "grouped":       grouped,
+        "fuel_colors":   FUEL_COLORS,
+        "all_fuels":     ALL_FUELS,
+        "scada_count":   len(scada),
+        "reg_count":     len(reg),
     }
 
 

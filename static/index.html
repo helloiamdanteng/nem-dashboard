@@ -84,6 +84,15 @@ body { background:var(--bg); color:var(--text); font-family:var(--font-sans); mi
 .ic-value { font-family:var(--font-mono); font-size:12px; font-weight:700; min-width:65px; text-align:right; }
 .ic-value.positive{color:var(--accent)} .ic-value.negative{color:var(--accent2)}
 
+/* ── Fuel breakdown rows (Gen tab) ── */
+.fuel-row { display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid #1e2d45; }
+.fuel-dot  { width:10px; height:10px; border-radius:2px; flex-shrink:0; }
+.fuel-name { font-family:var(--font-mono); font-size:11px; color:#94a3b8; min-width:90px; }
+.fuel-bar-wrap { flex:1; height:6px; background:#1e2d45; border-radius:3px; overflow:hidden; }
+.fuel-bar  { height:100%; border-radius:3px; transition:width 0.4s; }
+.fuel-mw   { font-family:var(--font-mono); font-size:12px; font-weight:700; color:#e2e8f0; min-width:68px; text-align:right; }
+.fuel-pct  { font-family:var(--font-mono); font-size:10px; color:#64748b; min-width:36px; text-align:right; }
+
 /* ── Stations page ── */
 .fuel-group { margin-bottom:16px; }
 .fuel-group-header {
@@ -450,18 +459,38 @@ function drawPriceChart(data) {
 // ── Generation ────────────────────────────────────────────────────────────────
 
 function renderGeneration(data) {
-  const fc = data.fuel_colors || {};
+  const fc = (genData && genData.fuel_colors) || data.fuel_colors || {};
   let html = '<div class="section-title">NEM Generation — Fuel Mix</div>';
-  html += '<div class="chart-card"><div class="chart-title">All regions stacked by fuel type</div>';
-  html += '<div class="chart-container" style="height:320px"><canvas id="fuelChart"></canvas></div>';
+
+  // Region selector (NEM-wide or individual region)
+  html += '<div class="region-pills">';
+  const selRegions = ['NEM', ...REGIONS];
+  for (const r of selRegions) {
+    const label = r === 'NEM' ? 'NEM' : REGION_SHORT[r];
+    const color = r === 'NEM' ? '#94a3b8' : REGION_COLORS[r];
+    const active = genRegion === r ? 'active' : '';
+    html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="setGenRegion('${r}')">${label}</button>`;
+  }
+  html += '</div>';
+
+  // Chart card
+  html += '<div class="chart-card"><div class="chart-title">Loading…</div>';
+  html += '<div class="chart-container" style="height:100px"><canvas id="fuelChart"></canvas></div>';
+  html += '</div>';
+
+  // Fuel breakdown list
+  html += '<div id="fuelBreakdown" style="margin-top:8px"></div>';
+
+  // Legend
   html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
   for (const [fuel, color] of Object.entries(fc)) {
     html += `<div style="display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10px;color:#94a3b8"><div style="width:10px;height:10px;border-radius:2px;background:${color}"></div>${fuel}</div>`;
   }
-  html += '</div></div>';
+  html += '</div>';
+
   const gen = data.generation || {};
   const raw = data.raw_summary || {};
-  html += '<div class="chart-card"><div class="chart-title">Current Generation by Region</div>';
+  html += '<div class="chart-card" style="margin-top:12px"><div class="chart-title">Current Generation by Region</div>';
   html += '<div class="table-wrap"><table><tr><th>Region</th><th>Scheduled</th><th>Semi-Sched</th><th>Net Int.</th></tr>';
   for (const r of REGIONS) {
     const g = gen[r] || {}, rw = raw[r] || {};
@@ -490,101 +519,112 @@ function drawGenChart(data) {
   destroyChart('gen');
   const ctx = document.getElementById('fuelChart');
   if (!ctx) return;
-  const fc = data.fuel_colors || {};
-  const fuels = data.all_fuels || Object.keys(fc);
-  const fuelMix = data.fuel_mix_history || {};
 
-  // Merge all regions into NEM-wide totals per interval per fuel
-  const nemMap = {};  // interval -> fuel -> mw
-  for (const r of REGIONS) {
-    for (const pt of (fuelMix[r] || [])) {
-      const slot = nemMap[pt.interval] = nemMap[pt.interval] || {};
-      for (const fuel of fuels) {
-        if (pt[fuel]) slot[fuel] = (slot[fuel] || 0) + pt[fuel];
-      }
-    }
-  }
-  const labels = Object.keys(nemMap).sort();
-
-  // If OpenNEM fuel mix isn't available, fall back to dispatch_history (scheduled+semi by region)
-  if (labels.length === 0) {
-    const dispHist = data.dispatch_history || {};
-    const pdGen = data.predispatch_gen || {};
-    const dLabelSet = new Set();
-    for (const r of REGIONS) {
-      (dispHist[r] || []).forEach(p => dLabelSet.add(p.interval));
-      (pdGen[r]    || []).forEach(p => dLabelSet.add(p.interval));
-    }
-    const dLabels = Array.from(dLabelSet).sort();
-    if (dLabels.length === 0) {
-      ctx.closest('.chart-card').querySelector('.chart-title').textContent = 'Generation data loading…';
-      ctx.style.display = 'none';
-      return;
-    }
-    const now2 = nowAEST();
-    const nowIdx2 = dLabels.findIndex(l => l >= now2);
-    const dDatasets = [];
-    for (const r of REGIONS) {
-      const color = REGION_COLORS[r];
-      const hm = {}; (dispHist[r] || []).forEach(p => { if (p.scheduled !== null) hm[p.interval] = (p.scheduled || 0) + (p.semi || 0); });
-      const pm = {}; (pdGen[r] || []).forEach(p => { pm[p.interval] = (p.Scheduled || 0) + (p.SemiScheduled || 0); });
-      dDatasets.push({ label: REGION_SHORT[r], regionId: r, stack: 'actual',
-        data: dLabels.map(l => hm[l] !== undefined ? hm[l] : null),
-        backgroundColor: color + '99', borderColor: color, borderWidth: 1,
-        fill: true, pointRadius: 0, tension: 0.2, spanGaps: true });
-      dDatasets.push({ label: REGION_SHORT[r] + ' PD', regionId: r, stack: 'pd',
-        data: dLabels.map(l => pm[l] !== undefined ? pm[l] : null),
-        backgroundColor: color + '44', borderColor: color + '66', borderWidth: 1,
-        fill: true, pointRadius: 0, tension: 0.2, spanGaps: false, borderDash: [4, 4] });
-    }
-    charts.gen = new Chart(ctx, {
-      type: 'line', data: {labels: dLabels, datasets: dDatasets},
-      options: {...CHART_DEFAULTS,
-        plugins: {...CHART_DEFAULTS.plugins, legend: {display: false},
-          tooltip: {...CHART_DEFAULTS.plugins.tooltip,
-            filter: i => i.raw !== null && i.raw > 0 && !i.dataset.label.endsWith(' PD'),
-            callbacks: {label: c => ` ${c.dataset.label}: ${fmt(c.raw)} MW`}
-          }
-        },
-        scales: {
-          x: {stacked: true, ticks: {color:'#64748b',font:{family:'Space Mono',size:9},maxTicksLimit:8,maxRotation:0}, grid: {color:'#1e2d4544'}},
-          y: {stacked: true, ticks: {color:'#94a3b8',font:{family:'Space Mono',size:10},callback: v => v.toLocaleString()+' MW'}, grid: {color:'#1e2d45'}}
-        }
-      },
-      plugins: [nowLinePlugin(nowIdx2)]
-    });
-    ctx.closest('.chart-card').querySelector('.chart-title').textContent = 'NEM Generation by Region — Scheduled + Semi-Sched (fuel type loading…)';
+  // Show spinner if gen data not yet loaded
+  if (!genData || genData._unavailable) {
+    const card = ctx.closest('.chart-card');
+    if (card) card.querySelector('.chart-title').textContent =
+      genData?._unavailable ? 'Generation data unavailable' : 'Loading fuel mix…';
+    ctx.style.display = 'none';
     return;
   }
-  const now = nowAEST();
-  const nowIdx = labels.findIndex(l => l >= now);
-  const activeFuels = fuels.filter(f => labels.some(l => nemMap[l] && nemMap[l][f] > 0));
+  ctx.style.display = '';
+
+  const fc     = genData.fuel_colors || {};
+  const fuels  = genData.all_fuels   || Object.keys(fc);
+  const FUEL_ORDER = ['Black Coal','Brown Coal','Gas','Hydro','Wind','Solar','Battery','Liquid','Other'];
+
+  // Build per-region or NEM-wide fuel MW bar
+  // genRegion === 'NEM' → use nem_totals; otherwise use fuel_mix[region]
+  const regionFuelMap = genData.fuel_mix || {};
+
+  // Collect active regions based on selector
+  const activeRegions = genRegion === 'NEM'
+    ? Object.keys(regionFuelMap)
+    : [genRegion].filter(r => regionFuelMap[r]);
+
+  // Aggregate MW per fuel across active regions
+  const totals = {};
+  for (const r of activeRegions) {
+    for (const [fuel, mw] of Object.entries(regionFuelMap[r] || {})) {
+      totals[fuel] = (totals[fuel] || 0) + mw;
+    }
+  }
+
+  const activeFuels = FUEL_ORDER.filter(f => (totals[f] || 0) > 0);
+  const totalMW = activeFuels.reduce((s, f) => s + totals[f], 0);
+
+  // Horizontal stacked bar — single bar showing fuel mix snapshot
   const datasets = activeFuels.map(fuel => ({
     label: fuel,
-    data: labels.map(l => Math.max(0, (nemMap[l] && nemMap[l][fuel]) || 0)),
-    backgroundColor: (fc[fuel] || '#95a5a6') + 'cc',
-    borderColor: fc[fuel] || '#95a5a6',
+    data: [Math.round(totals[fuel])],
+    backgroundColor: (fc[fuel] || '#95a5a6') + 'dd',
+    borderColor:     (fc[fuel] || '#95a5a6'),
     borderWidth: 1,
-    fill: true, pointRadius: 0, tension: 0.2, stack: 'nem'
   }));
+
+  const regionLabel = genRegion === 'NEM' ? 'NEM' : genRegion.replace('1','');
   charts.gen = new Chart(ctx, {
-    type: 'line', data: {labels, datasets},
-    options: {...CHART_DEFAULTS,
-      plugins: {...CHART_DEFAULTS.plugins,
-        legend: {display: false},
-        tooltip: {...CHART_DEFAULTS.plugins.tooltip,
-          filter: i => i.raw > 0,
-          callbacks: {label: c => c.raw > 0 ? ` ${c.dataset.label}: ${fmt(c.raw)} MW` : null}
+    type: 'bar',
+    data: { labels: [regionLabel], datasets },
+    options: {
+      ...CHART_DEFAULTS,
+      indexAxis: 'y',
+      plugins: {
+        ...CHART_DEFAULTS.plugins,
+        legend: { display: false },
+        tooltip: {
+          ...CHART_DEFAULTS.plugins.tooltip,
+          callbacks: {
+            label: c => ` ${c.dataset.label}: ${fmt(c.raw)} MW (${totalMW > 0 ? Math.round(c.raw/totalMW*100) : 0}%)`
+          }
         }
       },
       scales: {
-        x: {stacked: true, ticks: {color:'#64748b',font:{family:'Space Mono',size:9},maxTicksLimit:8,maxRotation:0}, grid: {color:'#1e2d4544'}},
-        y: {stacked: true, ticks: {color:'#94a3b8',font:{family:'Space Mono',size:10},callback: v => (v/1000).toFixed(0)+'GW'}, grid: {color:'#1e2d45'}}
+        x: {
+          stacked: true,
+          ticks: { color:'#94a3b8', font:{family:'Space Mono',size:10}, callback: v => (v/1000).toFixed(1)+'GW' },
+          grid: { color:'#1e2d45' }
+        },
+        y: {
+          stacked: true,
+          ticks: { color:'#64748b', font:{family:'Space Mono',size:10} },
+          grid: { color:'#1e2d4522' }
+        }
       }
-    },
-    plugins: [nowLinePlugin(nowIdx)]
+    }
   });
+
+  // Update title with total
+  const card = ctx.closest('.chart-card');
+  if (card) card.querySelector('.chart-title').textContent =
+    `${regionLabel} Generation — ${fmt(Math.round(totalMW))} MW total`;
+
+  // Also render the fuel breakdown list below the chart
+  renderFuelBreakdown(activeFuels, totals, totalMW, fc);
 }
+
+function renderFuelBreakdown(fuels, totals, totalMW, fc) {
+  const el = document.getElementById('fuelBreakdown');
+  if (!el) return;
+  let html = '';
+  for (const fuel of fuels) {
+    const mw = totals[fuel] || 0;
+    const pct = totalMW > 0 ? Math.round(mw / totalMW * 100) : 0;
+    const color = fc[fuel] || '#95a5a6';
+    html += `<div class="fuel-row">
+      <div class="fuel-dot" style="background:${color}"></div>
+      <div class="fuel-name">${fuel}</div>
+      <div class="fuel-bar-wrap"><div class="fuel-bar" style="width:${pct}%;background:${color}88"></div></div>
+      <div class="fuel-mw">${fmt(Math.round(mw))}</div>
+      <div class="fuel-pct">${pct}%</div>
+    </div>`;
+  }
+  el.innerHTML = html;
+}
+
+
+
 // ── Demand ────────────────────────────────────────────────────────────────────
 
 function renderDemand(data) {
@@ -945,7 +985,13 @@ function renderOrigin(data) {
 // ── Stations (all NEM generators) ────────────────────────────────────────────
 
 let stationsRegionFilter = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
+let genRegion = 'NEM';
 let slowData = null;
+
+function setGenRegion(r) {
+  genRegion = r;
+  if (latestData) renderPanel('generation', latestData);
+}
 
 function toggleStationRegion(region) {
   if (stationsRegionFilter.has(region)) {
@@ -953,17 +999,18 @@ function toggleStationRegion(region) {
   } else {
     stationsRegionFilter.add(region);
   }
-  if (slowData) renderPanel('stations', latestData);
+  if (genData) renderPanel('stations', latestData);
 }
 
 function renderStations(fastData) {
-  if (!slowData) {
-    return `<div class="spinner"><div class="spinner-icon">⚙️</div><br>Loading generator data…<br><span style="font-size:10px;margin-top:8px;display:block">This page fetches from AEMO — may take 20–30s</span></div>`;
+  if (!genData) {
+    return `<div class="spinner"><div class="spinner-icon">⚙️</div><br>Loading generator data…<br><span style="font-size:10px;margin-top:8px;display:block">Fetching SCADA data from AEMO…</span></div>`;
   }
-  if (slowData._unavailable || !slowData.generators) {
-    return `<div class="state-msg"><div class="icon">⚠️</div><div>Generator data unavailable<br><span style="font-size:10px">AEMO registration list could not be loaded. Check Render logs.</span></div></div>`;
+  if (genData._unavailable || !genData.grouped) {
+    return `<div class="state-msg"><div class="icon">⚠️</div><div>Generator data unavailable</div></div>`;
   }
-  const { grouped, summary, fuel_colors: fc } = slowData.generators;
+  const grouped = genData.grouped;
+  const fc = genData.fuel_colors || {};
   const prices = (fastData || {}).prices || {};
   const FUEL_ORDER = ['Black Coal','Brown Coal','Gas','Hydro','Wind','Solar','Battery','Liquid','Other'];
 
@@ -1214,6 +1261,46 @@ function renderPanel(panel, data) {
 
 // Single slow-data poll loop — no setInterval, no overlapping retries
 let _slowPollActive = false;
+let _genPollActive  = false;
+let genData = null;
+
+async function fetchGenData() {
+  if (_genPollActive) return;
+  _genPollActive = true;
+
+  const POLL_INTERVAL    = 8000;
+  const REFRESH_INTERVAL = 900000;  // 15 min
+  const MAX_WAIT_MS      = 90000;   // 90s max wait
+  const started = Date.now();
+
+  while (true) {
+    try {
+      const resp = await fetch('/api/gen');
+      if (resp.status === 202) {
+        if (Date.now() - started > MAX_WAIT_MS) {
+          genData = { _unavailable: true };
+          if (currentPanel === 'gen') renderPanel('gen', latestData);
+          break;
+        }
+        await new Promise(r => setTimeout(r, POLL_INTERVAL));
+        continue;
+      }
+      if (resp.ok) {
+        genData = await resp.json();
+        if (currentPanel === 'gen' || currentPanel === 'stations') renderPanel(currentPanel, latestData);
+        await new Promise(r => setTimeout(r, REFRESH_INTERVAL));
+        _genPollActive = false;
+        fetchGenData();
+        return;
+      }
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+    } catch(e) {
+      console.error('Gen fetch error:', e);
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+    }
+  }
+  _genPollActive = false;
+}
 
 async function fetchSlowData() {
   if (_slowPollActive) return;          // never run two at once
@@ -1293,7 +1380,8 @@ async function fetchData() {
 fetchData();
 setInterval(fetchData, 300000);
 // Start slow data fetch 3s after fast data — doesn't block initial render
-setTimeout(fetchSlowData, 3000); // loop manages its own refresh
+setTimeout(fetchGenData,  2000);  // gen: fuel mix + stations (15 min refresh)
+setTimeout(fetchSlowData, 3000); // slow: PASA week-ahead (30 min refresh)
 </script>
 </body>
 </html>

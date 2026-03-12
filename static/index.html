@@ -389,13 +389,18 @@ function drawPriceChart(data) {
       if (hm[nowSnap] !== undefined) hm[nowSnap] = livePrice[r];
       else dm[nowSnap] = livePrice[r];
     }
-    // Layer 3: predispatch (dashed), bridged from last actual
+    // Layer 3: predispatch (dashed), bridged from last actual, future only
     const pm = {};
     (pd[r] || []).forEach(p => { pm[p.interval] = p.rrp; });
-    const lastActual = labels.slice().reverse().find(l => dm[l] !== undefined || hm[l] !== undefined);
+    const lastActual = labels.slice().reverse().find(l => l <= nowSnap && (dm[l] !== undefined || hm[l] !== undefined));
     if (lastActual && Object.keys(pm).length) {
       pm[lastActual] = dm[lastActual] !== undefined ? dm[lastActual] : hm[lastActual];
     }
+    // Null all slots before the bridge — only draw PD from now onwards
+    const pdPriceData = labels.map(l => {
+      if (l < (lastActual || nowSnap)) return null;
+      return pm[l] !== undefined ? pm[l] : null;
+    });
 
     // Trading — thick solid, no gap interpolation
     datasets.push({
@@ -411,10 +416,10 @@ function drawPriceChart(data) {
       borderColor: color+'cc', backgroundColor: 'transparent',
       borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: false
     });
-    // Predispatch — dashed, spanGaps true (30-min points on 5-min spine)
+    // Predispatch — dashed, spanGaps true to connect 30-min points on 5-min spine (future only)
     datasets.push({
       label: REGION_SHORT[r]+' PD', regionId: r, isPD: true,
-      data: labels.map(l => pm[l] !== undefined ? pm[l] : null),
+      data: pdPriceData,
       borderColor: color+'99', backgroundColor: 'transparent',
       borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: true,
       borderDash: [5, 5]
@@ -828,13 +833,20 @@ function drawDemandChart(data) {
     });
     if (liveOp[r] != null) opHm[nowSnap] = liveOp[r];
 
-    // Predispatch
+    // Predispatch — future only, bridged from last actual point
     const pm = {};
     (pd[r] || []).forEach(p => { if (p.interval) pm[p.interval] = p.demand; });
-    const lastActualD = labels.slice().reverse().find(l => opHm[l] !== undefined || hm[l] !== undefined);
+    // Bridge: inject one point at the last actual so the dashed line starts from there
+    // Use the closest slot AT OR BEFORE now that has actual data
+    const lastActualD = labels.slice().reverse().find(l => l <= nowSnap && (opHm[l] !== undefined || hm[l] !== undefined));
     if (lastActualD && Object.keys(pm).length) {
-      pm[lastActualD] = opHm[lastActualD] || hm[lastActualD];
+      pm[lastActualD] = opHm[lastActualD] ?? hm[lastActualD];
     }
+    // Build PD data array — null for all historical slots, values only from bridge point onwards
+    const pdData = labels.map(l => {
+      if (l < (lastActualD || nowSnap)) return null;  // strictly historical — never show PD here
+      return pm[l] !== undefined ? pm[l] : null;
+    });
 
     // Operational demand — bold line (the main one to read)
     if (Object.keys(opHm).length) {
@@ -856,12 +868,12 @@ function drawDemandChart(data) {
       borderDash: [3, 3],
     });
 
-    // Predispatch
+    // Predispatch — spanGaps false so no line drawn through historical nulls
     datasets.push({
       label: REGION_SHORT[r]+' PD', regionId: r,
-      data: labels.map(l => pm[l] !== undefined ? pm[l] : null),
+      data: pdData,
       borderColor: color+'66', backgroundColor: 'transparent',
-      borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: true,
+      borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: false,
       borderDash: [5, 5]
     });
   }

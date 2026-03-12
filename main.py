@@ -39,11 +39,30 @@ async def _run_fast():
 
 async def _run_slow():
     t0 = time.time()
-    data = await asyncio.get_event_loop().run_in_executor(None, scrape_slow)
-    slow_cache["data"] = data
-    slow_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
-    slow_cache["error"] = None
-    logger.info(f"Slow scrape done in {time.time()-t0:.1f}s")
+    try:
+        loop = asyncio.get_event_loop()
+        data = await asyncio.wait_for(
+            loop.run_in_executor(None, scrape_slow),
+            timeout=120  # hard 2-min ceiling — never hang the slow cache
+        )
+        slow_cache["data"] = data
+        slow_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
+        slow_cache["error"] = None
+        logger.info(f"Slow scrape done in {time.time()-t0:.1f}s")
+    except asyncio.TimeoutError:
+        logger.error("Slow scrape timed out after 120s")
+        slow_cache["error"] = "timeout"
+        # Populate with whatever partial data we have rather than staying empty
+        if slow_cache["data"] is None:
+            slow_cache["data"] = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "generators": {"grouped": {}, "summary": {}, "fuel_colors": {}, "reg_list_count": 0, "scada_count": 0},
+                "stpasa_demand": {},
+                "fuel_mix_today": {},
+                "fuel_colors": {},
+                "all_fuels": [],
+            }
+            slow_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
 
 
 async def fast_loop():

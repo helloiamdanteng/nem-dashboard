@@ -868,26 +868,34 @@ def _load_registration_list() -> dict:
             return _reg_cache
 
         wb = xlrd.open_workbook(file_contents=r.content)
+        logger.info(f"Registration XLS: sheets={wb.sheet_names()}, size={len(r.content)} bytes")
         # Find the generators sheet
         sheet = None
         for name in wb.sheet_names():
             if "generator" in name.lower() or "scheduled" in name.lower():
                 sheet = wb.sheet_by_name(name)
+                logger.info(f"Registration XLS: using sheet '{name}' ({sheet.nrows} rows, {sheet.ncols} cols)")
                 break
         if sheet is None:
             sheet = wb.sheet_by_index(0)
+            logger.info(f"Registration XLS: falling back to sheet 0 '{wb.sheet_names()[0]}' ({sheet.nrows} rows)")
         if sheet is None:
             return _reg_cache
 
-        # Find header row (contains DUID)
+        # Find header row (contains DUID) — search first 20 rows
         header_row_idx = None
-        for i in range(min(15, sheet.nrows)):
+        for i in range(min(20, sheet.nrows)):
             cells = [str(sheet.cell_value(i, j)).upper() for j in range(sheet.ncols)]
+            logger.debug(f"Row {i}: {cells[:6]}")
             if any("DUID" in c for c in cells):
                 header_row_idx = i
+                logger.info(f"Registration XLS: header at row {i}, headers={cells[:8]}")
                 break
         if header_row_idx is None:
-            logger.warning("Registration list: DUID header not found")
+            # Log first few rows to diagnose
+            for i in range(min(5, sheet.nrows)):
+                cells = [str(sheet.cell_value(i, j)).upper() for j in range(min(8, sheet.ncols))]
+                logger.warning(f"Registration XLS no DUID found, row {i}: {cells}")
             return _reg_cache
 
         headers = [str(sheet.cell_value(header_row_idx, j)).strip().upper()

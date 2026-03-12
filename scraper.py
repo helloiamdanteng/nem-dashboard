@@ -335,6 +335,9 @@ def scrape_trading_history() -> dict:
     fetch_ok = 0
     fetch_fail = 0
     fetch_empty = 0
+    now_aest   = datetime.now(AEST)
+    today_date = now_aest.date()
+    now_label  = now_aest.strftime("%H:%M")
 
     def fetch_one(url):
         import time as _time, random
@@ -357,7 +360,13 @@ def scrape_trading_history() -> dict:
                     continue
                 try:
                     dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                    pts.append((region, dt.strftime("%H:%M"), round(float(rrp_str), 2)))
+                    # Only keep today's intervals, capped at now
+                    if dt.date() != today_date:
+                        continue
+                    label = dt.strftime("%H:%M")
+                    if label > now_label:
+                        continue
+                    pts.append((region, label, round(float(rrp_str), 2)))
                 except (ValueError, TypeError):
                     pass
             return pts, "ok" if pts else "empty"
@@ -412,6 +421,9 @@ def scrape_dispatch_history() -> dict:
     demand: dict[str, dict] = {r: {} for r in NEM_REGIONS}
     prices: dict[str, dict] = {r: {} for r in NEM_REGIONS}
     fetch_ok = fetch_fail = fetch_empty = 0
+    now_aest   = datetime.now(AEST)
+    today_date = now_aest.date()
+    now_label  = now_aest.strftime("%H:%M")
 
     def fetch_one(url):
         import time as _time, random
@@ -434,6 +446,8 @@ def scrape_dispatch_history() -> dict:
                     continue
                 try:
                     dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=5)
+                    if dt.date() != today_date or dt.strftime("%H:%M") > now_label:
+                        continue
                     pts.append(("demand", region, dt.strftime("%H:%M"), round(float(demand_str), 1)))
                 except (ValueError, TypeError):
                     pass
@@ -450,6 +464,8 @@ def scrape_dispatch_history() -> dict:
                     continue
                 try:
                     dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=5)
+                    if dt.date() != today_date or dt.strftime("%H:%M") > now_label:
+                        continue
                     pts.append(("price", region, dt.strftime("%H:%M"), round(float(rrp_str), 2)))
                 except (ValueError, TypeError):
                     pass

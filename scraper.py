@@ -1601,56 +1601,74 @@ def scrape_scada_history() -> None:
 
 def scrape_gen() -> dict:
     """
-    Fetch full SCADA snapshot, join with NEM_UNITS static registry.
-    Returns current MW by fuel per region, plus NEM-wide totals.
+    SCADA-first: every DUID in DISPATCH_UNIT_SCADA is included.
+    Registry (NEM_UNITS) enriches with station name / fuel / capacity.
+    For unregistered DUIDs, region is inferred from CONNECTIONPOINTID
+    (first letter: N=NSW1, Q=QLD1, V=VIC1, S=SA1, T=TAS1).
     """
     logger.info("scrape_gen starting...")
-    scada = _fetch_full_scada()
-    reg   = NEM_UNITS
+
+    # Fetch SCADA and latest DispatchIS in parallel
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        f_scada    = ex.submit(_fetch_full_scada)
+        f_dispatch = ex.submit(_fetch_dispatch_is)
+    scada         = f_scada.result()
+    dispatch_text = f_dispatch.result()
+
+    reg = NEM_UNITS
+
+    # Build DUID->region from CONNECTIONPOINTID in DISPATCH_UNIT_SOLUTION
+    _CPID_REGION = {"N": "NSW1", "Q": "QLD1", "V": "VIC1", "S": "SA1", "T": "TAS1"}
+    cpid_map: dict = {}
+    for row in _parse_aemo(dispatch_text, "DISPATCH_UNIT_SOLUTION"):
+        duid = row.get("DUID", "").strip().upper()
+        cpid = row.get("CONNECTIONPOINTID", "").strip().upper()
+        if duid and cpid and cpid[0] in _CPID_REGION:
+            cpid_map[duid] = _CPID_REGION[cpid[0]]
 
     fuel_mix:   dict = {r: {} for r in NEM_REGIONS}
     nem_totals: dict = {}
-
-    # Also build grouped structure for Stations tab (reuse same SCADA pass)
-    grouped: dict = {}
+    grouped:    dict = {}
+    unmatched_log: list = []
 
     for duid, mw in scada.items():
-        info = reg.get(duid.upper(), {})
-        region = info.get("region", "")
-        fuel   = info.get("fuel",   "Other")
+        info     = reg.get(duid.upper(), {})
+        region   = info.get("region", "") or cpid_map.get(duid.upper(), "")
+        fuel     = info.get("fuel", "Other")
+        station  = info.get("station", duid)
+        capacity = info.get("capacity")
+
         if region not in NEM_REGIONS:
             continue
 
-        mw_pos = max(mw, 0) if mw is not None else 0
+        mw_val = mw if mw is not None else 0
+        mw_pos = max(mw_val, 0)
 
-        # Fuel mix totals (generating only, positive MW)
         fuel_mix[region][fuel] = round(fuel_mix[region].get(fuel, 0) + mw_pos, 1)
-        nem_totals[fuel] = round(nem_totals.get(fuel, 0) + mw_pos, 1)
+        nem_totals[fuel]       = round(nem_totals.get(fuel, 0) + mw_pos, 1)
 
-        # Grouped detail for Stations tab
-        capacity = info.get("capacity")
-        pct = round(mw / capacity * 100, 1) if (mw is not None and capacity and capacity > 0) else None
-        rg = grouped.setdefault(region, {})
-        fg = rg.setdefault(fuel, [])
-        fg.append({
+        pct = round(mw_val / capacity * 100, 1) if (mw_val and capacity and capacity > 0) else None
+        grouped.setdefault(region, {}).setdefault(fuel, []).append({
             "duid":     duid,
-            "station":  info.get("station", duid),
-            "mw":       round(mw, 1) if mw is not None else None,
+            "station":  station,
+            "mw":       round(mw_val, 1),
             "capacity": capacity,
             "pct":      pct,
+            "matched":  bool(info),
         })
+
+        if not info:
+            unmatched_log.append((duid, mw_val))
 
     # Sort units within each fuel group by MW desc
     for region in grouped:
         for fuel in grouped[region]:
             grouped[region][fuel].sort(key=lambda x: x["mw"] or 0, reverse=True)
 
-    # Log unmatched DUIDs (in SCADA but not in registry) sorted by MW descending
-    unmatched = {d: mw for d, mw in scada.items() if not reg.get(d.upper(), {}).get("region")}
-    if unmatched:
-        top_unmatched = sorted(unmatched.items(), key=lambda x: x[1] or 0, reverse=True)[:20]
-        logger.info(f"scrape_gen unmatched DUIDs ({len(unmatched)} total): "
-                    + ", ".join(f"{d}={mw:.0f}MW" for d, mw in top_unmatched if mw and mw > 1))
+    if unmatched_log:
+        top = sorted(unmatched_log, key=lambda x: x[1] or 0, reverse=True)[:20]
+        logger.info(f"scrape_gen: {len(unmatched_log)} SCADA DUIDs region-inferred (no registry entry): "
+                    + ", ".join(f"{d}={mw:.0f}MW" for d, mw in top if mw and mw > 1))
 
     # Accumulate into in-memory history
     _update_fuel_history(fuel_mix)

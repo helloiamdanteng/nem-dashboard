@@ -1108,6 +1108,18 @@ function toggleStationRegion(region) {
   if (genData) renderPanel('stations', latestData);
 }
 
+let stationsHideOffline = false;
+let stationsHideSmall   = false;   // hide stations < 100 MW capacity
+
+function toggleStationsHideOffline() {
+  stationsHideOffline = !stationsHideOffline;
+  if (genData) renderPanel('stations', latestData);
+}
+function toggleStationsHideSmall() {
+  stationsHideSmall = !stationsHideSmall;
+  if (genData) renderPanel('stations', latestData);
+}
+
 function renderStations(fastData) {
   if (!genData) {
     return `<div class="spinner"><div class="spinner-icon">⚙️</div><br>Loading generator data…<br><span style="font-size:10px;margin-top:8px;display:block">Fetching SCADA data from AEMO…</span></div>`;
@@ -1120,7 +1132,7 @@ function renderStations(fastData) {
   const prices = (fastData || {}).prices || {};
   const FUEL_ORDER = ['Brown Coal','Black Coal','Gas','Hydro','Battery','Wind','Solar','Liquid','Other'];
 
-  // Build region pills
+  // Build region pills + filter toggles
   let html = '<div class="section-title">All NEM Generators</div>';
   html += '<div class="region-pills">';
   for (const r of REGIONS) {
@@ -1128,6 +1140,24 @@ function renderStations(fastData) {
     const color = REGION_COLORS[r];
     html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="toggleStationRegion('${r}')">${REGION_SHORT[r]}</button>`;
   }
+  html += '</div>';
+
+  // Filter toggles
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px">';
+  html += `<button onclick="toggleStationsHideOffline()" style="
+    font-family:var(--font-mono);font-size:10px;padding:5px 12px;border-radius:20px;cursor:pointer;
+    border:1px solid ${stationsHideOffline ? '#2ed573' : '#475569'};
+    background:${stationsHideOffline ? '#2ed57322' : 'transparent'};
+    color:${stationsHideOffline ? '#2ed573' : '#94a3b8'}">
+    ${stationsHideOffline ? '✓' : ''} Hide offline
+  </button>`;
+  html += `<button onclick="toggleStationsHideSmall()" style="
+    font-family:var(--font-mono);font-size:10px;padding:5px 12px;border-radius:20px;cursor:pointer;
+    border:1px solid ${stationsHideSmall ? '#2ed573' : '#475569'};
+    background:${stationsHideSmall ? '#2ed57322' : 'transparent'};
+    color:${stationsHideSmall ? '#2ed573' : '#94a3b8'}">
+    ${stationsHideSmall ? '✓' : ''} Hide &lt;100 MW
+  </button>`;
   html += '</div>';
 
   // Collect all stations across selected regions, group by fuel
@@ -1147,8 +1177,15 @@ function renderStations(fastData) {
         stationMap[key].totalCap += u.capacity || 0;
         stationMap[key].units.push(u);
       }
+      // Apply filters at station level
+      const filtered = Object.values(stationMap).filter(st => {
+        if (stationsHideOffline && st.totalMw <= 5) return false;
+        if (stationsHideSmall  && st.totalCap > 0 && st.totalCap < 100) return false;
+        return true;
+      });
+      if (!filtered.length) continue;
       if (!byFuel[fuel]) byFuel[fuel] = [];
-      byFuel[fuel].push(...Object.values(stationMap));
+      byFuel[fuel].push(...filtered);
     }
   }
 
@@ -1168,9 +1205,11 @@ function renderStations(fastData) {
       const pct = st.totalCap > 0 ? Math.min(st.totalMw / st.totalCap * 100, 100) : 0;
       const rc = REGION_COLORS[st.region] || '#64748b';
       const mwColor = st.totalMw > 5 ? color : 'var(--text-muted)';
-      html += `<div class="station-row">
+      const isOffline = st.totalMw <= 5;
+      const allUnmatched = st.units && st.units.every(u => !u.matched);
+      html += `<div class="station-row" style="${isOffline ? 'opacity:0.45' : ''}">
         <div>
-          <div class="station-name">${st.name}</div>
+          <div class="station-name">${st.name}${allUnmatched ? ' <span title="DUID not in registry — fuel/region inferred" style="font-size:9px;color:#64748b;cursor:help">?</span>' : ''}</div>
           <div class="station-region" style="color:${rc}">${REGION_SHORT[st.region] || st.region}</div>
         </div>
         <div class="station-bar-wrap">

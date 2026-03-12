@@ -850,7 +850,8 @@ def _fuel_from_reg(fuel_raw: str) -> str:
 
 def _load_registration_list() -> dict:
     """
-    Download and parse AEMO NEM Registration and Exemption List (.xls).
+    Download and parse AEMO NEM Registration list from NEMWeb Static CSV.
+    Falls back to the AEMO website XLS if CSV unavailable.
     Returns { DUID: {station, fuel, region, capacity_mw, participant} }
     Cached once per day.
     """
@@ -859,47 +860,139 @@ def _load_registration_list() -> dict:
     if _reg_cache and _reg_cache_date == today:
         return _reg_cache
 
+    # Primary: NEMWeb Generators and Scheduled Loads CSV (no auth, no XLS)
+    CSV_URLS = [
+        "https://www.nemweb.com.au/Reports/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV",
+        "https://nemweb.com.au/Reports/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV",
+        f"{NEMWEB_BASE}/Reports/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV",
+    ]
+    # Fallback: AEMO static file page (sometimes available without redirect)
+    AEMO_URLS = [
+        "https://aemo.com.au/-/media/Files/Electricity/NEM/Participant_Information/Current-Participants/NEM-Registration-and-Exemption-List.xls",
+        AEMO_REG_LIST_URL,
+    ]
+
+    result = _try_load_nemweb_csv()
+    if result:
+        _reg_cache = result
+        _reg_cache_date = today
+        return result
+
+    # Fallback: try AEMO XLS
+    result = _try_load_aemo_xls()
+    if result:
+        _reg_cache = result
+        _reg_cache_date = today
+        return result
+
+    logger.warning("Registration list: all sources failed, using empty cache")
+    return _reg_cache
+
+
+def _try_load_nemweb_csv() -> dict:
+    """Try to load registration data from NEMWeb SEMP CSV."""
+    # NEMWeb publishes Generators and Scheduled Loads via MMS tables
+    # Try the Generators_and_Scheduled_Loads static file
+    urls_to_try = [
+        f"{NEMWEB_BASE}/Reports/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV",
+        # Also try the NEM Registration list as a direct download from the data portal
+        "https://data.wa.aemo.com.au/public/public-data/datafiles/facilities/facilities.csv",  # WA only, skip
+    ]
+    # The most reliable source: MMS DUDETAILSUMMARY via NEMWeb
+    # Available as a static file updated daily
+    url = f"{NEMWEB_BASE}/Reports/CURRENT/Ancillary_Services/PUBLIC_DVD_DUDETAILSUMMARY_202503120000.zip"
+
+    # Actually use the correct approach: scrape the Generators listing page
+    # NEMWeb has a static CSV at this well-known path:
+    gen_csv_url = "https://www.nemweb.com.au/Reports/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV"
+    r = _get(gen_csv_url, timeout=15)
+    if r and r.status_code == 200 and len(r.content) > 1000:
+        return _parse_registration_csv(r.text)
+    return {}
+
+
+def _parse_registration_csv(text: str) -> dict:
+    """Parse a CSV registration file into {DUID: info} dict."""
+    result = {}
+    try:
+        reader = csv.DictReader(io.StringIO(text))
+        headers_upper = {k: k.upper() for k in (reader.fieldnames or [])}
+
+        def get(row, *keys):
+            for k in keys:
+                for fk, fu in headers_upper.items():
+                    if k.upper() in fu:
+                        return str(row.get(fk, "") or "").strip()
+            return ""
+
+        for row in reader:
+            duid = get(row, "DUID").upper()
+            if not duid:
+                continue
+            region = get(row, "REGION", "REGIONID")
+            if region and not region.endswith("1"):
+                region = region + "1"
+            fuel_raw = get(row, "FUEL SOURCE", "FUEL_SOURCE", "FUEL", "TECHNOLOGY")
+            cap_str = get(row, "REG CAP", "REGISTERED_CAPACITY", "CAPACITY", "MAX_CAP")
+            try:
+                capacity = round(float(cap_str), 1) if cap_str else None
+            except (ValueError, TypeError):
+                capacity = None
+            result[duid] = {
+                "station":     get(row, "STATION NAME", "STATION", "STATIONNAME") or duid,
+                "fuel":        _fuel_from_reg(fuel_raw),
+                "fuel_raw":    fuel_raw,
+                "region":      region,
+                "capacity":    capacity,
+                "participant": get(row, "PARTICIPANT", "PARTICIPANTID"),
+            }
+        logger.info(f"Registration CSV parsed: {len(result)} DUIDs")
+    except Exception as e:
+        logger.warning(f"Registration CSV parse failed: {e}")
+    return result
+
+
+def _try_load_aemo_xls() -> dict:
+    """Try to load AEMO registration XLS using xlrd."""
     try:
         import xlrd
     except ImportError:
-        logger.warning("xlrd not installed; registration list unavailable")
-        return _reg_cache
+        logger.warning("xlrd not installed")
+        return {}
 
+    headers_to_try = {
+        "User-Agent": "Mozilla/5.0 (compatible; NEM-Dashboard/1.0)",
+        "Accept": "application/vnd.ms-excel,*/*",
+        "Referer": "https://aemo.com.au/",
+    }
     try:
-        r = _get(AEMO_REG_LIST_URL, timeout=30)
-        if not r:
-            return _reg_cache
+        r = SESSION.get(AEMO_REG_LIST_URL, timeout=20,
+                        headers=headers_to_try, allow_redirects=True)
+        if not r or r.status_code != 200 or len(r.content) < 10000:
+            logger.warning(f"AEMO XLS fetch failed: status={getattr(r,'status_code','?')} size={len(getattr(r,'content',b''))}")
+            return {}
 
+        logger.info(f"AEMO XLS: {len(r.content)} bytes, content-type={r.headers.get('Content-Type','?')}")
         wb = xlrd.open_workbook(file_contents=r.content)
-        logger.info(f"Registration XLS: sheets={wb.sheet_names()}, size={len(r.content)} bytes")
-        # Find the generators sheet
         sheet = None
         for name in wb.sheet_names():
             if "generator" in name.lower() or "scheduled" in name.lower():
                 sheet = wb.sheet_by_name(name)
-                logger.info(f"Registration XLS: using sheet '{name}' ({sheet.nrows} rows, {sheet.ncols} cols)")
                 break
         if sheet is None:
             sheet = wb.sheet_by_index(0)
-            logger.info(f"Registration XLS: falling back to sheet 0 '{wb.sheet_names()[0]}' ({sheet.nrows} rows)")
-        if sheet is None:
-            return _reg_cache
 
-        # Find header row (contains DUID) — search first 20 rows
+        # Find DUID header row
         header_row_idx = None
         for i in range(min(20, sheet.nrows)):
             cells = [str(sheet.cell_value(i, j)).upper() for j in range(sheet.ncols)]
-            logger.debug(f"Row {i}: {cells[:6]}")
             if any("DUID" in c for c in cells):
                 header_row_idx = i
-                logger.info(f"Registration XLS: header at row {i}, headers={cells[:8]}")
+                logger.info(f"XLS header at row {i}: {cells[:8]}")
                 break
         if header_row_idx is None:
-            # Log first few rows to diagnose
-            for i in range(min(5, sheet.nrows)):
-                cells = [str(sheet.cell_value(i, j)).upper() for j in range(min(8, sheet.ncols))]
-                logger.warning(f"Registration XLS no DUID found, row {i}: {cells}")
-            return _reg_cache
+            logger.warning("XLS: no DUID header found")
+            return {}
 
         headers = [str(sheet.cell_value(header_row_idx, j)).strip().upper()
                    for j in range(sheet.ncols)]
@@ -922,7 +1015,7 @@ def _load_registration_list() -> dict:
             if ci_duid is None:
                 continue
             duid = str(sheet.cell_value(i, ci_duid)).strip().upper()
-            if not duid or duid == "DUID" or duid == "":
+            if not duid or duid == "DUID":
                 continue
             station  = str(sheet.cell_value(i, ci_station)).strip()  if ci_station  is not None else ""
             fuel_raw = str(sheet.cell_value(i, ci_fuel)).strip()     if ci_fuel     is not None else ""
@@ -943,15 +1036,14 @@ def _load_registration_list() -> dict:
                 "capacity":    capacity,
                 "participant": part,
             }
-
-        _reg_cache = result
-        _reg_cache_date = today
-        logger.info(f"Registration list loaded: {len(result)} DUIDs")
+        logger.info(f"AEMO XLS loaded: {len(result)} DUIDs")
         return result
 
     except Exception as e:
-        logger.warning(f"Registration list load failed: {e}", exc_info=True)
-        return _reg_cache
+        logger.warning(f"AEMO XLS load failed: {e}", exc_info=True)
+        return {}
+
+
 
 
 # ---------------------------------------------------------------------------

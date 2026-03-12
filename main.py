@@ -17,16 +17,18 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from scraper import scrape_all, scrape_slow
+from scraper import scrape_all, scrape_gen, scrape_slow
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 fast_cache = {"data": None, "last_updated": None, "error": None}
+gen_cache  = {"data": None, "last_updated": None, "error": None}
 slow_cache = {"data": None, "last_updated": None, "error": None}
 
-FAST_INTERVAL = 300   # 5 min
-SLOW_INTERVAL = 1800  # 30 min
+FAST_INTERVAL = 300    # 5 min
+GEN_INTERVAL  = 900    # 15 min
+SLOW_INTERVAL = 1800   # 30 min
 
 
 async def _run_fast():
@@ -76,6 +78,38 @@ async def fast_loop():
         await asyncio.sleep(FAST_INTERVAL)
 
 
+async def _run_gen():
+    t0 = time.time()
+    try:
+        loop = asyncio.get_event_loop()
+        data = await asyncio.wait_for(loop.run_in_executor(None, scrape_gen), timeout=60)
+        gen_cache["data"] = data
+        gen_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
+        gen_cache["error"] = None
+        logger.info(f"Gen scrape done in {time.time()-t0:.1f}s — "
+                    f"scada={data.get('scada_count',0)} reg={data.get('reg_count',0)}")
+    except asyncio.TimeoutError:
+        logger.error("Gen scrape timed out")
+        gen_cache["error"] = "timeout"
+        if gen_cache["data"] is None:
+            gen_cache["data"] = {"fuel_mix": {}, "nem_totals": {}, "grouped": {},
+                                 "fuel_colors": {}, "all_fuels": [], "scada_count": 0, "reg_count": 0}
+    except Exception as e:
+        logger.error(f"Gen scrape error: {e}")
+        gen_cache["error"] = str(e)
+
+
+async def gen_loop():
+    await asyncio.sleep(5)   # let fast scrape finish first
+    while True:
+        try:
+            await _run_gen()
+        except Exception as e:
+            logger.error(f"Gen loop error: {e}")
+            gen_cache["error"] = str(e)
+        await asyncio.sleep(GEN_INTERVAL)
+
+
 async def slow_loop():
     while True:
         try:
@@ -88,20 +122,22 @@ async def slow_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Fast scrape first — gets prices/demand up immediately
+    # Fast scrape first — prices/demand up immediately
     try:
         await _run_fast()
     except Exception as e:
         logger.error(f"Initial fast scrape failed: {e}\n{traceback.format_exc()}")
         fast_cache["error"] = str(e)
 
-    # Slow scrape kicks off in background — doesn't block startup
+    # Gen and slow kick off in background
     asyncio.create_task(_run_slow())
 
     fast_task = asyncio.create_task(fast_loop())
+    gen_task  = asyncio.create_task(gen_loop())
     slow_task = asyncio.create_task(slow_loop())
     yield
     fast_task.cancel()
+    gen_task.cancel()
     slow_task.cancel()
 
 
@@ -123,6 +159,20 @@ async def get_data():
         **fast_cache["data"],
         "last_updated": fast_cache["last_updated"],
         "cache_error":  fast_cache.get("error"),
+    })
+
+
+@app.get("/api/gen")
+async def get_gen():
+    if gen_cache["data"] is None:
+        return JSONResponse(
+            content={"loading": True, "error": gen_cache.get("error")},
+            status_code=202,
+        )
+    return JSONResponse(content={
+        **gen_cache["data"],
+        "last_updated": gen_cache["last_updated"],
+        "cache_error":  gen_cache.get("error"),
     })
 
 

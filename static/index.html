@@ -1156,11 +1156,11 @@ function setGenRegion(r) {
 function toggleAllStationRegions() {
   const allSelected = REGIONS.every(r => stationsRegionFilter.has(r));
   if (allSelected) {
-    stationsRegionFilter.clear();   // all → none
+    stationsRegionFilter.clear();
   } else {
-    REGIONS.forEach(r => stationsRegionFilter.add(r));  // any state → all
+    REGIONS.forEach(r => stationsRegionFilter.add(r));
   }
-  refreshTab();
+  if (genData) renderPanel('stations', latestData);
 }
 
 function toggleStationRegion(region) {
@@ -1252,23 +1252,27 @@ async function openStationModal(regIdx) {
     return `rgba(${Math.round(r*factor)},${Math.round(g*factor)},${Math.round(b*factor)},0.85)`;
   }
 
-  // Build stacked bar datasets — one per DUID
+  // Build stacked area line datasets — one per DUID, ordered lightest→darkest
   const datasets = results.map((d, i) => {
     const hm = {};
     d.history.forEach(p => { if (p.interval) hm[p.interval] = Math.max(p.mw, 0); });
+    const color = unitColor(i, results.length);
     return {
       label: d.duid,
-      data: labels.map(l => hm[l] !== undefined ? hm[l] : 0),
-      backgroundColor: unitColor(i, results.length),
-      borderColor: 'transparent',
-      borderWidth: 0,
-      stack: 'station',
+      data: labels.map(l => hm[l] !== undefined ? hm[l] : null),
+      borderColor: color,
+      backgroundColor: color.replace('0.85)', '0.35)'),
+      borderWidth: 1.5,
+      pointRadius: 0,
+      tension: 0.2,
+      spanGaps: false,
+      fill: results.length > 1 ? (i === 0 ? 'origin' : '-1') : 'origin',
     };
   });
 
   const ctx = document.getElementById('stationModalChart');
   _stationModalChart = new Chart(ctx, {
-    type: 'bar',
+    type: 'line',
     data: { labels, datasets },
     options: {
       animation: false,
@@ -1288,26 +1292,24 @@ async function openStationModal(regIdx) {
           borderWidth: 1,
           callbacks: {
             title: items => items[0]?.label || '',
-            label: c => ` ${c.dataset.label}: ${fmt(c.raw, 0)} MW`,
+            label: c => c.raw === null ? null : ` ${c.dataset.label}: ${fmt(c.raw, 0)} MW`,
             footer: items => {
-              const total = items.reduce((s,i) => s + (i.raw||0), 0);
-              return items.length > 1 ? `Total: ${fmt(total,0)} MW` : null;
+              const vals = items.filter(i => i.raw !== null);
+              const total = vals.reduce((s,i) => s + (i.raw||0), 0);
+              return vals.length > 1 ? `Total: ${fmt(total,0)} MW` : null;
             }
           }
         }
       },
       scales: {
         x: {
-          stacked: true,
           ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
             callback(v,i){ const l=this.getLabelForValue(i); return l&&l.endsWith(':00')?l:null; }
           },
           grid: { color:'#1e293b' },
-          barPercentage: 1.0,
-          categoryPercentage: 1.0,
         },
         y: {
-          stacked: true,
+          stacked: results.length > 1,
           ticks: { color:'#64748b', font:{family:'Space Mono',size:9} },
           grid: { color:'#1e293b' },
           title: { display:true, text:'MW', color:'#64748b', font:{family:'Space Mono',size:9} }

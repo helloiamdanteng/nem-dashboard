@@ -31,13 +31,37 @@ GEN_INTERVAL  = 900    # 15 min
 SLOW_INTERVAL = 1800   # 30 min
 
 
+_FAST_EMPTY = {
+    "prices": {}, "demand": {}, "op_demand": {}, "region_summary": {},
+    "historical_prices": {}, "predispatch_prices": {}, "predispatch_demand": {},
+    "predispatch_gen": {}, "predispatch_ic": {}, "ic_flows": {}, "ic_history": {},
+    "origin_assets": {}, "tomorrow_prices": {}, "tomorrow_demand": {},
+    "dispatch_history": {}, "fuel_mix": {}, "predispatch_units": {},
+}
+
 async def _run_fast():
     t0 = time.time()
-    data = await asyncio.get_event_loop().run_in_executor(None, scrape_all)
-    fast_cache["data"] = data
-    fast_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
-    fast_cache["error"] = None
-    logger.info(f"Fast scrape done in {time.time()-t0:.1f}s")
+    try:
+        data = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(None, scrape_all),
+            timeout=60,
+        )
+        fast_cache["data"] = data
+        fast_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
+        fast_cache["error"] = None
+        logger.info(f"Fast scrape done in {time.time()-t0:.1f}s")
+    except asyncio.TimeoutError:
+        logger.error("Fast scrape timed out after 60s")
+        fast_cache["error"] = "timeout"
+        if fast_cache["data"] is None:
+            fast_cache["data"] = dict(_FAST_EMPTY)
+            fast_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
+    except Exception as e:
+        logger.error(f"Fast scrape error: {e}\n{traceback.format_exc()}")
+        fast_cache["error"] = str(e)
+        if fast_cache["data"] is None:
+            fast_cache["data"] = dict(_FAST_EMPTY)
+            fast_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
 
 
 async def _run_slow():
@@ -133,11 +157,11 @@ async def slow_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Fast scrape first — prices/demand up immediately
-    try:
-        await _run_fast()
-    except Exception as e:
-        logger.error(f"Initial fast scrape failed: {e}\n{traceback.format_exc()}")
-        fast_cache["error"] = str(e)
+    # _run_fast() now handles its own exceptions and always sets cache
+    await _run_fast()
+    if fast_cache["data"] is None:
+        fast_cache["data"] = dict(_FAST_EMPTY)
+        fast_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
 
     # Gen and slow kick off in background
     asyncio.create_task(_run_slow())

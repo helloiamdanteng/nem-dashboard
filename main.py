@@ -476,15 +476,15 @@ async def station_detail(duid: str):
 
 @app.get("/api/pd-debug")
 async def pd_debug():
-    """Verify predispatch unit solution is being fetched and parsed correctly."""
-    from scraper import _fetch_predispatch, scrape_predispatch_unit_solution, _list_hrefs, PREDISPATCH_URL
+    """Verify P5MIN unit solution is being fetched and parsed correctly."""
+    from scraper import _fetch_p5min, scrape_p5min_unit_solution, _list_hrefs, P5MIN_URL
     import csv, io
     loop = asyncio.get_event_loop()
 
-    hrefs = await loop.run_in_executor(None, _list_hrefs, PREDISPATCH_URL)
+    hrefs = await loop.run_in_executor(None, _list_hrefs, P5MIN_URL)
 
     try:
-        text = await asyncio.wait_for(loop.run_in_executor(None, _fetch_predispatch), timeout=20)
+        text = await asyncio.wait_for(loop.run_in_executor(None, _fetch_p5min), timeout=20)
 
         # Extract all table keys present in the file
         table_keys = []
@@ -495,17 +495,17 @@ async def pd_debug():
                 if key not in table_keys:
                     table_keys.append(key)
 
-        pd_units = scrape_predispatch_unit_solution(text)
+        pd_units = scrape_p5min_unit_solution(text)
         sample = {k: v[:3] for k, v in list(pd_units.items())[:5]}
         return {
-            "total_files": len(hrefs),
+            "p5min_files": len(hrefs),
             "text_len": len(text),
             "table_keys_in_file": table_keys,
             "duid_count": len(pd_units),
             "sample": sample,
         }
     except Exception as e:
-        return {"total_files": len(hrefs), "error": str(e)}
+        return {"p5min_files": len(hrefs), "error": str(e)}
 
 
 @app.get("/api/station-debug")

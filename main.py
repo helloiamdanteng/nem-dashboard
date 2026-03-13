@@ -420,6 +420,57 @@ async def scada_debug():
     })
 
 
+@app.get("/api/station/{duid}")
+async def station_detail(duid: str):
+    """Return today's SCADA history + predispatch for a single DUID."""
+    from scraper import _duid_history, NEM_UNITS, _fetch_predispatch, scrape_predispatch_generation, AEST
+    from datetime import datetime
+    duid = duid.strip().upper()
+    info = NEM_UNITS.get(duid, {})
+
+    # Per-DUID SCADA history
+    history = _duid_history.get(duid, {})
+    history_series = [{"interval": k, "mw": v} for k, v in sorted(history.items())]
+
+    # Predispatch generation — look for this DUID in PREDISPATCH_UNIT_SOLUTION
+    pd_series = []
+    try:
+        loop = asyncio.get_event_loop()
+        pd_text = await loop.run_in_executor(None, _fetch_predispatch)
+        from scraper import _parse_aemo, AEST
+        now_aest = datetime.now(AEST).replace(tzinfo=None)
+        today = now_aest.date()
+        for row in _parse_aemo(pd_text, "PREDISPATCH_UNIT_SOLUTION"):
+            if row.get("DUID", "").strip().upper() != duid:
+                continue
+            if row.get("INTERVENTION", "0") not in ("0", ""):
+                continue
+            dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", ""))
+            mw_str = row.get("TOTALCLEARED", row.get("INITIALMW", ""))
+            if not dt_str or not mw_str:
+                continue
+            try:
+                from datetime import timedelta
+                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
+                if dt.date() == today and dt >= now_aest:
+                    pd_series.append({"interval": dt.strftime("%H:%M"), "mw": round(float(mw_str), 1)})
+            except (ValueError, TypeError):
+                pass
+        pd_series.sort(key=lambda x: x["interval"])
+    except Exception as e:
+        logger.warning(f"station_detail PD fetch failed for {duid}: {e}")
+
+    return JSONResponse(content={
+        "duid":     duid,
+        "station":  info.get("station", duid),
+        "fuel":     info.get("fuel", "Other"),
+        "region":   info.get("region", ""),
+        "capacity": info.get("capacity"),
+        "history":  history_series,
+        "predispatch": pd_series,
+    })
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     html_path = Path(__file__).parent / "static" / "index.html"

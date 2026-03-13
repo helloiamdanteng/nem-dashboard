@@ -1768,6 +1768,10 @@ def scrape_gen() -> dict:
         mw_val = mw if mw is not None else 0
         mw_pos = max(mw_val, 0)
 
+        # Log significant unclassified units so we can fix them
+        if fuel == "Other" and mw_pos > 50:
+            logger.warning(f"OTHER_DUID: {duid} region={region} mw={mw_pos:.0f} raw_fuel={raw_fuel!r} station={station!r}")
+
         fuel_mix[region][fuel] = round(fuel_mix[region].get(fuel, 0) + mw_pos, 1)
         nem_totals[fuel]       = round(nem_totals.get(fuel, 0) + mw_pos, 1)
 

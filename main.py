@@ -476,36 +476,45 @@ async def station_detail(duid: str):
 
 @app.get("/api/pd-debug")
 async def pd_debug():
-    """Verify P5MIN unit solution is being fetched and parsed correctly."""
-    from scraper import _fetch_p5min, scrape_p5min_unit_solution, _list_hrefs, P5MIN_URL
-    import csv, io
+    """Find where AEMO publishes unit-level dispatch forecasts."""
+    from scraper import _list_hrefs, _read_zip, NEMWEB_BASE
+    import csv, io, re
     loop = asyncio.get_event_loop()
 
-    hrefs = await loop.run_in_executor(None, _list_hrefs, P5MIN_URL)
+    dirs_to_probe = [
+        f"{NEMWEB_BASE}/Reports/CURRENT/P5_Reports/",
+        f"{NEMWEB_BASE}/Reports/CURRENT/PredispatchIS_Reports/",
+        f"{NEMWEB_BASE}/Reports/CURRENT/DispatchIS_Reports/",
+    ]
 
-    try:
-        text = await asyncio.wait_for(loop.run_in_executor(None, _fetch_p5min), timeout=20)
+    results = {}
+    for dir_url in dirs_to_probe:
+        label = dir_url.split("/CURRENT/")[-1].rstrip("/")
+        hrefs = await loop.run_in_executor(None, _list_hrefs, dir_url)
+        # Group by prefix
+        by_prefix = {}
+        for h in hrefs:
+            p = re.sub(r'_\d{8,}.*', '', h.split('/')[-1])
+            by_prefix.setdefault(p, []).append(h)
 
-        # Extract all table keys present in the file
-        table_keys = []
-        reader = csv.reader(io.StringIO(text))
-        for row in reader:
-            if row and row[0].strip().upper() == "I" and len(row) >= 3:
-                key = f"{row[1].strip()}_{row[2].strip()}".upper()
-                if key not in table_keys:
-                    table_keys.append(key)
+        prefix_tables = {}
+        for prefix, files in by_prefix.items():
+            try:
+                text = await asyncio.wait_for(
+                    loop.run_in_executor(None, _read_zip, files[-1]), timeout=15)
+                keys = []
+                for row in csv.reader(io.StringIO(text or "")):
+                    if row and row[0].strip().upper() == "I" and len(row) >= 3:
+                        key = f"{row[1].strip()}_{row[2].strip()}".upper()
+                        if key not in keys:
+                            keys.append(key)
+                prefix_tables[prefix] = {"tables": keys, "files": len(files)}
+            except Exception as e:
+                prefix_tables[prefix] = {"error": str(e), "files": len(files)}
 
-        pd_units = scrape_p5min_unit_solution(text)
-        sample = {k: v[:3] for k, v in list(pd_units.items())[:5]}
-        return {
-            "p5min_files": len(hrefs),
-            "text_len": len(text),
-            "table_keys_in_file": table_keys,
-            "duid_count": len(pd_units),
-            "sample": sample,
-        }
-    except Exception as e:
-        return {"p5min_files": len(hrefs), "error": str(e)}
+        results[label] = prefix_tables
+
+    return results
 
 
 @app.get("/api/station-debug")

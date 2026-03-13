@@ -1331,7 +1331,7 @@ def scrape_predispatch_interconnectors(text: str) -> dict:
 def scrape_all() -> dict:
     logger.info("scrape_all starting...")
 
-    # Run all IO-bound fetches concurrently — prices/demand/history/predispatch only
+    # Run all IO-bound fetches concurrently with per-future timeout
     with ThreadPoolExecutor(max_workers=6) as ex:
         f_dispatch_is   = ex.submit(_fetch_dispatch_is)
         f_predispatch   = ex.submit(_fetch_predispatch)
@@ -1339,11 +1339,18 @@ def scrape_all() -> dict:
         f_dispatch_hist = ex.submit(scrape_dispatch_history)
         f_scada         = ex.submit(scrape_scada_duids, ORIGIN_DUIDS)
 
-    dispatch_text    = f_dispatch_is.result()
-    predispatch_text = f_predispatch.result()
-    trading          = f_trading.result()
-    dispatch_hist    = f_dispatch_hist.result()
-    scada_vals       = f_scada.result()
+    def _safe_result(fut, default, name):
+        try:
+            return fut.result(timeout=55)
+        except Exception as e:
+            logger.error(f"scrape_all: {name} failed — {e}")
+            return default
+
+    dispatch_text    = _safe_result(f_dispatch_is,   "",  "dispatch_is")
+    predispatch_text = _safe_result(f_predispatch,    "",  "predispatch")
+    trading          = _safe_result(f_trading,        {"prices": {}, "fetch_stats": {}}, "trading")
+    dispatch_hist    = _safe_result(f_dispatch_hist,  {"demand": {}, "op_demand": {}, "prices": {}}, "dispatch_hist")
+    scada_vals       = _safe_result(f_scada,          {}, "scada")
 
     dispatch_demand       = dispatch_hist.get("demand", {})
     dispatch_op_demand    = dispatch_hist.get("op_demand", {})

@@ -81,20 +81,82 @@ _FUEL_MAP = {
 
 # DUID prefix/pattern → fuel — used when registry has no entry for a DUID
 _DUID_FUEL_PATTERNS = [
-    # Black Coal
-    (re.compile(r"^(KOGAN|KSG|STAN|SW[1-4]$|TARONG|TNPS|GLAD|MILLM|CALL|ERARING|MT.?PIPER|BAYSW|BW0[1-4]|VP[56]|LIDDELL|LD0|VALES|VYWL|BPS|WORLD)", re.I), "Black Coal"),
-    # Brown Coal
-    (re.compile(r"^(LYA|LYB|LOYYB|LOYANG|HAZEL|ANGLESEA|YYN|ENERGY.?BRIX)", re.I), "Brown Coal"),
-    # Gas / CCGT / OCGT
-    (re.compile(r"(OCGT|CCGT|GT\d|_GT|GAS|JEERALANGS|MORTLAKE|HALLETT|OSBORNE|TORRENS|LADBROKE|SWANBANK|QPS|BRAEMAR|OAKEY|DARLING)", re.I), "Gas"),
-    # Hydro
-    (re.compile(r"(HYDRO|TUMUT|HUME|MURRAY|DARTMOUTH|EILDON|GORDON|POATINA|TREVALLYN|JOHN.?BUTTERS|SNOWY|SHOALHAVEN)", re.I), "Hydro"),
-    # Wind
-    (re.compile(r"(WIND|WF\d|_WF|SNOWYWIND|HORNSDALE_W)", re.I), "Wind"),
-    # Solar
-    (re.compile(r"(SOLAR|_SF|SF\d|_PV|PV\d|BUNGALA|DARLINGTON.?PT|TAILEM)", re.I), "Solar"),
-    # Battery
-    (re.compile(r"(BATT|BATTERY|_BAT|BAT_|HORNSDALE.?P|HPR|BYP|BESSi?)", re.I), "Battery"),
+    # ── Black Coal ────────────────────────────────────────────────────────────
+    (re.compile(r"^(KSG|KOGAN)", re.I),            "Black Coal"),  # Kogan Creek
+    (re.compile(r"^SW[1-6]$", re.I),               "Black Coal"),  # Stanwell
+    (re.compile(r"^(STAN[-_]?\d)", re.I),           "Black Coal"),  # Stanwell alt
+    (re.compile(r"^TARONG\d", re.I),                "Black Coal"),  # Tarong
+    (re.compile(r"^TNPS\d", re.I),                  "Black Coal"),  # Tarong North
+    (re.compile(r"^MILLMERRAN\d", re.I),             "Black Coal"),  # Millmerran
+    (re.compile(r"^GLAD\d", re.I),                   "Black Coal"),  # Gladstone
+    (re.compile(r"^CALL", re.I),                     "Black Coal"),  # Callide B/C
+    (re.compile(r"^(ERARING|ER0\d)", re.I),          "Black Coal"),  # Eraring
+    (re.compile(r"^BW0\d$", re.I),                   "Black Coal"),  # Bayswater
+    (re.compile(r"^(VP[56]|VALES)", re.I),           "Black Coal"),  # Vales Point
+    (re.compile(r"^(MTPIPER|MT.?PIPER|MP\d$)", re.I),"Black Coal"), # Mt Piper
+    (re.compile(r"^(LD0\d|LIDDELL)", re.I),          "Black Coal"),  # Liddell
+    (re.compile(r"^(LYA\d|LYB\d)", re.I),            "Brown Coal"),  # Loy Yang A/B
+    (re.compile(r"^(LOYYB|LOYANG)", re.I),           "Brown Coal"),  # Loy Yang alt
+    (re.compile(r"^(HPS\d|HAZEL)", re.I),            "Brown Coal"),  # Hazelwood (retired)
+    (re.compile(r"^(YWPS\d|YALLOURN)", re.I),        "Brown Coal"),  # Yallourn
+    (re.compile(r"^(ANGLESEA)", re.I),               "Brown Coal"),  # Anglesea (retired)
+    (re.compile(r"^(ENERGY.?BRIX|EBRIX)", re.I),     "Brown Coal"),  # Energy Brix (ret.)
+
+    # ── Gas / CCGT / OCGT ────────────────────────────────────────────────────
+    (re.compile(r"^DDPS\d", re.I),                   "Gas"),   # Darling Downs
+    (re.compile(r"^BRAEMAR\d", re.I),                "Gas"),   # Braemar
+    (re.compile(r"^SWAN_E", re.I),                   "Gas"),   # Swanbank E
+    (re.compile(r"^CONDAMINE\d", re.I),              "Gas"),   # Condamine
+    (re.compile(r"^OAKEY\d", re.I),                  "Gas"),   # Oakey
+    (re.compile(r"^MSTUART\d", re.I),                "Gas"),   # Mt Stuart
+    (re.compile(r"^YABULU\d", re.I),                 "Gas"),   # Yabulu
+    (re.compile(r"^LOYNB\d", re.I),                  "Gas"),   # Loynton
+    (re.compile(r"^COLONGRA\d", re.I),               "Gas"),   # Colongra
+    (re.compile(r"^TALLAWARRA", re.I),               "Gas"),   # Tallawarra
+    (re.compile(r"^URANQ\d", re.I),                  "Gas"),   # Uranquinty
+    (re.compile(r"^HVGTS", re.I),                    "Gas"),   # Hunter Valley GT
+    (re.compile(r"^(TORRA|TORRB)\d", re.I),          "Gas"),   # Torrens Island
+    (re.compile(r"^PPCCGT", re.I),                   "Gas"),   # Pelican Point
+    (re.compile(r"^OSBORNE\d", re.I),                "Gas"),   # Osborne
+    (re.compile(r"^AGLSOM", re.I),                   "Gas"),   # Somerton SA
+    (re.compile(r"^MINTARO\d", re.I),                "Gas"),   # Mintaro
+    (re.compile(r"^DRYCGT\d", re.I),                 "Gas"),   # Dry Creek
+    (re.compile(r"^LADBROKE\d", re.I),               "Gas"),   # Ladbroke Grove
+    (re.compile(r"^JEERALANG\d", re.I),              "Gas"),   # Jeeralang A
+    (re.compile(r"^JLBGT\d", re.I),                  "Gas"),   # Jeeralang B
+    (re.compile(r"^(MORTLK|MORTLAKE)\d", re.I),      "Gas"),   # Mortlake
+    (re.compile(r"^LAVNORTH", re.I),                 "Gas"),   # Laverton North
+    (re.compile(r"^NEWPORT$", re.I),                 "Gas"),   # Newport
+    (re.compile(r"^SOMERTON$", re.I),                "Gas"),   # Somerton VIC
+    (re.compile(r"^VPGS\d", re.I),                   "Gas"),   # Valley Power
+    (re.compile(r"^QPS\d", re.I),                    "Gas"),   # QPS Peakers
+    (re.compile(r"^ROMA_\d", re.I),                  "Gas"),   # Roma
+    (re.compile(r"^TOWN.?VILLE", re.I),              "Gas"),   # Townsville
+    (re.compile(r"^MACKAYGT\d", re.I),               "Gas"),   # Mackay GT
+    # Generic patterns for unrecognised gas units
+    (re.compile(r"(OCGT|CCGT|_GT\d|GT_\d|GAS)", re.I), "Gas"),
+
+    # ── Hydro ─────────────────────────────────────────────────────────────────
+    (re.compile(r"^(KAREEYA|W.?HOE_|WIVENHOE)", re.I),  "Hydro"),
+    (re.compile(r"(HYDRO|TUMUT|HUME|MURRAY|DARTM|EILDON|GORDON|POATINA|"
+                r"TREVALLYN|JOHN.?BUTTERS|SNOWY|SHOALHAVEN|JINGELLIC|"
+                r"BLOWERING|BENDEELA|BATESMAN|DARTM|CETHANA|MACKINTOSH|"
+                r"BASTYAN|CATAGUNYA|DEVILS|FISHER|LEMONTHYME|DEVILS_G|"
+                r"REPULSE|ROWALLAN|TARRALEAH|TUNGATINAH|LIAPOOTAH)", re.I), "Hydro"),
+
+    # ── Wind ──────────────────────────────────────────────────────────────────
+    (re.compile(r"(WF\d|_WF\d?$|WIND|SNOWYWIND)", re.I),  "Wind"),
+
+    # ── Solar ─────────────────────────────────────────────────────────────────
+    (re.compile(r"(SOLAR|_SF\d|SF\d$|_PV|PV\d|BUNGALA|TAILEM|DARLINGTON.?PT"
+                r"|DARLPNT|FINNSF|BOMEN)", re.I), "Solar"),
+
+    # ── Battery ───────────────────────────────────────────────────────────────
+    (re.compile(r"(BATT|BATTERY|_BAT\d?|BAT_|HPR\d|HORNSDALE.?P|BYP|"
+                r"BESS|_BESS|BARCABAT|GANNAWARRA|LAKELANDS|WANDOAN)", re.I), "Battery"),
+
+    # ── Liquid (diesel/oil) ───────────────────────────────────────────────────
+    (re.compile(r"(DIESEL|DISTILLATE|LIQUID|FUEL.?OIL)", re.I), "Liquid"),
 ]
 
 def _infer_fuel_from_duid(duid: str) -> str:
@@ -199,8 +261,11 @@ def _fetch_aemo_registration() -> dict:
             # Battery override via tech
             if "battery" in tech_raw or "storage" in tech_raw:
                 fuel = "Battery"
-            if fuel is None:
-                fuel = "Other"
+            if fuel is None or fuel == "Other":
+                # Try to infer from DUID and station name before giving up
+                fuel = _infer_fuel_from_duid(duid) or _infer_fuel_from_duid(station.upper().replace(" ", "_"))
+                if not fuel:
+                    fuel = "Other"
 
             # Capacity
             cap = None

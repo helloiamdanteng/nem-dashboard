@@ -733,7 +733,7 @@ function renderDemand(data) {
   }
   html += '</div>';
   html += '<div class="section-title">Demand History + Predispatch</div>';
-  html += '<div class="chart-card"><div class="chart-title">Total Demand — Operational (solid) · Scheduled (dashed) · Predispatch (dotted)</div>';
+  html += '<div class="chart-card"><div class="chart-title">Operational Demand — Actual (solid) · Predispatch (dashed)</div>';
   html += '<div class="chart-container" style="height:250px"><canvas id="demandHistChart"></canvas></div>';
   html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
   for (const r of REGIONS) {
@@ -861,16 +861,15 @@ function drawDemandChart(data) {
         borderWidth: 2.5, pointRadius: 0, tension: 0.2, spanGaps: false,
         fill: false,
       });
+    } else {
+      // Fallback to scheduled demand if operational not available
+      datasets.push({
+        label: REGION_SHORT[r], regionId: r,
+        data: labels.map(l => l <= lastActualD ? (hm[l] !== undefined ? hm[l] : null) : null),
+        borderColor: color, backgroundColor: 'transparent',
+        borderWidth: 2.5, pointRadius: 0, tension: 0.2, spanGaps: false,
+      });
     }
-
-    // Scheduled demand — thin dotted context line (historical only)
-    datasets.push({
-      label: REGION_SHORT[r], regionId: r,
-      data: labels.map(l => l <= (lastActualD || nowSnap) ? (hm[l] !== undefined ? hm[l] : null) : null),
-      borderColor: color + '55', backgroundColor: 'transparent',
-      borderWidth: 1.2, pointRadius: 0, tension: 0.2, spanGaps: false,
-      borderDash: [3, 3],
-    });
 
     // Predispatch — dashed, spanGaps true to connect sparse 30-min points
     datasets.push({

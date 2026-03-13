@@ -1185,6 +1185,9 @@ function renderOrigin(data) {
       const safeName = stnName.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
 
       // Store stationMap data for modal use
+      // In NEM mode, hide offline stations
+      if (originStateFilter === 'NEM' && mw < 1) continue;
+
       html += `<div onclick="openOriginStationModal('${safeName}')" style="
         background:var(--surface);
         border:1px solid var(--border);
@@ -1293,7 +1296,7 @@ function openOriginStationModal(stnName) {
   const fuelCol = fc[s.fuel] || '#64748b';
   document.getElementById('stationModalTitle').textContent = stnName;
   document.getElementById('stationModalSub').textContent =
-    `${s.fuel}  ·  ${REGION_STATE_LABELS?.[s.region] || REGION_SHORT[s.region] || s.region}  ·  ${fmt(s.totalCap)} MW cap`;
+    `${s.fuel}  ·  ${REGION_SHORT[s.region] || s.region}  ·  ${fmt(s.totalCap)} MW cap`;
   document.getElementById('stationModalStats').innerHTML = '';
   document.getElementById('stationModal').classList.add('open');
 
@@ -1316,8 +1319,22 @@ function openOriginStationModal(stnName) {
 
   let lastIdx = allSlots.findIndex(sl => sl > lastSlot) - 1;
   if (lastIdx < 0) lastIdx = allSlots.length - 1;
-  const labels = allSlots.slice(0, lastIdx + 1);
 
+  // Extend labels into future for predispatch (up to end of day)
+  const pdPrices  = latestData?.predispatch_prices  || {};
+  const histPrices = latestData?.historical_prices  || {};
+  const livePrices = latestData?.prices             || {};
+  const reg = s.region;
+
+  // Collect all predispatch time keys for this region to extend x-axis
+  const pdMap = {};
+  if (pdPrices[reg]) for (const pt of pdPrices[reg]) pdMap[pt.t] = pt.price;
+
+  // Build full label set: history + predispatch future slots
+  const futureSlots = allSlots.filter(t => t > lastSlot);
+  const allLabels = [...allSlots.slice(0, lastIdx + 1), ...futureSlots.filter(t => pdMap[t] !== undefined)];
+
+  // Generation datasets (history only, up to lastSlot)
   const duids = Object.keys(s.duidHists);
   const histByDuid = {};
   for (const [duid, info] of Object.entries(s.duidHists)) {
@@ -1334,9 +1351,9 @@ function openOriginStationModal(stnName) {
     return `rgba(${Math.round(r*f)},${Math.round(g*f)},${Math.round(b*f)},0.85)`;
   }
 
-  const datasets = duids.map((duid,i) => ({
+  const genDatasets = duids.map((duid,i) => ({
     label: duid,
-    data: labels.map(t => histByDuid[duid]?.[t] ?? null),
+    data: allLabels.map(t => t <= lastSlot ? (histByDuid[duid]?.[t] ?? null) : null),
     backgroundColor: unitColor(i, duids.length),
     borderColor: unitColor(i, duids.length),
     borderWidth: 1,
@@ -1344,34 +1361,106 @@ function openOriginStationModal(stnName) {
     tension: 0.3,
     pointRadius: 0,
     spanGaps: true,
+    yAxisID: 'yGen',
+    order: 2,
   }));
 
+  // ── Price datasets ────────────────────────────────────────────────────────
+  // Historical actual prices (actuals up to now)
+  const histPriceData = allLabels.map(t => {
+    if (histPrices[reg]?.[t] !== undefined) return histPrices[reg][t];
+    if (t === allLabels.find(l => l === t) && livePrices[reg] !== undefined && t === lastSlot) return livePrices[reg];
+    return null;
+  });
+
+  // Predispatch prices (future)
+  const pdPriceData = allLabels.map(t => pdMap[t] !== undefined ? pdMap[t] : null);
+
+  const priceDatasets = [
+    {
+      label: 'Actual price',
+      data: histPriceData,
+      borderColor: '#f39c12',
+      backgroundColor: 'transparent',
+      borderWidth: 1.5,
+      fill: false,
+      tension: 0.2,
+      pointRadius: 0,
+      spanGaps: true,
+      yAxisID: 'yPrice',
+      order: 1,
+    },
+    {
+      label: 'Predispatch price',
+      data: pdPriceData,
+      borderColor: '#f39c12',
+      backgroundColor: 'transparent',
+      borderWidth: 1.5,
+      borderDash: [4, 3],
+      fill: false,
+      tension: 0.2,
+      pointRadius: 0,
+      spanGaps: true,
+      yAxisID: 'yPrice',
+      order: 1,
+    },
+  ];
+
   const nowStr = nowAEST();
-  const nowIdx = labels.reduce((best,l,i) => l<=nowStr ? i : best, -1);
+  const nowIdx = allLabels.reduce((best,l,i) => l<=nowStr ? i : best, -1);
 
   const canvas = document.getElementById('stationModalChart');
   _stationModalChart = new Chart(canvas, {
     type: 'line',
-    data: {labels, datasets},
+    data: { labels: allLabels, datasets: [...genDatasets, ...priceDatasets] },
     options: {
-      responsive:true, maintainAspectRatio:false,
-      interaction:{mode:'index',intersect:false},
-      plugins:{
-        legend:{display:duids.length>1, position:'bottom',
-          labels:{color:'#94a3b8',font:{family:'Space Mono',size:8},boxWidth:8,padding:6}},
-        tooltip:{
-          backgroundColor:'#111827',borderColor:'#1e2d45',borderWidth:1,
-          titleColor:'#94a3b8',bodyColor:'#e2e8f0',
-          titleFont:{family:'Space Mono',size:9},bodyFont:{family:'Space Mono',size:10},
-          callbacks:{label:c=>c.raw!==null?` ${c.dataset.label}: ${fmt(c.raw)} MW`:null}
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode:'index', intersect:false },
+      plugins: {
+        legend: {
+          display: true, position:'bottom',
+          labels: {
+            color:'#94a3b8', font:{family:'Space Mono',size:8},
+            boxWidth:8, padding:6,
+            filter: item => item.datasetIndex < duids.length ? duids.length > 1 : true
+          }
+        },
+        tooltip: {
+          backgroundColor:'#111827', borderColor:'#1e2d45', borderWidth:1,
+          titleColor:'#94a3b8', bodyColor:'#e2e8f0',
+          titleFont:{family:'Space Mono',size:9}, bodyFont:{family:'Space Mono',size:10},
+          callbacks: {
+            label: c => {
+              if (c.raw === null) return null;
+              if (c.datasetIndex < duids.length) return ` ${c.dataset.label}: ${fmt(c.raw)} MW`;
+              return ` ${c.dataset.label}: $${c.raw?.toFixed(2)}/MWh`;
+            }
+          }
         }
       },
-      scales:{
-        x:{ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxTicksLimit:8,maxRotation:0},grid:{color:'#1e2d4522'}},
-        y:{min:0,stacked:true,ticks:{color:'#94a3b8',font:{family:'Space Mono',size:10},callback:v=>fmt(v)},grid:{color:'#1e2d45'}}
+      scales: {
+        x: {
+          ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxTicksLimit:8,maxRotation:0},
+          grid:{color:'#1e2d4522'}
+        },
+        yGen: {
+          type:'linear', position:'left', min:0, stacked:true,
+          ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>fmt(v)},
+          grid:{color:'#1e2d45'},
+          title:{display:true,text:'MW',color:'#64748b',font:{family:'Space Mono',size:8}}
+        },
+        yPrice: {
+          type:'linear', position:'right', 
+          ticks:{
+            color:'#f39c12', font:{family:'Space Mono',size:9},
+            callback: v => '$'+v.toFixed(0)
+          },
+          grid:{drawOnChartArea:false},
+          title:{display:true,text:'$/MWh',color:'#f39c12',font:{family:'Space Mono',size:8}}
+        }
       }
     },
-    plugins:[nowLinePlugin(nowIdx)]
+    plugins: [nowLinePlugin(nowIdx)]
   });
 
   // Stats row
@@ -1380,8 +1469,9 @@ function openOriginStationModal(stnName) {
     const last = info.history.at(-1);
     if (last) totalNow += last.mw;
   }
+  const liveP = livePrices[reg];
   document.getElementById('stationModalStats').innerHTML =
-    `<span>${fmt(totalNow)} MW now</span><span>${duids.length} unit${duids.length>1?'s':''}</span><span>${fmt(s.totalCap)} MW capacity</span>`;
+    `<span>${fmt(totalNow)} MW now</span><span>${duids.length} unit${duids.length>1?'s':''}</span><span>${fmt(s.totalCap)} MW cap</span>${liveP !== undefined ? `<span style="color:#f39c12">$${liveP.toFixed(2)}/MWh</span>` : ''}`;
 }
 
 
@@ -2115,7 +2205,12 @@ function renderPanel(panel, data) {
     else if (panel === 'stations')   html = renderStations(data);
     else if (panel === 'weekahead')  html = renderWeekAhead(data);
     else if (panel === 'dayahead')   html = renderDayAhead(data);
-    else if (panel === 'about')      html = renderAbout(data);
+    else if (panel === 'about') {
+      renderAbout(data).then(h => { main.innerHTML = h; }).catch(e => {
+        main.innerHTML = `<div class="state-msg"><div class="icon">⚠️</div><div style="font-size:11px">${e.message}</div></div>`;
+      });
+      return;
+    }
   } catch(e) {
     console.error('Render error:', e);
     html = `<div class="state-msg"><div class="icon">⚠️</div><div style="font-size:11px">${e.message}</div></div>`;
@@ -2149,7 +2244,7 @@ async function renderAbout(data) {
   return `
   <div class="section-title" style="margin-bottom:14px">About</div>
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
     <div class="chart-card" style="text-align:center;padding:14px 8px">
       <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-bottom:4px">TOTAL VIEWS</div>
       <div style="font-family:var(--font-mono);font-size:22px;font-weight:700;color:var(--accent)">${views.total.toLocaleString()}</div>
@@ -2157,6 +2252,16 @@ async function renderAbout(data) {
     <div class="chart-card" style="text-align:center;padding:14px 8px">
       <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-bottom:4px">TODAY</div>
       <div style="font-family:var(--font-mono);font-size:22px;font-weight:700;color:#2ed573">${views.today.toLocaleString()}</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+    <div class="chart-card" style="text-align:center;padding:14px 8px">
+      <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-bottom:4px">UNIQUE VISITORS</div>
+      <div style="font-family:var(--font-mono);font-size:22px;font-weight:700;color:#a855f7">${(views.unique_total||0).toLocaleString()}</div>
+    </div>
+    <div class="chart-card" style="text-align:center;padding:14px 8px">
+      <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-bottom:4px">UNIQUE TODAY</div>
+      <div style="font-family:var(--font-mono);font-size:22px;font-weight:700;color:#38bdf8">${(views.unique_today||0).toLocaleString()}</div>
     </div>
   </div>
 

@@ -477,29 +477,35 @@ async def station_detail(duid: str):
 @app.get("/api/pd-debug")
 async def pd_debug():
     """Verify predispatch unit solution is being fetched and parsed correctly."""
-    from scraper import _fetch_predispatch_unit_solution, scrape_predispatch_unit_solution, _list_hrefs, PREDISPATCH_URL
+    from scraper import _fetch_predispatch, scrape_predispatch_unit_solution, _list_hrefs, PREDISPATCH_URL
+    import csv, io
     loop = asyncio.get_event_loop()
 
-    # First list what's actually in the directory
     hrefs = await loop.run_in_executor(None, _list_hrefs, PREDISPATCH_URL)
-    # Show unique filename prefixes (strip timestamps)
-    import re
-    prefixes = sorted(set(re.sub(r'_\d{12,}.*', '', h.split('/')[-1]) for h in hrefs))
 
     try:
-        text = await asyncio.wait_for(loop.run_in_executor(None, _fetch_predispatch_unit_solution), timeout=20)
+        text = await asyncio.wait_for(loop.run_in_executor(None, _fetch_predispatch), timeout=20)
+
+        # Extract all table keys present in the file
+        table_keys = []
+        reader = csv.reader(io.StringIO(text))
+        for row in reader:
+            if row and row[0].strip().upper() == "I" and len(row) >= 3:
+                key = f"{row[1].strip()}_{row[2].strip()}".upper()
+                if key not in table_keys:
+                    table_keys.append(key)
+
         pd_units = scrape_predispatch_unit_solution(text)
         sample = {k: v[:3] for k, v in list(pd_units.items())[:5]}
         return {
-            "directory_prefixes": prefixes,
             "total_files": len(hrefs),
             "text_len": len(text),
+            "table_keys_in_file": table_keys,
             "duid_count": len(pd_units),
             "sample": sample,
-            "has_predispatch_unit_solution": "PREDISPATCH_UNIT_SOLUTION" in text.upper() if text else False,
         }
     except Exception as e:
-        return {"directory_prefixes": prefixes, "total_files": len(hrefs), "error": str(e)}
+        return {"total_files": len(hrefs), "error": str(e)}
 
 
 @app.get("/api/station-debug")

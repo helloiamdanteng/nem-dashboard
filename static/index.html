@@ -544,6 +544,7 @@ function renderGeneration(data) {
   for (const [fuel, color] of Object.entries(fc)) {
     html += `<div style="display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10px;color:#94a3b8"><div style="width:10px;height:10px;border-radius:2px;background:${color}"></div>${fuel}</div>`;
   }
+  html += `<div style="display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10px;color:#94a3b8"><div style="width:18px;height:2px;background:#ffffff;border-radius:1px"></div>Demand + Non-Sched</div>`;
   html += '</div>';
   return html;
 }
@@ -634,74 +635,109 @@ function drawGenChart(data) {
   }
 
   // ── MODE B: 24hr stacked area (once history is rich enough) ─────────────────
-  const labelSet = new Set();
-  for (const r of activeRegions) for (const pt of (fuelHist[r] || [])) labelSet.add(pt.interval);
-  const pdGen = data.predispatch_gen || {};
-  for (const r of activeRegions) for (const pt of (pdGen[r] || [])) labelSet.add(pt.interval);
-  const labels = Array.from(labelSet).sort();
+  // Full 5-min spine so x-axis is always proportional
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
 
   const histLookup = {};
   for (const r of activeRegions) {
     histLookup[r] = {};
     for (const pt of (fuelHist[r] || [])) histLookup[r][pt.interval] = pt;
   }
-  const pdLookup = {};
+
+  // Demand (DEMAND_AND_NONSCHEDGEN) actual history — from fast cache
+  const demHist = data.op_demand_history || data.demand_history || {};
+  const demHistLookup = {};
   for (const r of activeRegions) {
-    pdLookup[r] = {};
-    for (const pt of (pdGen[r] || [])) pdLookup[r][pt.interval] = (pt.Scheduled||0)+(pt.SemiScheduled||0);
+    demHistLookup[r] = {};
+    for (const pt of (demHist[r] || [])) demHistLookup[r][pt.interval] = pt.demand;
   }
 
-  const actualLabels  = labels.filter(l => histLookup[activeRegions[0]]?.[l]);
-  const lastActualIdx = actualLabels.length > 0 ? labels.indexOf(actualLabels[actualLabels.length-1]) : -1;
+  // Predispatch demand
+  const pdDemand = data.predispatch_demand || {};
+  const pdDemLookup = {};
+  for (const r of activeRegions) {
+    pdDemLookup[r] = {};
+    for (const pt of (pdDemand[r] || [])) pdDemLookup[r][pt.interval] = pt.demand;
+  }
+
+  // Last actual slot (fuel history)
+  const lastActualSlot = allSlots.slice().reverse().find(l =>
+    activeRegions.some(r => histLookup[r]?.[l])
+  ) || '';
+  const lastActualIdx = allSlots.indexOf(lastActualSlot);
 
   const activeFuels = FUEL_ORDER.filter(fuel =>
     activeRegions.some(r => (fuelHist[r]||[]).some(pt => (pt[fuel]||0) > 0))
   );
 
+  // ── Stacked fuel area datasets (actuals only) ────────────────────────────────
   const actualDatasets = activeFuels.map(fuel => {
-    const pts = labels.map(l => {
-      const hasData = activeRegions.some(r => histLookup[r]?.[l]);
-      if (!hasData) return null;
-      let total = 0;
-      for (const r of activeRegions) total += histLookup[r]?.[l]?.[fuel] || 0;
-      return Math.round(total);
-    });
     const color = fc[fuel] || '#95a5a6';
     return {
-      label: fuel, data: pts,
+      label: fuel,
+      data: allSlots.map(l => {
+        const hasData = activeRegions.some(r => histLookup[r]?.[l]);
+        if (!hasData) return null;
+        let total = 0;
+        for (const r of activeRegions) total += histLookup[r]?.[l]?.[fuel] || 0;
+        return Math.round(total);
+      }),
       backgroundColor: color + 'cc', borderColor: color,
       borderWidth: 0.5, fill: true, pointRadius: 0,
-      tension: 0.2, stack: 'actual', spanGaps: false,
+      tension: 0.2, stack: 'actual', spanGaps: false, yAxisID: 'y',
     };
   });
 
-  const pdDatasets = activeRegions.map(r => {
-    const color = genRegion === 'NEM' ? '#94a3b8' : REGION_COLORS[r];
-    let lastTotal = null;
-    if (lastActualIdx >= 0) {
-      const bl = labels[lastActualIdx];
-      lastTotal = Math.round(activeFuels.reduce((s,f) => s + (histLookup[r]?.[bl]?.[f]||0), 0));
-    }
-    const pts = labels.map((l,i) => {
-      if (i === lastActualIdx && lastTotal !== null) return lastTotal;
-      if (pdLookup[r]?.[l] !== undefined) return Math.round(pdLookup[r][l]);
-      return null;
-    });
-    return {
-      label: (genRegion==='NEM' ? REGION_SHORT[r] : 'Predispatch')+' PD',
-      data: pts, borderColor: color, backgroundColor: 'transparent',
-      borderWidth: 1.5, borderDash: [5,4], fill: false,
-      pointRadius: 0, tension: 0.2, stack: 'pd', spanGaps: true, order: 0,
-    };
-  });
+  // ── Demand + Non-Sched Gen: actual line ─────────────────────────────────────
+  // Bridge: find last actual demand slot, use that value as bridge point into PD
+  const lastDemSlot = allSlots.slice().reverse().find(l =>
+    activeRegions.some(r => demHistLookup[r]?.[l] !== undefined)
+  ) || '';
+  const lastDemVal = lastDemSlot
+    ? Math.round(activeRegions.reduce((s,r) => s + (demHistLookup[r]?.[lastDemSlot] ?? 0), 0))
+    : null;
 
-  const nowIdx = labels.findIndex(l => l >= nowAEST());
+  const demActualDataset = {
+    label: 'Demand + Non-Sched',
+    data: allSlots.map(l => {
+      const hasData = activeRegions.some(r => demHistLookup[r]?.[l] !== undefined);
+      if (!hasData) return null;
+      return Math.round(activeRegions.reduce((s,r) => s + (demHistLookup[r]?.[l] ?? 0), 0));
+    }),
+    borderColor: '#ffffff', backgroundColor: 'transparent',
+    borderWidth: 2, pointRadius: 0, tension: 0.2,
+    spanGaps: false, fill: false, yAxisID: 'y', order: 0,
+    borderDash: [],
+  };
+
+  // ── Demand + Non-Sched Gen: predispatch forecast line ───────────────────────
+  const demPdDataset = {
+    label: 'Demand forecast PD',
+    data: allSlots.map((l, i) => {
+      if (l === lastDemSlot && lastDemVal !== null) return lastDemVal; // bridge
+      if (i < allSlots.indexOf(lastDemSlot)) return null;
+      const hasPd = activeRegions.some(r => pdDemLookup[r]?.[l] !== undefined);
+      if (!hasPd) return null;
+      return Math.round(activeRegions.reduce((s,r) => s + (pdDemLookup[r]?.[l] ?? 0), 0));
+    }),
+    borderColor: '#ffffff99', backgroundColor: 'transparent',
+    borderWidth: 1.5, pointRadius: 0, tension: 0.2,
+    spanGaps: true, fill: false, yAxisID: 'y', order: 0,
+    borderDash: [6, 4],
+  };
+
+  const allDatasets = [...actualDatasets, demActualDataset, demPdDataset];
+  const nowIdx = allSlots.findIndex(l => l >= nowAEST());
+  const pdDemCount = activeRegions.reduce((s,r) => s + Object.keys(pdDemLookup[r]||{}).length, 0);
   if (card) card.querySelector('.chart-title').textContent =
-    `${regionLabel} — ${actualLabels.length} readings · ${Object.keys(pdLookup[activeRegions[0]]||{}).length} predispatch`;
+    `${regionLabel} — fuel mix actuals · demand ${pdDemCount > 0 ? '+ forecast' : ''}`;
 
   charts.gen = new Chart(ctx, {
     type: 'line',
-    data: { labels, datasets: [...actualDatasets, ...pdDatasets] },
+    data: { labels: allSlots, datasets: allDatasets },
     options: {
       ...CHART_DEFAULTS,
       plugins: {
@@ -709,17 +745,23 @@ function drawGenChart(data) {
         legend: { display: false },
         tooltip: {
           ...CHART_DEFAULTS.plugins.tooltip,
-          filter: i => i.raw !== null && i.raw > 0 && !String(i.dataset.label||'').endsWith(' PD'),
+          filter: i => i.raw !== null && i.raw > 0,
           callbacks: {
             title: items => items[0]?.label || '',
-            label: c => c.raw > 0 ? ` ${c.dataset.label}: ${fmt(c.raw)} MW` : null,
+            label: c => {
+              if (c.raw === null || c.raw <= 0) return null;
+              const lbl = String(c.dataset.label||'');
+              if (lbl === 'Demand forecast PD') return ` ⋯ Demand + Non-Sched forecast: ${fmt(c.raw)} MW`;
+              if (lbl === 'Demand + Non-Sched') return ` Demand + Non-Sched: ${fmt(c.raw)} MW`;
+              return ` ${lbl}: ${fmt(c.raw)} MW`;
+            },
           }
         }
       },
       scales: {
-        x: { stacked: true, ticks: { color:'#64748b', font:{family:'Space Mono',size:9},
-               maxTicksLimit:12, maxRotation:0,
-               callback:(v,i) => labels[i]?.endsWith(':00') ? labels[i] : null },
+        x: { stacked: true,
+             ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
+               callback:(v,i) => allSlots[i]?.endsWith(':00') ? allSlots[i] : null },
              grid:{color:'#1e2d4544'} },
         y: { stacked: true, min: 0,
              ticks:{ color:'#94a3b8', font:{family:'Space Mono',size:10},

@@ -873,6 +873,44 @@ def scrape_predispatch_demand(text: str) -> dict:
     return result
 
 
+def scrape_predispatch_generation(text: str) -> dict:
+    """
+    Extract today's future generation forecast from PREDISPATCH files.
+    Returns { region: [{interval, Scheduled, SemiScheduled}] } for today's future intervals.
+    """
+    now_aest = datetime.now(AEST).replace(tzinfo=None)
+    today    = now_aest.date()
+    region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
+    for tk in ["PREDISPATCH_REGION_SOLUTION", "PREDISPATCH_REGIONSOLUTION"]:
+        rows = _parse_aemo(text, tk)
+        if not rows:
+            continue
+        for row in rows:
+            region = row.get("REGIONID", "")
+            if region not in NEM_REGIONS:
+                continue
+            if row.get("INTERVENTION", "0") not in ("0", ""):
+                continue
+            dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", ""))
+            if not dt_str:
+                continue
+            try:
+                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
+                if dt.date() == today and dt >= now_aest:
+                    label = dt.strftime("%H:%M")
+                    sched = float(row.get("DISPATCHABLEGENERATION", 0) or 0)
+                    semi  = float(row.get("SEMISCHEDULE_CLEAREDMW", 0) or 0)
+                    region_series[region][label] = {"Scheduled": round(sched, 1), "SemiScheduled": round(semi, 1)}
+            except (ValueError, TypeError):
+                pass
+        break
+    result = {}
+    for region, series in region_series.items():
+        if series:
+            result[region] = [{"interval": k, **v} for k, v in sorted(series.items())]
+    return result
+
+
 def scrape_tomorrow_prices(text: str) -> dict:
     """
     Extract tomorrow's predispatch price forecast from PREDISPATCH files.

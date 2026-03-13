@@ -149,9 +149,48 @@ table { width:100%; border-collapse:collapse; font-family:var(--font-mono); font
 th { text-align:left; padding:6px 10px; color:var(--text-muted); font-weight:700; letter-spacing:0.08em; border-bottom:1px solid var(--border); white-space:nowrap; }
 td { padding:8px 10px; border-bottom:1px solid rgba(30,45,69,0.5); white-space:nowrap; }
 tr:last-child td { border-bottom:none; }
+/* ── Station modal ── */
+.station-modal-overlay {
+  display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7);
+  z-index:1000; align-items:center; justify-content:center;
+}
+.station-modal-overlay.open { display:flex; }
+.station-modal {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:12px; padding:20px; width:calc(100% - 32px);
+  max-width:600px; max-height:85vh; overflow-y:auto;
+  position:relative;
+}
+.station-modal-header {
+  display:flex; justify-content:space-between; align-items:flex-start;
+  margin-bottom:14px;
+}
+.station-modal-title { font-size:15px; font-weight:700; color:var(--text); }
+.station-modal-sub { font-size:11px; color:var(--text-muted); margin-top:3px; font-family:var(--font-mono); }
+.station-modal-close {
+  background:none; border:none; color:var(--text-muted); font-size:20px;
+  cursor:pointer; padding:0 4px; line-height:1;
+}
 </style>
 </head>
 <body>
+
+<!-- Station detail modal -->
+<div class="station-modal-overlay" id="stationModal" onclick="if(event.target===this)closeStationModal()">
+  <div class="station-modal">
+    <div class="station-modal-header">
+      <div>
+        <div class="station-modal-title" id="stationModalTitle">—</div>
+        <div class="station-modal-sub" id="stationModalSub">—</div>
+      </div>
+      <button class="station-modal-close" onclick="closeStationModal()">✕</button>
+    </div>
+    <div style="position:relative;height:220px;margin-bottom:12px">
+      <canvas id="stationModalChart"></canvas>
+    </div>
+    <div id="stationModalStats" style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);display:flex;gap:16px;flex-wrap:wrap"></div>
+  </div>
+</div>
 
 <header class="header">
   <div class="header-left">
@@ -1123,7 +1162,7 @@ function toggleStationRegion(region) {
   if (genData) renderPanel('stations', latestData);
 }
 
-let stationsHideOffline = false;
+let stationsHideOffline = true;
 let stationsHideSmall   = false;   // hide stations < 100 MW capacity
 
 function toggleStationsHideOffline() {
@@ -1133,6 +1172,121 @@ function toggleStationsHideOffline() {
 function toggleStationsHideSmall() {
   stationsHideSmall = !stationsHideSmall;
   if (genData) renderPanel('stations', latestData);
+}
+
+// ── Station detail modal ──────────────────────────────────────────────────────
+
+let _stationModalChart = null;
+
+function closeStationModal() {
+  document.getElementById('stationModal').classList.remove('open');
+  if (_stationModalChart) { _stationModalChart.destroy(); _stationModalChart = null; }
+}
+
+async function openStationModal(duid, stationName, fuel, region, capacity) {
+  const modal = document.getElementById('stationModal');
+  const color = (genData && genData.fuel_colors) ? (genData.fuel_colors[fuel] || '#64748b') : '#64748b';
+
+  document.getElementById('stationModalTitle').textContent = stationName;
+  document.getElementById('stationModalSub').textContent =
+    `${duid}  ·  ${fuel}  ·  ${REGION_SHORT[region] || region}${capacity ? '  ·  ' + fmt(capacity,0) + ' MW cap' : ''}`;
+  document.getElementById('stationModalStats').innerHTML = '<span style="color:#64748b">Loading…</span>';
+  modal.classList.add('open');
+
+  // Destroy previous chart
+  if (_stationModalChart) { _stationModalChart.destroy(); _stationModalChart = null; }
+
+  let data;
+  try {
+    const resp = await fetch(`/api/station/${encodeURIComponent(duid)}`);
+    data = await resp.json();
+  } catch(e) {
+    document.getElementById('stationModalStats').innerHTML = '<span style="color:#e74c3c">Failed to load data</span>';
+    return;
+  }
+
+  const history    = data.history    || [];
+  const predispatch = data.predispatch || [];
+
+  // Build 5-min spine
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  const hm = {};
+  history.forEach(p => { if (p.interval) hm[p.interval] = p.mw; });
+  const pm = {};
+  predispatch.forEach(p => { if (p.interval) pm[p.interval] = p.mw; });
+
+  // Bridge PD from last actual
+  const lastActual = allSlots.slice().reverse().find(l => hm[l] !== undefined);
+  if (lastActual && Object.keys(pm).length) pm[lastActual] = hm[lastActual];
+
+  const lastSlot = allSlots.filter(s => hm[s] !== undefined || pm[s] !== undefined).pop();
+  if (!lastSlot) {
+    document.getElementById('stationModalStats').innerHTML = '<span style="color:#64748b">No data available yet</span>';
+    return;
+  }
+  const labels = allSlots.slice(0, allSlots.indexOf(lastSlot) + 1);
+
+  const pdData = labels.map(l => l < lastActual ? null : (pm[l] !== undefined ? pm[l] : null));
+
+  const ctx = document.getElementById('stationModalChart');
+  _stationModalChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: stationName,
+          data: labels.map(l => hm[l] !== undefined ? hm[l] : null),
+          borderColor: color, backgroundColor: color + '22',
+          borderWidth: 2, pointRadius: 0, tension: 0.2, spanGaps: false,
+          fill: true,
+        },
+        {
+          label: stationName + ' PD',
+          data: pdData,
+          borderColor: color + '88', backgroundColor: 'transparent',
+          borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: true,
+          borderDash: [5, 5],
+        }
+      ]
+    },
+    options: {
+      ...CHART_DEFAULTS,
+      plugins: {
+        ...CHART_DEFAULTS.plugins,
+        legend: { display: false },
+        tooltip: {
+          ...CHART_DEFAULTS.plugins.tooltip,
+          callbacks: { label: c => c.raw === null ? null : ` ${fmt(c.raw, 0)} MW` }
+        }
+      },
+      scales: {
+        x: { ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
+              callback(v,i){ const l=this.getLabelForValue(i); return l&&l.endsWith(':00')?l:null; } },
+             grid:{color:'#1e293b'} },
+        y: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9}},
+             grid:{color:'#1e293b'},
+             title: { display: true, text: 'MW', color: '#64748b', font:{family:'Space Mono',size:9} } }
+      }
+    }
+  });
+
+  // Stats summary
+  const vals = history.map(p => p.mw).filter(v => v !== null);
+  const curMw = vals.length ? vals[vals.length - 1] : null;
+  const maxMw = vals.length ? Math.max(...vals) : null;
+  const avgMw = vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : null;
+  document.getElementById('stationModalStats').innerHTML = [
+    curMw  !== null ? `<span>Now: <b style="color:${color}">${fmt(curMw,0)} MW</b></span>` : '',
+    maxMw  !== null ? `<span>Today max: <b>${fmt(maxMw,0)} MW</b></span>` : '',
+    avgMw  !== null ? `<span>Today avg: <b>${fmt(avgMw,0)} MW</b></span>` : '',
+    capacity       ? `<span>Capacity: <b>${fmt(capacity,0)} MW</b></span>` : '',
+    predispatch.length ? `<span style="color:${color}88">PD: ${predispatch.length} intervals ahead</span>` : '',
+  ].filter(Boolean).join('');
 }
 
 function renderStations(fastData) {
@@ -1222,10 +1376,13 @@ function renderStations(fastData) {
       const mwColor = st.totalMw > 5 ? color : 'var(--text-muted)';
       const isOffline = st.totalMw <= 5;
       const allUnmatched = st.units && st.units.every(u => !u.matched);
-      html += `<div class="station-row" style="${isOffline ? 'opacity:0.45' : ''}">
+      // Use first DUID for detail — stations with multiple units open on the primary unit
+      const primaryDuid = st.units && st.units.length ? st.units[0].duid : st.name;
+      html += `<div class="station-row" style="${isOffline ? 'opacity:0.45' : ''};cursor:pointer"
+        onclick="openStationModal('${primaryDuid}','${st.name.replace(/'/g,"\\'")}','${fuel}','${st.region}',${st.totalCap || 0})">
         <div>
           <div class="station-name">${st.name}${allUnmatched ? ' <span title="DUID not in registry — fuel/region inferred" style="font-size:9px;color:#64748b;cursor:help">?</span>' : ''}</div>
-          <div class="station-region" style="color:${rc}">${REGION_SHORT[st.region] || st.region}</div>
+          <div class="station-region" style="color:${rc}">${REGION_SHORT[st.region] || st.region}${st.units && st.units.length > 1 ? ` · ${st.units.length} units` : ''}</div>
         </div>
         <div class="station-bar-wrap">
           <div class="station-bar" style="width:${pct.toFixed(1)}%;background:${color}"></div>

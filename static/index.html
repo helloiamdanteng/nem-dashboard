@@ -1411,6 +1411,9 @@ function openOriginStationModal(stnName) {
   const nowStr = nowAEST();
   const nowIdx = allLabels.reduce((best,l,i) => l<=nowStr ? i : best, -1);
 
+  const _existingOrigin = Chart.getChart('stationModalChart');
+  if (_existingOrigin) { _existingOrigin.destroy(); }
+  if (_stationModalChart) { _stationModalChart.destroy(); _stationModalChart = null; }
   const canvas = document.getElementById('stationModalChart');
   _stationModalChart = new Chart(canvas, {
     type: 'line',
@@ -1527,6 +1530,8 @@ let _stationModalChart = null;
 
 function closeStationModal() {
   document.getElementById('stationModal').classList.remove('open');
+  const _ec = Chart.getChart('stationModalChart');
+  if (_ec) { _ec.destroy(); }
   if (_stationModalChart) { _stationModalChart.destroy(); _stationModalChart = null; }
 }
 
@@ -1681,6 +1686,10 @@ async function openStationModal(regIdx) {
   const nowIdx = allLabels.reduce((best,l,i) => l<=nowStr ? i : best, -1);
 
   try {
+  // Force-destroy any lingering chart on this canvas (guards against async race)
+  const _existing = Chart.getChart('stationModalChart');
+  if (_existing) { _existing.destroy(); }
+  if (_stationModalChart) { _stationModalChart.destroy(); _stationModalChart = null; }
     const ctx = document.getElementById('stationModalChart');
     _stationModalChart = new Chart(ctx, {
     type: 'line',

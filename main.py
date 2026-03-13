@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -490,23 +490,37 @@ async def station_debug():
 
 
 @app.post("/api/views")
-async def record_view():
-    import json, os
+async def record_view(request: Request):
+    import json, os, hashlib
     from datetime import datetime, timezone, timedelta
     AEST = timezone(timedelta(hours=10))
     today = datetime.now(AEST).strftime("%Y-%m-%d")
     path = "/tmp/nem_views.json"
+    # Get IP — respect X-Forwarded-For from Render's proxy
+    forwarded = request.headers.get("x-forwarded-for")
+    raw_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
+    ip_hash = hashlib.sha256(raw_ip.encode()).hexdigest()[:16]  # anonymised
     try:
-        data = json.loads(open(path).read()) if os.path.exists(path) else {"total": 0, "by_day": {}}
+        data = json.loads(open(path).read()) if os.path.exists(path) else {"total": 0, "by_day": {}, "unique_ips": [], "unique_by_day": {}}
     except Exception:
-        data = {"total": 0, "by_day": {}}
+        data = {"total": 0, "by_day": {}, "unique_ips": [], "unique_by_day": {}}
     data["total"] = data.get("total", 0) + 1
     data["by_day"][today] = data["by_day"].get(today, 0) + 1
+    if ip_hash not in data.get("unique_ips", []):
+        data.setdefault("unique_ips", []).append(ip_hash)
+    today_ips = data.setdefault("unique_by_day", {}).setdefault(today, [])
+    if ip_hash not in today_ips:
+        today_ips.append(ip_hash)
     try:
         open(path, "w").write(json.dumps(data))
     except Exception:
         pass
-    return {"total": data["total"], "today": data["by_day"].get(today, 0)}
+    return {
+        "total": data["total"],
+        "today": data["by_day"].get(today, 0),
+        "unique_total": len(data.get("unique_ips", [])),
+        "unique_today": len(data.get("unique_by_day", {}).get(today, [])),
+    }
 
 
 @app.get("/", response_class=HTMLResponse)

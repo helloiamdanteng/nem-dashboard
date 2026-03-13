@@ -706,7 +706,7 @@ function drawGenChart(data) {
         legend: { display: false },
         tooltip: {
           ...CHART_DEFAULTS.plugins.tooltip,
-          filter: i => i.raw !== null && i.raw > 0 && !i.dataset.label.endsWith(' PD'),
+          filter: i => i.raw !== null && i.raw > 0 && !String(i.dataset.label||'').endsWith(' PD'),
           callbacks: {
             title: items => items[0]?.label || '',
             label: c => c.raw > 0 ? ` ${c.dataset.label}: ${fmt(c.raw)} MW` : null,
@@ -1045,7 +1045,7 @@ function drawIcChart(data) {
     options: {...CHART_DEFAULTS,
       plugins: {...CHART_DEFAULTS.plugins,
         tooltip: {...CHART_DEFAULTS.plugins.tooltip,
-          filter: i => i.raw !== null && !i.dataset.label.endsWith(' PD'),
+          filter: i => i.raw !== null && !String(i.dataset.label||'').endsWith(' PD'),
           callbacks: {label: c => c.raw !== null ? ` ${c.dataset.label}: ${c.raw > 0 ? "+" : ""}${fmt(c.raw)} MW` : null}
         }
       },
@@ -1429,7 +1429,7 @@ function openOriginStationModal(stnName) {
             color:'#94a3b8',
             font:{family:'Space Mono',size:8},
             boxWidth:8, padding:5,
-            filter: item => !item.label.endsWith('(pd)'),
+            filter: item => !String(item.label||'').endsWith('(pd)'),
           }
         },
         tooltip: {
@@ -1704,7 +1704,7 @@ async function openStationModal(regIdx) {
           display: results.length > 1,
           labels: {
             color: '#94a3b8', font: { family: 'Space Mono', size: 9 }, boxWidth: 10, padding: 6,
-            filter: item => !item.label.endsWith('(forecast)'),
+            filter: item => !String(item.label||'').endsWith('(forecast)'),
           }
         },
         tooltip: {

@@ -422,18 +422,35 @@ async def scada_debug():
 
 @app.get("/api/gen-debug")
 async def gen_debug():
-    """Show what DUIDs are classified as 'Other' in the current gen cache."""
+    """Show what DUIDs are classified as 'Other' in the current gen cache, plus top unmatched."""
+    from scraper import _fetch_full_scada, NEM_UNITS, _infer_fuel_from_duid
     data = gen_cache.get("data") or {}
     grouped = data.get("grouped", {})
     other_by_region = {}
     for region, fuels in grouped.items():
         others = fuels.get("Other", [])
         if others:
-            other_by_region[region] = sorted(others, key=lambda x: x.get("mw") or 0, reverse=True)
-    return JSONResponse(content={"other_by_region": other_by_region})
+            other_by_region[region] = sorted(others, key=lambda x: x.get("mw") or 0, reverse=True)[:20]
+
+    # Live check: fetch SCADA and show top unmatched DUIDs
+    loop = asyncio.get_event_loop()
+    scada = await loop.run_in_executor(None, _fetch_full_scada)
+    unmatched = {}
+    for duid, mw in scada.items():
+        if not NEM_UNITS.get(duid.upper()):
+            inferred = _infer_fuel_from_duid(duid)
+            unmatched[duid] = {"mw": mw, "inferred_fuel": inferred}
+    top_unmatched = dict(sorted(unmatched.items(), key=lambda x: abs(x[1]["mw"] or 0), reverse=True)[:30])
+
+    return JSONResponse(content={
+        "other_by_region": other_by_region,
+        "top_unmatched_scada_duids": top_unmatched,
+        "nem_units_count": len(NEM_UNITS),
+        "sample_nem_units_keys": list(NEM_UNITS.keys())[:20],
+    })
 
 
-
+@app.get("/api/station/{duid}")
 async def station_detail(duid: str):
     """Return today's SCADA history for a single DUID.
     Note: AEMO predispatch files do not contain unit-level forecasts —

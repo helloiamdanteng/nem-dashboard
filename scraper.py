@@ -808,10 +808,8 @@ def _fetch_predispatch() -> str:
     return _read_zip(url) if url else ""
 
 
-def _fetch_predispatch_unit_solution() -> str:
-    """Fetch the separate PREDISPATCH_UNIT_SOLUTION file (different filename from PREDISPATCHIS)."""
-    url = get_latest_file_url(PREDISPATCH_URL, "PUBLIC_PREDISPATCH_UNIT_SOLUTION")
-    return _read_zip(url) if url else ""
+# Unit solution is in the same PUBLIC_PREDISPATCHIS file — alias for clarity
+_fetch_predispatch_unit_solution = _fetch_predispatch
 
 
 def scrape_predispatch_prices(text: str) -> dict:
@@ -1333,17 +1331,16 @@ def scrape_all() -> dict:
     logger.info("scrape_all starting...")
 
     # Run all IO-bound fetches concurrently — prices/demand/history/predispatch only
-    with ThreadPoolExecutor(max_workers=7) as ex:
+    with ThreadPoolExecutor(max_workers=6) as ex:
         f_dispatch_is   = ex.submit(_fetch_dispatch_is)
         f_predispatch   = ex.submit(_fetch_predispatch)
-        f_pd_units      = ex.submit(_fetch_predispatch_unit_solution)
         f_trading       = ex.submit(scrape_trading_history)
         f_dispatch_hist = ex.submit(scrape_dispatch_history)
         f_scada         = ex.submit(scrape_scada_duids, ORIGIN_DUIDS)
 
     dispatch_text    = f_dispatch_is.result()
     predispatch_text = f_predispatch.result()
-    pd_units_text    = f_pd_units.result()
+    pd_units_text    = predispatch_text   # unit solution is in the same file
     trading          = f_trading.result()
     dispatch_hist    = f_dispatch_hist.result()
     scada_vals       = f_scada.result()

@@ -224,6 +224,9 @@ tr:last-child td { border-bottom:none; }
   <button class="nav-btn" onclick="showPanel('weekahead')" id="nav-weekahead">
     <span class="icon">📅</span><span class="label">Week</span>
   </button>
+  <button class="nav-btn" onclick="showPanel('dayahead')" id="nav-dayahead">
+    <span class="icon">🌅</span><span class="label">D+1</span>
+  </button>
 </nav>
 
 <script>
@@ -1419,7 +1422,11 @@ function renderStations(fastData) {
       // Visible list applies hide filters
       const visible = allStations.filter(st => {
         if (stationsHideOffline && st.totalMw <= 5) return false;
-        if (stationsHideSmall  && st.totalCap > 0 && st.totalCap < 100) return false;
+        // Hide small: use capacity if known, otherwise use current MW output as proxy
+        if (stationsHideSmall) {
+          const size = st.totalCap > 0 ? st.totalCap : st.totalMw;
+          if (size > 0 && size < 100) return false;
+        }
         return true;
       });
       if (!visible.length) continue;
@@ -1619,6 +1626,246 @@ function drawWeekCharts(fastData) {
 
 // ── Panel router ──────────────────────────────────────────────────────────────
 
+// ── Day Ahead ─────────────────────────────────────────────────────────────────
+
+let dayAheadRegionFilter = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
+
+function toggleDayAheadRegion(r) {
+  if (dayAheadRegionFilter.has(r)) {
+    if (dayAheadRegionFilter.size > 1) dayAheadRegionFilter.delete(r);
+  } else {
+    dayAheadRegionFilter.add(r);
+  }
+  if (latestData) renderPanel('dayahead', latestData);
+}
+
+function renderDayAhead(data) {
+  const tomorrowDate = new Date();
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const dayStr = tomorrowDate.toLocaleDateString('en-AU', { weekday:'long', day:'numeric', month:'short' });
+
+  let html = `<div class="section-title">Day Ahead — ${dayStr}</div>`;
+  html += '<div style="font-size:10px;color:#475569;padding:0 16px 8px;font-family:var(--font-mono)">All data is predispatch forecast · dashed lines</div>';
+
+  // Region filter pills
+  html += '<div class="region-pills">';
+  for (const r of REGIONS) {
+    const active = dayAheadRegionFilter.has(r) ? 'active' : '';
+    const color = REGION_COLORS[r];
+    html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="toggleDayAheadRegion('${r}')">${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div>';
+
+  // Price chart
+  html += '<div class="chart-card">';
+  html += '<div class="chart-title">Price Forecast ($/MWh) — Predispatch</div>';
+  html += '<div class="chart-container" style="height:250px"><canvas id="dayAheadPriceChart"></canvas></div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+  for (const r of REGIONS) {
+    html += `<button onclick="toggleDayAheadPriceRegion('${r}')" id="dap-${r}" data-on="1"
+      style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;
+      border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;color:${REGION_COLORS[r]};cursor:pointer"
+      >${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div></div>';
+
+  // Demand chart
+  html += '<div class="chart-card" style="margin-top:12px">';
+  html += '<div class="chart-title">Demand Forecast (MW) — ST PASA 50% probability</div>';
+  html += '<div class="chart-container" style="height:220px"><canvas id="dayAheadDemandChart"></canvas></div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+  for (const r of REGIONS) {
+    html += `<button onclick="toggleDayAheadDemandRegion('${r}')" id="dad-${r}" data-on="1"
+      style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;
+      border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;color:${REGION_COLORS[r]};cursor:pointer"
+      >${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div></div>';
+
+  return html;
+}
+
+function toggleDayAheadPriceRegion(r) {
+  if (!charts.dayAheadPrice) return;
+  const btn = document.getElementById('dap-' + r);
+  const on = btn.dataset.on === '1';
+  btn.dataset.on = on ? '0' : '1';
+  btn.style.opacity = on ? '0.35' : '1';
+  charts.dayAheadPrice.data.datasets.forEach((ds, i) => {
+    if (ds.regionId === r) charts.dayAheadPrice.getDatasetMeta(i).hidden = on;
+  });
+  charts.dayAheadPrice.update();
+}
+
+function toggleDayAheadDemandRegion(r) {
+  if (!charts.dayAheadDemand) return;
+  const btn = document.getElementById('dad-' + r);
+  const on = btn.dataset.on === '1';
+  btn.dataset.on = on ? '0' : '1';
+  btn.style.opacity = on ? '0.35' : '1';
+  charts.dayAheadDemand.data.datasets.forEach((ds, i) => {
+    if (ds.regionId === r) charts.dayAheadDemand.getDatasetMeta(i).hidden = on;
+  });
+  charts.dayAheadDemand.update();
+}
+
+function drawDayAheadCharts(data) {
+  // Full 30-min spine for tomorrow 00:00–23:30
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 30)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  // ── Price chart ──────────────────────────────────────────────────────────────
+  destroyChart('dayAheadPrice');
+  const priceCtx = document.getElementById('dayAheadPriceChart');
+  if (priceCtx) {
+    const tmPrices = (data.tomorrow_prices) || {};
+    const hasAnyPrice = REGIONS.some(r => (tmPrices[r] || []).length > 0);
+
+    if (!hasAnyPrice) {
+      priceCtx.closest('.chart-card').querySelector('.chart-title').textContent =
+        'Price Forecast — predispatch data not yet available (available ~2hrs before midnight)';
+    } else {
+      const priceDatasets = [];
+      for (const r of REGIONS) {
+        const color = REGION_COLORS[r];
+        const pm = {};
+        (tmPrices[r] || []).forEach(p => { pm[p.interval] = p.rrp; });
+        priceDatasets.push({
+          label: REGION_SHORT[r],
+          regionId: r,
+          data: allSlots.map(s => pm[s] !== undefined ? pm[s] : null),
+          borderColor: color + 'cc',
+          backgroundColor: 'transparent',
+          borderWidth: 1.8,
+          pointRadius: 0,
+          tension: 0.2,
+          spanGaps: true,
+          borderDash: [6, 4],
+        });
+      }
+      charts.dayAheadPrice = new Chart(priceCtx, {
+        type: 'line',
+        data: { labels: allSlots, datasets: priceDatasets },
+        options: {
+          ...CHART_DEFAULTS,
+          plugins: {
+            ...CHART_DEFAULTS.plugins,
+            tooltip: {
+              ...CHART_DEFAULTS.plugins.tooltip,
+              filter: i => i.raw !== null,
+              callbacks: { label: c => c.raw === null ? null : ` ${c.dataset.label}: $${c.raw.toFixed(2)}/MWh` }
+            }
+          },
+          scales: {
+            x: {
+              ticks: {
+                color: '#64748b',
+                font: { family: 'Space Mono', size: 9 },
+                maxRotation: 0,
+                callback: (val, idx) => idx % 2 === 0 ? allSlots[idx] : ''
+              },
+              grid: { color: '#1e2d4544' }
+            },
+            y: {
+              ticks: { color: '#94a3b8', font: { family: 'Space Mono', size: 10 }, callback: v => '$' + v.toFixed(0) },
+              grid: { color: '#1e2d45' }
+            }
+          }
+        }
+      });
+      // Apply region filter
+      priceDatasets.forEach((ds, i) => {
+        if (!dayAheadRegionFilter.has(ds.regionId))
+          charts.dayAheadPrice.getDatasetMeta(i).hidden = true;
+      });
+      charts.dayAheadPrice.update();
+    }
+  }
+
+  // ── Demand chart ─────────────────────────────────────────────────────────────
+  destroyChart('dayAheadDemand');
+  const demCtx = document.getElementById('dayAheadDemandChart');
+  if (demCtx) {
+    // Primary source: tomorrow_demand from predispatch in fast cache
+    // Fallback: tomorrow_demand_stpasa from slow cache
+    const tmDemandFast = (data.tomorrow_demand) || {};
+    const tmDemandSlow = (slowData && slowData.tomorrow_demand_stpasa) || {};
+    // Merge: fast (predispatch) wins, slow (STPASA) fills gaps
+    const mergedDemand = {};
+    for (const r of REGIONS) {
+      const merged = {};
+      (tmDemandSlow[r] || []).forEach(p => { merged[p.interval] = p.demand; });
+      (tmDemandFast[r] || []).forEach(p => { merged[p.interval] = p.demand; }); // fast overwrites
+      mergedDemand[r] = merged;
+    }
+    const hasAnyDemand = REGIONS.some(r => Object.keys(mergedDemand[r]).length > 0);
+
+    if (!hasAnyDemand) {
+      demCtx.closest('.chart-card').querySelector('.chart-title').textContent =
+        'Demand Forecast — loading… (ST PASA data arrives within ~3 min of page load)';
+    } else {
+      const demDatasets = [];
+      for (const r of REGIONS) {
+        const color = REGION_COLORS[r];
+        const dm = mergedDemand[r];
+        demDatasets.push({
+          label: REGION_SHORT[r],
+          regionId: r,
+          data: allSlots.map(s => dm[s] !== undefined ? dm[s] : null),
+          borderColor: color + 'cc',
+          backgroundColor: color + '12',
+          borderWidth: 1.8,
+          pointRadius: 0,
+          tension: 0.2,
+          spanGaps: true,
+          borderDash: [6, 4],
+          fill: false,
+        });
+      }
+      charts.dayAheadDemand = new Chart(demCtx, {
+        type: 'line',
+        data: { labels: allSlots, datasets: demDatasets },
+        options: {
+          ...CHART_DEFAULTS,
+          plugins: {
+            ...CHART_DEFAULTS.plugins,
+            tooltip: {
+              ...CHART_DEFAULTS.plugins.tooltip,
+              filter: i => i.raw !== null,
+              callbacks: { label: c => c.raw === null ? null : ` ${c.dataset.label}: ${c.raw.toFixed(0)} MW` }
+            }
+          },
+          scales: {
+            x: {
+              ticks: {
+                color: '#64748b',
+                font: { family: 'Space Mono', size: 9 },
+                maxRotation: 0,
+                callback: (val, idx) => idx % 2 === 0 ? allSlots[idx] : ''
+              },
+              grid: { color: '#1e2d4544' }
+            },
+            y: {
+              min: 0,
+              ticks: { color: '#94a3b8', font: { family: 'Space Mono', size: 10 }, callback: v => fmt(v) },
+              grid: { color: '#1e2d45' }
+            }
+          }
+        }
+      });
+      // Apply region filter
+      demDatasets.forEach((ds, i) => {
+        if (!dayAheadRegionFilter.has(ds.regionId))
+          charts.dayAheadDemand.getDatasetMeta(i).hidden = true;
+      });
+      charts.dayAheadDemand.update();
+    }
+  }
+}
+
+
 function renderPanel(panel, data) {
   const main = document.getElementById('mainContent');
   let html = '';
@@ -1630,6 +1877,7 @@ function renderPanel(panel, data) {
     else if (panel === 'origin')     html = renderOrigin(data);
     else if (panel === 'stations')   html = renderStations(data);
     else if (panel === 'weekahead')  html = renderWeekAhead(data);
+    else if (panel === 'dayahead')   html = renderDayAhead(data);
   } catch(e) {
     console.error('Render error:', e);
     html = `<div class="state-msg"><div class="icon">⚠️</div><div style="font-size:11px">${e.message}</div></div>`;
@@ -1642,6 +1890,7 @@ function renderPanel(panel, data) {
       else if (panel === 'demand')     drawDemandChart(data);
       else if (panel === 'interconnectors') drawIcChart(data);
       else if (panel === 'weekahead')  drawWeekCharts(data);
+      else if (panel === 'dayahead')   drawDayAheadCharts(data);
     } catch(e) {
       console.error('Chart error:', e);
     }
@@ -1707,7 +1956,7 @@ async function fetchSlowData() {
         if (Date.now() - started > MAX_WAIT_MS) {
           console.warn('Slow data unavailable after 3 min, giving up');
           slowData = { _unavailable: true };
-          if (currentPanel === 'stations' || currentPanel === 'weekahead') {
+          if (currentPanel === 'stations' || currentPanel === 'weekahead' || currentPanel === 'dayahead') {
             renderPanel(currentPanel, latestData);
           }
           break;
@@ -1718,7 +1967,7 @@ async function fetchSlowData() {
 
       if (resp.ok) {
         slowData = await resp.json();
-        if (currentPanel === 'stations' || currentPanel === 'weekahead') {
+        if (currentPanel === 'stations' || currentPanel === 'weekahead' || currentPanel === 'dayahead') {
           renderPanel(currentPanel, latestData);
         }
         // Wait 30 min then kick off a fresh cycle

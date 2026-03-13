@@ -45,7 +45,7 @@ async def _run_fast():
     t0 = time.time()
     try:
         data = await asyncio.wait_for(
-            asyncio.get_event_loop().run_in_executor(None, scrape_all),
+            asyncio.get_running_loop().run_in_executor(None, scrape_all),
             timeout=60,
         )
         fast_cache["data"] = data
@@ -69,7 +69,7 @@ async def _run_fast():
 async def _run_slow():
     t0 = time.time()
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         data = await asyncio.wait_for(
             loop.run_in_executor(None, scrape_slow),
             timeout=45   # hard ceiling — if AEMO XLS hangs, don't block forever
@@ -107,7 +107,7 @@ async def fast_loop():
 async def _run_gen():
     t0 = time.time()
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         data = await asyncio.wait_for(loop.run_in_executor(None, scrape_gen), timeout=60)
         gen_cache["data"] = data
         gen_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
@@ -129,7 +129,7 @@ async def gen_loop():
     await asyncio.sleep(5)   # let fast scrape finish first
     # Backfill 24hr SCADA history once at startup so chart is immediately populated
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         logger.info("Starting SCADA history backfill…")
         await asyncio.wait_for(
             loop.run_in_executor(None, scrape_scada_history), timeout=120
@@ -423,7 +423,7 @@ async def reg_test():
 async def scada_debug():
     """Show raw SCADA DUIDs and which ones match/miss the registry."""
     from scraper import _fetch_full_scada, NEM_UNITS
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     scada = await loop.run_in_executor(None, _fetch_full_scada)
     matched, unmatched = {}, {}
     for duid, mw in scada.items():
@@ -459,7 +459,7 @@ async def gen_debug():
             other_by_region[region] = sorted(others, key=lambda x: x.get("mw") or 0, reverse=True)[:20]
 
     # Live check: fetch SCADA and show top unmatched DUIDs
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     scada = await loop.run_in_executor(None, _fetch_full_scada)
     unmatched = {}
     for duid, mw in scada.items():
@@ -505,7 +505,7 @@ async def pd_debug():
     """Find where AEMO publishes unit-level dispatch forecasts."""
     from scraper import _list_hrefs, _read_zip, NEMWEB_BASE
     import csv, io, re
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     dirs_to_probe = [
         f"{NEMWEB_BASE}/Reports/CURRENT/P5_Reports/",

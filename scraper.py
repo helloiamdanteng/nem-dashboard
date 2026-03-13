@@ -960,7 +960,10 @@ _duid_history: dict[str, dict] = {}  # { duid: { "HH:MM": mw } } — per-unit to
 
 def _update_fuel_history(fuel_mix: dict, scada: dict | None = None) -> None:
     """Store a fuel mix snapshot and per-DUID snapshot. Prune to today only."""
-    label = datetime.now(AEST).strftime("%H:%M")
+    now = datetime.now(AEST)
+    # Snap to nearest 5-min boundary so labels align with the 5-min time spine in the frontend
+    snapped_min = (now.minute // 5) * 5
+    label = now.strftime("%H:") + f"{snapped_min:02d}"
     for region in NEM_REGIONS:
         if region not in fuel_mix:
             continue

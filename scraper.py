@@ -874,7 +874,8 @@ def scrape_fuel_mix_live() -> dict:
         for duid, mw in scada.items():
             info = reg.get(duid, {})
             region = info.get("region", "")
-            fuel   = info.get("fuel", "Other")
+            raw_fuel = info.get("fuel", "")
+            fuel   = raw_fuel if (raw_fuel and raw_fuel != "Other") else _infer_fuel_from_duid(duid)
             if region not in NEM_REGIONS or mw is None or mw <= 0:
                 continue
             result[region][fuel] = round(result[region].get(fuel, 0) + mw, 1)
@@ -1630,7 +1631,8 @@ def scrape_scada_history() -> None:
         for duid, mw in duids.items():
             info   = reg.get(duid, {})
             region = info.get("region", "") or cpid_map.get(duid, "")
-            fuel   = info.get("fuel", "") or _infer_fuel_from_duid(duid)
+            raw_fuel = info.get("fuel", "")
+            fuel   = raw_fuel if (raw_fuel and raw_fuel != "Other") else _infer_fuel_from_duid(duid)
             if region not in NEM_REGIONS:
                 continue
             mw_pos = max(mw, 0) if mw is not None else 0
@@ -1687,7 +1689,8 @@ def scrape_gen() -> dict:
     for duid, mw in scada.items():
         info     = reg.get(duid.upper(), {})
         region   = info.get("region", "") or cpid_map.get(duid.upper(), "")
-        fuel     = info.get("fuel", "") or _infer_fuel_from_duid(duid)
+        raw_fuel = info.get("fuel", "")
+        fuel     = raw_fuel if (raw_fuel and raw_fuel != "Other") else _infer_fuel_from_duid(duid)
         station  = info.get("station", duid)
         capacity = info.get("capacity")
 

@@ -1219,6 +1219,8 @@ async function openStationModal(regIdx) {
   }
 
   // Filter to units with history
+  console.log('Station modal results:', results.length, 'DUIDs fetched');
+  results.forEach(d => console.log(` ${d.duid}: ${d.history?.length ?? 0} pts, sample:`, d.history?.slice(0,2)));
   results = results.filter(d => d.history && d.history.length > 0);
   if (!results.length) {
     document.getElementById('stationModalStats').innerHTML = '<span style="color:#64748b">No SCADA data yet — builds after first gen refresh (~15 min)</span>';
@@ -1240,7 +1242,11 @@ async function openStationModal(regIdx) {
     document.getElementById('stationModalStats').innerHTML = '<span style="color:#64748b">No data yet</span>';
     return;
   }
-  const labels = allSlots.slice(0, allSlots.indexOf(lastSlot) + 1);
+  // Find the last allSlot that is <= lastSlot (handles non-5min-aligned labels gracefully)
+  let lastIdx = allSlots.findIndex(s => s > lastSlot) - 1;
+  if (lastIdx < 0) lastIdx = allSlots.length - 1;
+  const labels = allSlots.slice(0, lastIdx + 1);
+  console.log('lastSlot:', lastSlot, 'lastIdx:', lastIdx, 'labels.length:', labels.length);
 
   // Generate distinct shades of the fuel colour
   function unitColor(idx, total) {

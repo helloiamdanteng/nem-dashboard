@@ -1156,11 +1156,9 @@ function setGenRegion(r) {
 function toggleAllStationRegions() {
   const allSelected = REGIONS.every(r => stationsRegionFilter.has(r));
   if (allSelected) {
-    // Deselect all — show none
-    stationsRegionFilter.clear();
+    stationsRegionFilter.clear();   // all → none
   } else {
-    // Select all
-    REGIONS.forEach(r => stationsRegionFilter.add(r));
+    REGIONS.forEach(r => stationsRegionFilter.add(r));  // any state → all
   }
   refreshTab();
 }
@@ -1388,7 +1386,8 @@ function renderStations(fastData) {
   html += '</div>';
 
   // Collect all stations across selected regions, group by fuel
-  const byFuel = {};
+  const byFuel = {};          // fuel → visible stations (for display)
+  const byFuelAll = {};       // fuel → ALL stations (for totals)
   for (const region of REGIONS) {
     if (!stationsRegionFilter.has(region)) continue;
     const regionFuels = grouped[region] || {};
@@ -1404,31 +1403,38 @@ function renderStations(fastData) {
         stationMap[key].totalCap += u.capacity || 0;
         stationMap[key].units.push(u);
       }
-      // Apply filters at station level
-      const filtered = Object.values(stationMap).filter(st => {
+      const allStations = Object.values(stationMap);
+      // Totals include ALL stations in this region/fuel (regardless of hide filters)
+      if (!byFuelAll[fuel]) byFuelAll[fuel] = [];
+      byFuelAll[fuel].push(...allStations);
+      // Visible list applies hide filters
+      const visible = allStations.filter(st => {
         if (stationsHideOffline && st.totalMw <= 5) return false;
         if (stationsHideSmall  && st.totalCap > 0 && st.totalCap < 100) return false;
         return true;
       });
-      if (!filtered.length) continue;
+      if (!visible.length) continue;
       if (!byFuel[fuel]) byFuel[fuel] = [];
-      byFuel[fuel].push(...filtered);
+      byFuel[fuel].push(...visible);
     }
   }
 
   for (const fuel of FUEL_ORDER) {
     const stations = byFuel[fuel];
-    if (!stations || !stations.length) continue;
-    stations.sort((a, b) => (b.totalMw || 0) - (a.totalMw || 0));
+    const allStations = byFuelAll[fuel] || [];
+    if (!allStations.length) continue;
+    if (stations) stations.sort((a, b) => (b.totalMw || 0) - (a.totalMw || 0));
     const color = (fc || {})[fuel] || '#95a5a6';
-    const totalMw = stations.reduce((s, x) => s + (x.totalMw || 0), 0);
-    const totalCap = stations.reduce((s, x) => s + (x.totalCap || 0), 0);
+    // Totals always from ALL stations (including hidden)
+    const totalMw  = allStations.reduce((s, x) => s + (x.totalMw || 0), 0);
+    const totalCap = allStations.reduce((s, x) => s + (x.totalCap || 0), 0);
+    const hiddenCount = allStations.length - (stations ? stations.length : 0);
     html += `<div class="fuel-group">
       <div class="fuel-group-header" style="border-top:3px solid ${color}">
         <span style="color:${color}">${FUEL_ICONS[fuel] || '⚡'} ${fuel}</span>
-        <span class="fuel-group-total">${fmt(totalMw, 0)} / ${fmt(totalCap, 0)} MW</span>
+        <span class="fuel-group-total">${fmt(totalMw, 0)} / ${fmt(totalCap, 0)} MW${hiddenCount > 0 ? ` <span style="color:#475569;font-size:9px">(+${hiddenCount} hidden)</span>` : ''}</span>
       </div>`;
-    for (const st of stations) {
+    for (const st of (stations || [])) {
       const pct = st.totalCap > 0 ? Math.min(st.totalMw / st.totalCap * 100, 100) : 0;
       const rc = REGION_COLORS[st.region] || '#64748b';
       const mwColor = st.totalMw > 5 ? color : 'var(--text-muted)';

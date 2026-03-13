@@ -420,7 +420,20 @@ async def scada_debug():
     })
 
 
-@app.get("/api/station/{duid}")
+@app.get("/api/gen-debug")
+async def gen_debug():
+    """Show what DUIDs are classified as 'Other' in the current gen cache."""
+    data = gen_cache.get("data") or {}
+    grouped = data.get("grouped", {})
+    other_by_region = {}
+    for region, fuels in grouped.items():
+        others = fuels.get("Other", [])
+        if others:
+            other_by_region[region] = sorted(others, key=lambda x: x.get("mw") or 0, reverse=True)
+    return JSONResponse(content={"other_by_region": other_by_region})
+
+
+
 async def station_detail(duid: str):
     """Return today's SCADA history for a single DUID.
     Note: AEMO predispatch files do not contain unit-level forecasts —

@@ -206,6 +206,9 @@ tr:last-child td { border-bottom:none; }
 </main>
 
 <nav class="bottom-nav">
+  <button class="nav-btn" onclick="showPanel('origin')" id="nav-origin">
+    <span class="icon">🟠</span><span class="label">Origin</span>
+  </button>
   <button class="nav-btn active" onclick="showPanel('prices')" id="nav-prices">
     <span class="icon">💲</span><span class="label">P&amp;D</span>
   </button>
@@ -215,17 +218,14 @@ tr:last-child td { border-bottom:none; }
   <button class="nav-btn" onclick="showPanel('interconnectors')" id="nav-interconnectors">
     <span class="icon">🔗</span><span class="label">IC</span>
   </button>
-  <button class="nav-btn" onclick="showPanel('origin')" id="nav-origin">
-    <span class="icon">🟠</span><span class="label">Origin</span>
-  </button>
   <button class="nav-btn" onclick="showPanel('stations')" id="nav-stations">
     <span class="icon">🏭</span><span class="label">Stations</span>
   </button>
-  <button class="nav-btn" onclick="showPanel('weekahead')" id="nav-weekahead">
-    <span class="icon">📅</span><span class="label">Week</span>
-  </button>
   <button class="nav-btn" onclick="showPanel('dayahead')" id="nav-dayahead">
     <span class="icon">🌅</span><span class="label">D+1</span>
+  </button>
+  <button class="nav-btn" onclick="showPanel('weekahead')" id="nav-weekahead">
+    <span class="icon">📅</span><span class="label">Week</span>
   </button>
 </nav>
 

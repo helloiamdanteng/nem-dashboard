@@ -2538,6 +2538,7 @@ async function fetchData() {
   dot.className = 'pulse-dot loading';
   try {
     const resp = await fetch('/api/data');
+    console.log('[fetchData] status:', resp.status);
     if (resp.status === 503 || resp.status === 202) {
       upd.textContent = 'Loading…';
       document.getElementById('mainContent').innerHTML =
@@ -2546,6 +2547,7 @@ async function fetchData() {
       return;
     }
     const data = await resp.json();
+    console.log('[fetchData] got data, prices:', data.prices);
     latestData = data;
     dot.className = 'pulse-dot';
     upd.textContent = data.last_updated ? fmtTime(data.last_updated) : 'Just now';

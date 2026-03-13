@@ -816,7 +816,14 @@ function drawDemandChart(data) {
     const color = REGION_COLORS[r];
     const src = (dispHist[r] && dispHist[r].length) ? dispHist[r] : (snapHist[r] || []);
 
-    // Scheduled demand (TOTALDEMAND) — solid line
+    // Operational demand (DEMAND_AND_NONSCHEDGEN) — primary series
+    const opHm = {};
+    (opHist[r] || []).forEach(p => {
+      if (p.interval !== undefined && p.demand != null) opHm[p.interval] = p.demand;
+    });
+    if (liveOp[r] != null) opHm[nowSnap] = liveOp[r];
+
+    // Scheduled demand (TOTALDEMAND) — secondary/context series
     const hm = {};
     src.forEach(p => {
       if (p.interval !== undefined) {
@@ -826,29 +833,26 @@ function drawDemandChart(data) {
     });
     if (liveDemand[r] != null) hm[nowSnap] = liveDemand[r];
 
-    // Operational demand (DEMAND_AND_NONSCHEDGEN) — slightly thicker, same colour but brigher
-    const opHm = {};
-    (opHist[r] || []).forEach(p => {
-      if (p.interval !== undefined && p.demand != null) opHm[p.interval] = p.demand;
-    });
-    if (liveOp[r] != null) opHm[nowSnap] = liveOp[r];
+    // Find the last slot that has ANY actual data (op or scheduled)
+    const lastActualD = labels.slice().reverse().find(l =>
+      opHm[l] !== undefined || hm[l] !== undefined
+    );
 
-    // Predispatch — future only, bridged from last actual point
+    // Predispatch — 30-min points, future only
     const pm = {};
     (pd[r] || []).forEach(p => { if (p.interval) pm[p.interval] = p.demand; });
-    // Bridge: inject one point at the last actual so the dashed line starts from there
-    // Use the closest slot AT OR BEFORE now that has actual data
-    const lastActualD = labels.slice().reverse().find(l => l <= nowSnap && (opHm[l] !== undefined || hm[l] !== undefined));
+
+    // Bridge: copy the last actual value into pm so the dashed line connects
     if (lastActualD && Object.keys(pm).length) {
       pm[lastActualD] = opHm[lastActualD] ?? hm[lastActualD];
     }
-    // Build PD data array — null for all historical slots, values only from bridge point onwards
-    const pdData = labels.map(l => {
-      if (l < (lastActualD || nowSnap)) return null;  // strictly historical — never show PD here
-      return pm[l] !== undefined ? pm[l] : null;
-    });
 
-    // Operational demand — bold line (the main one to read)
+    // PD data: null for every slot strictly before the bridge point
+    const pdData = labels.map(l =>
+      l < lastActualD ? null : (pm[l] !== undefined ? pm[l] : null)
+    );
+
+    // Operational demand — bold solid line
     if (Object.keys(opHm).length) {
       datasets.push({
         label: REGION_SHORT[r] + ' Op', regionId: r,
@@ -859,21 +863,21 @@ function drawDemandChart(data) {
       });
     }
 
-    // Scheduled demand — thin dashed (context)
+    // Scheduled demand — thin dotted context line (historical only)
     datasets.push({
       label: REGION_SHORT[r], regionId: r,
-      data: labels.map(l => hm[l] !== undefined ? hm[l] : null),
-      borderColor: color + '77', backgroundColor: 'transparent',
+      data: labels.map(l => l <= (lastActualD || nowSnap) ? (hm[l] !== undefined ? hm[l] : null) : null),
+      borderColor: color + '55', backgroundColor: 'transparent',
       borderWidth: 1.2, pointRadius: 0, tension: 0.2, spanGaps: false,
       borderDash: [3, 3],
     });
 
-    // Predispatch — spanGaps false so no line drawn through historical nulls
+    // Predispatch — dashed, spanGaps true to connect sparse 30-min points
     datasets.push({
-      label: REGION_SHORT[r]+' PD', regionId: r,
+      label: REGION_SHORT[r] + ' PD', regionId: r,
       data: pdData,
-      borderColor: color+'66', backgroundColor: 'transparent',
-      borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: false,
+      borderColor: color + '88', backgroundColor: 'transparent',
+      borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: true,
       borderDash: [5, 5]
     });
   }

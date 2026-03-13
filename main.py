@@ -181,6 +181,7 @@ app = FastAPI(title="NEM Dashboard", lifespan=lifespan)
 
 static_dir = Path(__file__).parent / "static"
 static_dir.mkdir(exist_ok=True)
+(static_dir / "data").mkdir(exist_ok=True)  # ensure views.json directory exists
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 

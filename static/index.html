@@ -1547,9 +1547,14 @@ async function openStationModal(regIdx) {
   // Fetch all DUIDs in parallel
   let results;
   try {
-    results = await Promise.all(duids.map(d => fetch(`/api/station/${encodeURIComponent(d)}`).then(r => r.json())));
+    results = await Promise.all(duids.map(async d => {
+      const r = await fetch(`/api/station/${encodeURIComponent(d)}`);
+      if (!r.ok) { console.warn(`station API ${d} returned ${r.status}`); return {duid:d, history:[]}; }
+      return r.json();
+    }));
   } catch(e) {
-    document.getElementById('stationModalStats').innerHTML = '<span style="color:#e74c3c">Failed to load data</span>';
+    console.error('Station fetch error:', e);
+    document.getElementById('stationModalStats').innerHTML = `<span style="color:#e74c3c">Failed to load: ${e.message}</span>`;
     return;
   }
 
@@ -1676,8 +1681,8 @@ async function openStationModal(regIdx) {
   const nowIdx = allLabels.reduce((best,l,i) => l<=nowStr ? i : best, -1);
 
   try {
-  const ctx = document.getElementById('stationModalChart');
-  _stationModalChart = new Chart(ctx, {
+    const ctx = document.getElementById('stationModalChart');
+    _stationModalChart = new Chart(ctx, {
     type: 'line',
     data: { labels: allLabels, datasets },
     options: {
@@ -1738,37 +1743,37 @@ async function openStationModal(regIdx) {
       }
     },
     plugins: [nowLinePlugin(nowIdx)]
-  });
+    });
 
-  // Stats
-  const latestByUnit = results.map(d => {
+    // Stats
+    const latestByUnit = results.map(d => {
     const sorted = [...d.history].sort((a,b) => a.interval < b.interval ? -1 : 1);
     return { duid: d.duid, mw: sorted.length ? sorted[sorted.length-1].mw : null };
-  });
-  const totalNow = latestByUnit.reduce((s,u) => s + Math.max(u.mw||0, 0), 0);
-  const allMws = results.flatMap(d => d.history.map(p => p.mw).filter(v => v !== null));
-  const maxMw = allMws.length ? Math.max(...allMws) : null;
+    });
+    const totalNow = latestByUnit.reduce((s,u) => s + Math.max(u.mw||0, 0), 0);
+    const allMws = results.flatMap(d => d.history.map(p => p.mw).filter(v => v !== null));
+    const maxMw = allMws.length ? Math.max(...allMws) : null;
 
-  let statsHtml = [
+    let statsHtml = [
     `<span>Now: <b style="color:${baseColor}">${fmt(totalNow,0)} MW</b></span>`,
     maxMw !== null ? `<span>Today max: <b>${fmt(maxMw,0)} MW</b></span>` : '',
     capacity ? `<span>Capacity: <b>${fmt(capacity,0)} MW</b></span>` : '',
-  ].filter(Boolean).join('');
+    ].filter(Boolean).join('');
 
-  if (results.length > 1) {
+    if (results.length > 1) {
     statsHtml += '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px">' +
       latestByUnit.map((u,i) => {
         const color = unitColor(i, results.length);
         return `<span style="color:${color};font-size:10px">${u.duid}: <b>${u.mw !== null ? fmt(Math.max(u.mw,0),0)+' MW' : '—'}</b></span>`;
       }).join('') + '</div>';
-  }
-  statsHtml += '<div style="margin-top:4px;color:#475569;font-size:10px">Unit-level predispatch not published by AEMO</div>';
-  document.getElementById('stationModalStats').innerHTML = statsHtml;
+    }
+    statsHtml += '<div style="margin-top:4px;color:#475569;font-size:10px">Unit-level predispatch not published by AEMO</div>';
+    document.getElementById('stationModalStats').innerHTML = statsHtml;
   } catch(chartErr) {
     console.error('Station modal chart error:', chartErr);
     document.getElementById('stationModalStats').innerHTML =
       `<span style="color:#e74c3c">Chart error: ${chartErr.message}</span>`;
-  }
+    }
 }
 
 
@@ -1779,6 +1784,10 @@ function renderStations(fastData) {
   if (genData._unavailable || !genData.grouped) {
     return `<div class="state-msg"><div class="icon">⚠️</div><div>Generator data unavailable</div></div>`;
   }
+
+  // Reset registry on every render so indices stay in sync with tile onclick handlers
+  Object.keys(_stationRegistry).forEach(k => delete _stationRegistry[k]);
+  _stationRegistryIdx = 0;
   const grouped = genData.grouped;
   const fc = genData.fuel_colors || {};
   const prices = (fastData || {}).prices || {};

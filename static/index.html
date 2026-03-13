@@ -1743,6 +1743,7 @@ async function openStationModal(regIdx) {
   const nowStr = nowAEST();
   const nowIdx = allLabels.reduce((best,l,i) => l<=nowStr ? i : best, -1);
 
+  try {
   const ctx = document.getElementById('stationModalChart');
   _stationModalChart = new Chart(ctx, {
     type: 'line',
@@ -1831,6 +1832,11 @@ async function openStationModal(regIdx) {
   }
   statsHtml += '<div style="margin-top:4px;color:#475569;font-size:10px">Unit-level predispatch not published by AEMO</div>';
   document.getElementById('stationModalStats').innerHTML = statsHtml;
+  } catch(chartErr) {
+    console.error('Station modal chart error:', chartErr);
+    document.getElementById('stationModalStats').innerHTML =
+      `<span style="color:#e74c3c">Chart error: ${chartErr.message}</span>`;
+  }
 }
 
 

@@ -2332,8 +2332,8 @@ function renderPanel(panel, data) {
       return;
     }
   } catch(e) {
-    console.error('Render error:', e);
-    html = `<div class="state-msg"><div class="icon">⚠️</div><div style="font-size:11px">${e.message}</div></div>`;
+    console.error(`Render error [${panel}]:`, e);
+    html = `<div class="state-msg"><div class="icon">⚠️</div><div>Error in ${panel}: ${e.message}</div></div>`;
   }
   main.innerHTML = html;
   requestAnimationFrame(() => {
@@ -2345,7 +2345,8 @@ function renderPanel(panel, data) {
       else if (panel === 'weekahead')  drawWeekCharts(data);
       else if (panel === 'dayahead')   drawDayAheadCharts(data);
     } catch(e) {
-      console.error('Chart error:', e);
+      console.error(`Chart error [${panel}]:`, e);
+      main.innerHTML += `<div style="color:#e74c3c;font-size:11px;padding:8px">Chart error in ${panel}: ${e.message}</div>`;
     }
   });
 }

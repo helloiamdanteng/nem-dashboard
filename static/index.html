@@ -1482,22 +1482,6 @@ async function openOriginStationModal(stnName) {
     `<span style="color:#475569"> of ${fmt(s.totalCap,0)} MW cap</span>` +
     (liveP !== undefined ? ` <span style="color:#f39c12">$${liveP.toFixed(2)}/MWh</span>` : '');
 }
-  const s = window._originStationMap?.[stnName];
-  const fc = window._originFc || {};
-  if (!s) return;
-
-  // Build a temporary registry entry and delegate to openStationModal
-  // so both modals share identical chart-building code
-  const tempIdx = '__origin__';
-  _stationRegistry[tempIdx] = {
-    duids:    Object.keys(s.duidHists),
-    name:     stnName,
-    fuel:     s.fuel,
-    region:   s.region,
-    capacity: s.totalCap || 0,
-  };
-  openStationModal(tempIdx);
-}
 
 
 // ── Stations (all NEM generators) ────────────────────────────────────────────

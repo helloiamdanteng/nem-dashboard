@@ -474,6 +474,26 @@ async def station_detail(duid: str):
     })
 
 
+@app.get("/api/pd-debug")
+async def pd_debug():
+    """Verify predispatch unit solution is being fetched and parsed correctly."""
+    from scraper import _fetch_predispatch_unit_solution, scrape_predispatch_unit_solution
+    loop = asyncio.get_event_loop()
+    try:
+        text = await asyncio.wait_for(loop.run_in_executor(None, _fetch_predispatch_unit_solution), timeout=20)
+        pd_units = scrape_predispatch_unit_solution(text)
+        # Sample first 5 DUIDs with data
+        sample = {k: v[:3] for k, v in list(pd_units.items())[:5]}
+        return {
+            "text_len": len(text),
+            "duid_count": len(pd_units),
+            "sample": sample,
+            "has_predispatch_unit_solution": "PREDISPATCH_UNIT_SOLUTION" in text.upper() if text else False,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/api/station-debug")
 async def station_debug():
     from scraper import _duid_history

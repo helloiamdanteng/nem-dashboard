@@ -326,6 +326,9 @@ function showPanel(name) {
 function renderPrices(data) {
   const prices = data.prices || {};
   const demand = data.demand || {};
+  if (!Object.keys(prices).length) {
+    return '<div class="state-msg"><div class="icon">⚡</div><div>Connecting to AEMO…</div></div>';
+  }
   let html = '<div class="section-title">Latest Spot Prices ($/MWh)</div><div class="price-grid">';
   for (const r of REGIONS) {
     const p = prices[r];
@@ -2536,8 +2539,10 @@ async function fetchData() {
   try {
     const resp = await fetch('/api/data');
     if (resp.status === 503 || resp.status === 202) {
-      upd.textContent = 'Waiting for data…';
-      setTimeout(fetchData, 5000);
+      upd.textContent = 'Loading…';
+      document.getElementById('mainContent').innerHTML =
+        '<div class="state-msg"><div class="icon">⚡</div><div>Loading NEM data…</div><div style="font-size:11px;color:#475569;margin-top:6px">Connecting to AEMO</div></div>';
+      setTimeout(fetchData, 3000);
       return;
     }
     const data = await resp.json();

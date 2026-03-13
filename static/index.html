@@ -1059,8 +1059,8 @@ let originStationFilter = new Set();
 let originChartObj = null;
 
 const ORIGIN_STATION_ORDER = {
-  QLD1: ['Darling Downs','Mt Stuart','Roma','Clare Solar Farm','Darling Downs Solar','Daydream Solar','Supernode Battery 1'],
-  NSW1: ['Eraring','Uranquinty','Shoalhaven','Moree Solar Farm','Gunning Wind Farm','Eraring Battery'],
+  QLD1: ['Darling Downs','Supernode Battery 1','Mt Stuart','Roma','Clare Solar Farm','Darling Downs Solar','Daydream Solar'],
+  NSW1: ['Eraring','Eraring Battery','Uranquinty','Shoalhaven','Moree Solar Farm','Gunning Wind Farm'],
   VIC1: ['Mortlake','Stockyard Hill'],
   SA1:  ['Osborne','Quarantine','Ladbroke Grove','Snowtown North','Snowtown South','Bungala Solar'],
 };
@@ -1108,11 +1108,11 @@ function renderOrigin(data) {
       <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted)">ORIGIN OUTPUT TODAY (MW) — tap station to toggle</span>
       <button onclick="originSelectAll()" style="background:none;border:1px solid var(--border);color:var(--text-muted);font-family:var(--font-mono);font-size:8px;padding:2px 7px;border-radius:4px;cursor:pointer">ALL</button>
     </div>
-    <div style="position:relative;height:180px"><canvas id="origin-chart"></canvas></div>
+    <div style="position:relative;height:160px"><canvas id="origin-chart"></canvas></div>
   </div>`;
 
   // ── 4-column station grid ─────────────────────────────────────────────────
-  html += `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px;align-items:start">`;
+  html += `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:3px;align-items:start">`;
 
   for (const reg of ['QLD1','NSW1','VIC1','SA1']) {
     const col  = STATE_COLORS[reg];
@@ -1123,7 +1123,7 @@ function renderOrigin(data) {
 
     // State header
     html += `<div style="display:flex;align-items:baseline;justify-content:space-between;
-      padding:3px 5px 3px;margin-bottom:4px;background:${col}22;border-radius:5px;border-left:2px solid ${col}">
+      padding:2px 4px;margin-bottom:3px;background:${col}22;border-radius:5px;border-left:2px solid ${col}">
       <span style="font-family:var(--font-mono);font-size:10px;font-weight:700;color:${col}">${STATE_LABELS[reg]}</span>
       <span style="font-family:var(--font-mono);font-size:8px;color:var(--text-muted)">${fmt(stateMw)}<span style="font-size:7px"> MW</span></span>
     </div>`;
@@ -1143,7 +1143,7 @@ function renderOrigin(data) {
         style="background:var(--surface);
                border:1px solid ${isVis ? fuelCol + '77' : 'var(--border)'};
                border-left:2px solid ${isVis ? fuelCol : 'var(--border)'};
-               border-radius:5px;padding:5px 6px;margin-bottom:3px;cursor:pointer;
+               border-radius:4px;padding:3px 4px;margin-bottom:2px;cursor:pointer;
                opacity:${isVis ? '1' : '0.35'};transition:opacity 0.15s">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:2px">
           <div style="font-family:var(--font-mono);font-size:8px;font-weight:600;color:var(--text);

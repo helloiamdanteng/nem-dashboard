@@ -221,6 +221,9 @@ tr:last-child td { border-bottom:none; }
   <button class="nav-btn" onclick="showPanel('batteries')" id="nav-batteries">
     <span class="icon">🔋</span><span class="label">Batteries</span>
   </button>
+  <button class="nav-btn" onclick="showPanel('dminus1')" id="nav-dminus1">
+    <span class="icon">📆</span><span class="label">D-1</span>
+  </button>
   <button class="nav-btn" onclick="showPanel('dayahead')" id="nav-dayahead">
     <span class="icon">🌅</span><span class="label">D+1</span>
   </button>
@@ -2705,6 +2708,237 @@ function drawWeekCharts(fastData) {
 }
 
 
+// ── D-1 (Yesterday) ───────────────────────────────────────────────────────────
+
+let dMinus1RegionFilter = 'NEM';
+
+function setDMinus1Region(r) {
+  dMinus1RegionFilter = r;
+  if (latestData) renderPanel('dminus1', latestData);
+}
+
+function renderDMinus1(data) {
+  const yest = slowData && slowData.yesterday;
+  const label = yest ? yest.label : 'Yesterday';
+
+  let html = `<div class="section-title">D-1 — ${label}</div>`;
+
+  // Region selector
+  html += '<div class="region-pills">';
+  for (const r of ['NEM', ...REGIONS]) {
+    const lbl   = r === 'NEM' ? 'NEM' : REGION_SHORT[r];
+    const color = r === 'NEM' ? '#94a3b8' : REGION_COLORS[r];
+    const active = dMinus1RegionFilter === r ? 'active' : '';
+    html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="setDMinus1Region('${r}')">${lbl}</button>`;
+  }
+  html += '</div>';
+
+  if (!yest || !yest.prices || !Object.keys(yest.prices).length) {
+    if (!slowData) {
+      html += '<div class="state-msg"><div class="icon">📆</div><div>Loading yesterday\'s data… (arrives within ~3 min)</div></div>';
+    } else {
+      html += '<div class="state-msg"><div class="icon">⚠️</div><div>Yesterday data not available</div><div style="font-size:11px;color:#475569;margin-top:6px">CURRENT directory may not have yesterday\'s files yet</div></div>';
+    }
+    return html;
+  }
+
+  // Price chart
+  html += '<div class="chart-card"><div class="chart-title">Spot Price ($/MWh) — 30-min Trading Price</div>';
+  html += '<div class="chart-container" style="height:220px"><canvas id="dm1PriceChart"></canvas></div></div>';
+
+  // Demand chart
+  html += '<div class="chart-card" style="margin-top:12px"><div class="chart-title">Demand + Non-Sched Gen (MW)</div>';
+  html += '<div class="chart-container" style="height:200px"><canvas id="dm1DemandChart"></canvas></div></div>';
+
+  // Renewable generation chart
+  html += '<div class="chart-card" style="margin-top:12px"><div class="chart-title">Semi-Scheduled Wind + Solar Cleared MW</div>';
+  html += '<div class="chart-container" style="height:200px"><canvas id="dm1RenewChart"></canvas></div></div>';
+
+  // Interconnector chart
+  html += '<div class="chart-card" style="margin-top:12px"><div class="chart-title">Interconnector Flows (MW)</div>';
+  html += '<div class="chart-container" style="height:200px"><canvas id="dm1IcChart"></canvas></div>';
+  const IC_COLORS = ['#00d4ff','#ff6b35','#2ed573','#ffd32a','#9b59b6','#e74c3c'];
+  const icIds = Object.keys((yest.ic_flows || {})).sort();
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">';
+  icIds.forEach((id, i) => {
+    const color = IC_COLORS[i % IC_COLORS.length];
+    html += `<div style="display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10px;color:${color}"><div style="width:14px;height:2px;background:${color};border-radius:1px"></div>${id}</div>`;
+  });
+  html += '</div></div>';
+
+  return html;
+}
+
+function drawDMinus1Charts(data) {
+  const yest = slowData && slowData.yesterday;
+  if (!yest || !yest.prices) return;
+
+  const isNEM = dMinus1RegionFilter === 'NEM';
+  const activeRegions = isNEM ? REGIONS : [dMinus1RegionFilter];
+
+  // Full 5-min spine (for demand/IC) and 30-min spine (for price)
+  const slots5 = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      slots5.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  const slots30 = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 30)
+      slots30.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  const xTick5  = (v,i) => slots5[i]?.endsWith(':00')  ? slots5[i]  : null;
+  const xTick30 = (v,i) => slots30[i]?.endsWith(':00') ? slots30[i] : null;
+
+  const tooltipLabel = c => {
+    if (c.raw === null) return null;
+    const lbl = c.dataset.label || '';
+    if (lbl.includes('Price') || lbl.includes('$')) return ` ${lbl}: $${Number(c.raw).toFixed(2)}/MWh`;
+    return ` ${lbl}: ${fmt(c.raw,0)} MW`;
+  };
+
+  // ── Price chart ─────────────────────────────────────────────────────────────
+  destroyChart('dm1Price');
+  const pCtx = document.getElementById('dm1PriceChart');
+  if (pCtx) {
+    const pDatasets = [];
+    for (const r of activeRegions) {
+      const color = REGION_COLORS[r];
+      const pm = {};
+      (yest.prices[r] || []).forEach(p => { pm[p.interval] = p.rrp; });
+      pDatasets.push({
+        label: isNEM ? REGION_SHORT[r] : 'Price',
+        data: slots30.map(l => pm[l] ?? null),
+        borderColor: color, backgroundColor: 'transparent',
+        borderWidth: isNEM ? 1.5 : 2, pointRadius: 0, tension: 0.2, spanGaps: false,
+      });
+    }
+    charts.dm1Price = new Chart(pCtx, {
+      type: 'line', data: { labels: slots30, datasets: pDatasets },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins,
+          legend: { display: isNEM, labels:{color:'#94a3b8',font:{family:'Space Mono',size:9},boxWidth:10,padding:6} },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw !== null,
+            callbacks: { label: tooltipLabel } }
+        },
+        scales: {
+          x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:0,callback:xTick30}, grid:{color:'#1e2d4544'} },
+          y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:10},callback:v=>'$'+v.toFixed(0)}, grid:{color:'#1e2d45'} }
+        }
+      }
+    });
+  }
+
+  // ── Demand chart ────────────────────────────────────────────────────────────
+  destroyChart('dm1Demand');
+  const dCtx = document.getElementById('dm1DemandChart');
+  if (dCtx) {
+    const dDatasets = [];
+    for (const r of activeRegions) {
+      const color = REGION_COLORS[r];
+      const dm = {};
+      (yest.op_demand[r] || yest.demand[r] || []).forEach(p => { dm[p.interval] = p.demand; });
+      dDatasets.push({
+        label: isNEM ? REGION_SHORT[r] : 'Demand + Non-Sched',
+        data: slots5.map(l => dm[l] ?? null),
+        borderColor: color, backgroundColor: color + (isNEM ? '22' : '33'),
+        borderWidth: isNEM ? 1.5 : 2, pointRadius: 0, tension: 0.2,
+        spanGaps: false, fill: !isNEM,
+      });
+    }
+    charts.dm1Demand = new Chart(dCtx, {
+      type: 'line', data: { labels: slots5, datasets: dDatasets },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins,
+          legend: { display: isNEM, labels:{color:'#94a3b8',font:{family:'Space Mono',size:9},boxWidth:10,padding:6} },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw !== null,
+            callbacks: { label: tooltipLabel } }
+        },
+        scales: {
+          x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:0,callback:xTick5}, grid:{color:'#1e2d4544'} },
+          y: { min:0, ticks:{color:'#94a3b8',font:{family:'Space Mono',size:10},callback:v=>fmt(v)+' MW'}, grid:{color:'#1e2d45'} }
+        }
+      }
+    });
+  }
+
+  // ── Renewables chart ────────────────────────────────────────────────────────
+  destroyChart('dm1Renew');
+  const rCtx = document.getElementById('dm1RenewChart');
+  if (rCtx) {
+    const rDatasets = [];
+    for (const r of activeRegions) {
+      const color = REGION_COLORS[r];
+      const sm = {}, wm = {};
+      (yest.ss_solar[r] || []).forEach(p => { sm[p.interval] = p.mw; });
+      (yest.ss_wind[r]  || []).forEach(p => { wm[p.interval] = p.mw; });
+      rDatasets.push({
+        label: (isNEM ? REGION_SHORT[r]+' ' : '')+'Solar',
+        data: slots5.map(l => sm[l] ?? null),
+        borderColor: '#ffd700', backgroundColor: '#ffd70066',
+        borderWidth: 0.5, pointRadius: 0, tension: 0.2,
+        fill: true, spanGaps: false, stack: 'ren',
+      });
+      rDatasets.push({
+        label: (isNEM ? REGION_SHORT[r]+' ' : '')+'Wind',
+        data: slots5.map(l => wm[l] ?? null),
+        borderColor: '#4bc0c0', backgroundColor: '#4bc0c066',
+        borderWidth: 0.5, pointRadius: 0, tension: 0.2,
+        fill: true, spanGaps: false, stack: 'ren',
+      });
+    }
+    charts.dm1Renew = new Chart(rCtx, {
+      type: 'line', data: { labels: slots5, datasets: rDatasets },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins,
+          legend: { display: true, labels:{color:'#94a3b8',font:{family:'Space Mono',size:9},boxWidth:10,padding:6} },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw !== null,
+            callbacks: { label: tooltipLabel } }
+        },
+        scales: {
+          x: { stacked: true, ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:0,callback:xTick5}, grid:{color:'#1e2d4544'} },
+          y: { stacked: true, min:0, ticks:{color:'#94a3b8',font:{family:'Space Mono',size:10},callback:v=>fmt(v)+' MW'}, grid:{color:'#1e2d45'} }
+        }
+      }
+    });
+  }
+
+  // ── Interconnector chart ────────────────────────────────────────────────────
+  destroyChart('dm1Ic');
+  const icCtx = document.getElementById('dm1IcChart');
+  if (icCtx) {
+    const IC_COLORS = ['#00d4ff','#ff6b35','#2ed573','#ffd32a','#9b59b6','#e74c3c'];
+    const icFlows = yest.ic_flows || {};
+    const icIds = Object.keys(icFlows).sort();
+    const icDatasets = icIds.map((id, i) => {
+      const color = IC_COLORS[i % IC_COLORS.length];
+      const fm = {};
+      (icFlows[id] || []).forEach(p => { fm[p.interval] = p.flow; });
+      return {
+        label: id,
+        data: slots5.map(l => fm[l] ?? null),
+        borderColor: color, backgroundColor: 'transparent',
+        borderWidth: 1.5, pointRadius: 0, tension: 0.3, spanGaps: false,
+      };
+    });
+    charts.dm1Ic = new Chart(icCtx, {
+      type: 'line', data: { labels: slots5, datasets: icDatasets },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins,
+          legend: { display: false },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw !== null,
+            callbacks: { label: c => c.raw != null ? ` ${c.dataset.label}: ${c.raw>0?'+':''}${fmt(c.raw,0)} MW` : null }
+          }
+        },
+        scales: {
+          x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:0,callback:xTick5}, grid:{color:'#1e2d4544'} },
+          y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>(v>0?'+':'')+v.toLocaleString()+' MW'}, grid:{color:'#1e2d45'} }
+        }
+      }
+    });
+  }
+}
+
 // ── Panel router ──────────────────────────────────────────────────────────────
 
 // ── Day Ahead ─────────────────────────────────────────────────────────────────
@@ -2957,6 +3191,7 @@ function renderPanel(panel, data) {
     else if (panel === 'origin')     html = renderOrigin(data);
     else if (panel === 'stations')   html = renderStations(data);
     else if (panel === 'batteries')  html = renderBatteries(data);
+    else if (panel === 'dminus1')    html = renderDMinus1(data);
     else if (panel === 'weekahead')  html = renderWeekAhead(data);
     else if (panel === 'dayahead')   html = renderDayAhead(data);
     else if (panel === 'about') {
@@ -2978,6 +3213,7 @@ function renderPanel(panel, data) {
       else if (panel === 'weekahead')  drawWeekCharts(data);
       else if (panel === 'dayahead')   drawDayAheadCharts(data);
       else if (panel === 'batteries')  drawBatteryCharts(data);
+      else if (panel === 'dminus1')    drawDMinus1Charts(data);
     } catch(e) {
       console.error(`Chart error [${panel}]:`, e);
       main.innerHTML += `<div style="color:#e74c3c;font-size:11px;padding:8px">Chart error in ${panel}: ${e.message}</div>`;
@@ -3134,7 +3370,7 @@ async function fetchSlowData() {
         if (Date.now() - started > MAX_WAIT_MS) {
           console.warn('Slow data unavailable after 3 min, giving up');
           slowData = { _unavailable: true };
-          if (currentPanel === 'stations' || currentPanel === 'weekahead' || currentPanel === 'dayahead') {
+          if (currentPanel === 'stations' || currentPanel === 'weekahead' || currentPanel === 'dayahead' || currentPanel === 'dminus1') {
             renderPanel(currentPanel, latestData);
           }
           break;
@@ -3145,7 +3381,7 @@ async function fetchSlowData() {
 
       if (resp.ok) {
         slowData = await resp.json();
-        if (currentPanel === 'stations' || currentPanel === 'weekahead' || currentPanel === 'dayahead') {
+        if (currentPanel === 'stations' || currentPanel === 'weekahead' || currentPanel === 'dayahead' || currentPanel === 'dminus1') {
           renderPanel(currentPanel, latestData);
         }
         // Wait 30 min then kick off a fresh cycle

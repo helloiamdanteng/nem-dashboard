@@ -553,7 +553,13 @@ function renderGeneration(data) {
   html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
   icIds.forEach((id, i) => {
     const color = IC_COLORS[i % IC_COLORS.length];
-    html += `<div style="display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10px;color:${color}"><div style="width:16px;height:2px;background:${color};border-radius:1px"></div>${id}</div>`;
+    const safeId = id.replace(/[^a-z0-9]/gi,'_');
+    html += `<button id="ic-btn-${safeId}" data-active="0" onclick="toggleIcHighlight('${id}')"
+      style="display:flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10px;
+      color:${color};background:transparent;border:1px solid ${color}33;border-radius:20px;
+      padding:3px 8px;cursor:pointer;transition:all 0.15s">
+      <div style="width:16px;height:2px;background:${color};border-radius:1px;flex-shrink:0"></div>${id}
+    </button>`;
   });
   html += '</div></div>';
 
@@ -698,46 +704,47 @@ function drawGenChart(data) {
       }),
       backgroundColor: color + 'cc', borderColor: color,
       borderWidth: 0.5, fill: true, pointRadius: 0,
-      tension: 0.2, stack: 'actual', spanGaps: false, yAxisID: 'y',
+      tension: 0.2, stack: 'actual', spanGaps: false, yAxisID: 'y', order: 1,
     };
   });
 
-  // ── Demand + Non-Sched Gen: actual + predispatch lines ───────────────────────
-  const lastDemSlot = allSlots.slice().reverse().find(l =>
-    activeRegions.some(r => demHistLookup[r]?.[l] !== undefined)
-  ) || '';
+  // ── Demand + Non-Sched Gen lines ──────────────────────────────────────────────
+  // Build value maps first to keep dataset logic simple and unambiguous
+  const demValMap = {};
+  for (const slot of allSlots) {
+    const hasData = activeRegions.some(r => demHistLookup[r]?.[slot] !== undefined);
+    if (hasData) demValMap[slot] = Math.round(activeRegions.reduce((s,r) => s + (demHistLookup[r]?.[slot] ?? 0), 0));
+  }
+  const pdValMap = {};
+  for (const slot of allSlots) {
+    const hasPd = activeRegions.some(r => pdDemLookup[r]?.[slot] !== undefined);
+    if (hasPd) pdValMap[slot] = Math.round(activeRegions.reduce((s,r) => s + (pdDemLookup[r]?.[slot] ?? 0), 0));
+  }
+
+  const lastDemSlot = allSlots.slice().reverse().find(l => demValMap[l] !== undefined) || '';
   const lastDemSlotIdx = lastDemSlot ? allSlots.indexOf(lastDemSlot) : -1;
 
-  // Actual line: all slots with real data including the last actual slot
+  // Actual: all slots up to and including lastDemSlot that have data (no future bleed)
   const demActualDataset = {
     label: 'Demand + Non-Sched',
-    data: allSlots.map((l, i) => {
-      const hasData = activeRegions.some(r => demHistLookup[r]?.[l] !== undefined);
-      if (!hasData) return null;
-      return Math.round(activeRegions.reduce((s,r) => s + (demHistLookup[r]?.[l] ?? 0), 0));
-    }),
+    data: allSlots.map((l, i) => i <= lastDemSlotIdx ? (demValMap[l] ?? null) : null),
     borderColor: '#ffffff', backgroundColor: 'transparent',
-    borderWidth: 2, pointRadius: 0, tension: 0.2,
-    spanGaps: false, fill: false, yAxisID: 'y', order: 0,
+    borderWidth: 2.5, pointRadius: 0, tension: 0.2,
+    spanGaps: false, fill: false, yAxisID: 'y', order: -1,
     borderDash: [],
   };
 
-  // PD line: starts strictly AFTER lastDemSlot, uses lastDemSlot value as bridge
-  const lastDemVal = lastDemSlotIdx >= 0
-    ? Math.round(activeRegions.reduce((s,r) => s + (demHistLookup[r]?.[lastDemSlot] ?? 0), 0))
-    : null;
+  // PD: bridge at lastDemSlot value, then PD data strictly after
   const demPdDataset = {
     label: 'Demand forecast PD',
     data: allSlots.map((l, i) => {
-      if (i < lastDemSlotIdx) return null;
-      if (i === lastDemSlotIdx) return lastDemVal; // bridge point shared with actual end
-      const hasPd = activeRegions.some(r => pdDemLookup[r]?.[l] !== undefined);
-      if (!hasPd) return null;
-      return Math.round(activeRegions.reduce((s,r) => s + (pdDemLookup[r]?.[l] ?? 0), 0));
+      if (i === lastDemSlotIdx) return demValMap[l] ?? null; // bridge connects to actual
+      if (i > lastDemSlotIdx && pdValMap[l] !== undefined) return pdValMap[l];
+      return null;
     }),
-    borderColor: '#ffffff99', backgroundColor: 'transparent',
+    borderColor: '#ffffffaa', backgroundColor: 'transparent',
     borderWidth: 1.5, pointRadius: 0, tension: 0.2,
-    spanGaps: true, fill: false, yAxisID: 'y', order: 0,
+    spanGaps: true, fill: false, yAxisID: 'y', order: -1,
     borderDash: [6, 4],
   };
 
@@ -1074,14 +1081,16 @@ function drawIcChart(data) {
   }
   ctx.style.display = '';
 
-  // Full 5-min spine
-  const allSlots = [];
-  for (let h = 0; h < 24; h++)
-    for (let m = 0; m < 60; m += 5)
-      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
-
+  // Use actual data labels as spine — dense where we have data
+  const labelSet = new Set();
+  icIds.forEach(id => {
+    (hist[id] || []).forEach(p => labelSet.add(p.interval));
+    (pd[id]   || []).forEach(p => labelSet.add(p.interval));
+  });
+  const labels = Array.from(labelSet).sort();
   const now = nowAEST();
-  const nowIdx = allSlots.findIndex(l => l >= now);
+  const nowIdx = labels.findIndex(l => l >= now);
+
   const IC_COLORS = ['#00d4ff','#ff6b35','#2ed573','#ffd32a','#9b59b6','#e74c3c'];
   const datasets = [];
 
@@ -1089,37 +1098,35 @@ function drawIcChart(data) {
     const color = IC_COLORS[i % IC_COLORS.length];
     const hm = {}; (hist[id] || []).forEach(p => hm[p.interval] = p.flow);
     const pm = {}; (pd[id]   || []).forEach(p => pm[p.interval] = p.flow);
+    const lastActSlot = labels.slice().reverse().find(l => hm[l] !== undefined) || '';
 
-    // Find last actual slot for this IC
-    const lastActSlot = allSlots.slice().reverse().find(l => hm[l] !== undefined) || '';
-    const lastActIdx  = lastActSlot ? allSlots.indexOf(lastActSlot) : -1;
-    const lastActVal  = lastActIdx >= 0 ? hm[lastActSlot] : null;
-
-    // Actual: solid line up to and including lastActSlot
+    // Actual: solid, normal weight
     datasets.push({
-      label: id, icId: id,
-      data: allSlots.map(l => hm[l] !== undefined ? hm[l] : null),
+      label: id, icId: id, isActual: true,
+      data: labels.map(l => hm[l] !== undefined ? hm[l] : null),
       borderColor: color, backgroundColor: 'transparent',
-      borderWidth: 2, pointRadius: 0, tension: 0.3,
+      borderWidth: 1.5, pointRadius: 0, tension: 0.3,
       spanGaps: false, borderDash: [],
     });
 
-    // PD: dashed line from lastActSlot onward
+    // PD: dashed, faded, bridge from lastActSlot
+    const lastActVal = lastActSlot ? hm[lastActSlot] : null;
+    const lastActIdx = lastActSlot ? labels.indexOf(lastActSlot) : -1;
     datasets.push({
-      label: id + ' PD', icId: id,
-      data: allSlots.map((l, i) => {
-        if (i < lastActIdx) return null;
-        if (i === lastActIdx) return lastActVal; // bridge
-        return pm[l] !== undefined ? pm[l] : null;
+      label: id + ' PD', icId: id, isActual: false,
+      data: labels.map((l, i) => {
+        if (i === lastActIdx) return lastActVal;
+        if (i > lastActIdx && pm[l] !== undefined) return pm[l];
+        return null;
       }),
-      borderColor: color + '88', backgroundColor: 'transparent',
-      borderWidth: 1.5, pointRadius: 0, tension: 0.3,
+      borderColor: color + '66', backgroundColor: 'transparent',
+      borderWidth: 1, pointRadius: 0, tension: 0.3,
       spanGaps: true, borderDash: [5, 4],
     });
   });
 
   charts.icTime = new Chart(ctx, {
-    type: 'line', data: { labels: allSlots, datasets },
+    type: 'line', data: { labels, datasets },
     options: { ...CHART_DEFAULTS,
       plugins: { ...CHART_DEFAULTS.plugins,
         legend: { display: false },
@@ -1130,7 +1137,7 @@ function drawIcChart(data) {
       },
       scales: { ...CHART_DEFAULTS.scales,
         x: { ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
-               callback:(v,i) => allSlots[i]?.endsWith(':00') ? allSlots[i] : null },
+               callback:(v,i) => labels[i]?.endsWith(':00') ? labels[i] : null },
              grid:{color:'#1e2d4544'} },
         y: { ...CHART_DEFAULTS.scales.y,
              ticks: { ...CHART_DEFAULTS.scales.y.ticks,
@@ -1140,6 +1147,35 @@ function drawIcChart(data) {
     },
     plugins: [nowLinePlugin(nowIdx)]
   });
+}
+
+function toggleIcHighlight(id) {
+  const chart = charts.icTime;
+  if (!chart) return;
+  const safeId = id.replace(/[^a-z0-9]/gi, '_');
+  const btn = document.getElementById('ic-btn-' + safeId);
+  const isHighlighted = btn && btn.dataset.active === '1';
+
+  chart.data.datasets.forEach(ds => {
+    if (ds.icId !== id) return;
+    if (isHighlighted) {
+      // Restore defaults
+      ds.borderWidth = ds.isActual ? 1.5 : 1;
+      if (!ds.isActual) ds.borderColor = ds.borderColor.replace(/cc$/, '66');
+    } else {
+      // Highlight
+      ds.borderWidth = ds.isActual ? 3.5 : 2;
+      if (!ds.isActual) ds.borderColor = ds.borderColor.replace(/66$/, 'cc');
+    }
+  });
+
+  if (btn) {
+    btn.dataset.active = isHighlighted ? '0' : '1';
+    btn.style.fontWeight = isHighlighted ? '400' : '700';
+    btn.style.background = isHighlighted ? 'transparent' : btn.style.borderColor.replace('33','22');
+    btn.style.borderColor = isHighlighted ? btn.style.borderColor.replace(/[^,]+\)$/, '0.2)') : btn.style.borderColor.replace(/[^,]+\)$/, '0.6)');
+  }
+  chart.update('none');
 }
 // ── Origin ────────────────────────────────────────────────────────────────────
 

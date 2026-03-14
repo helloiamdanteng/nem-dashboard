@@ -340,12 +340,12 @@ ORIGIN_ASSETS = {
     "MSTUART1": {"name": "Mt Stuart 1",        "station": "Mt Stuart",           "fuel": "Gas",        "region": "QLD1", "capacity": 144},
     "MSTUART2": {"name": "Mt Stuart 2",        "station": "Mt Stuart",           "fuel": "Gas",        "region": "QLD1", "capacity": 144},
     "MSTUART3": {"name": "Mt Stuart 3",        "station": "Mt Stuart",           "fuel": "Gas",        "region": "QLD1", "capacity": 144},
-    "ROMA_7":   {"name": "Roma",               "station": "Roma",                "fuel": "Gas",        "region": "QLD1", "capacity": 80},
+    "ROMA_7":   {"name": "Roma",               "station": "Roma Gas",            "fuel": "Gas",        "region": "QLD1", "capacity": 80},
     "CLARESF1": {"name": "Clare Solar",        "station": "Clare Solar Farm",    "fuel": "Solar",      "region": "QLD1", "capacity": 100},
     "DDSF1":    {"name": "Darling Downs Solar","station": "Darling Downs Solar", "fuel": "Solar",      "region": "QLD1", "capacity": 110},
     "DAYDSF1":  {"name": "Daydream Solar",     "station": "Daydream Solar",      "fuel": "Solar",      "region": "QLD1", "capacity": 150},
-    "SNBESS1":  {"name": "Supernode Batt 1",   "station": "Supernode Battery 1", "fuel": "Battery",    "region": "QLD1", "capacity": 260},
-    "SNBESS2":  {"name": "Supernode Batt 2",   "station": "Supernode Battery 1", "fuel": "Battery",    "region": "QLD1", "capacity": 260},
+    "SNBESS1":  {"name": "Supernode Batt 1",   "station": "Supernode Battery",   "fuel": "Battery",    "region": "QLD1", "capacity": 260},
+    "SNBESS2":  {"name": "Supernode Batt 2",   "station": "Supernode Battery",   "fuel": "Battery",    "region": "QLD1", "capacity": 260},
     # ── NSW ──────────────────────────────────────────────────────────────────
     "ER01":     {"name": "Eraring 1",          "station": "Eraring",             "fuel": "Black Coal", "region": "NSW1", "capacity": 720},
     "ER02":     {"name": "Eraring 2",          "station": "Eraring",             "fuel": "Black Coal", "region": "NSW1", "capacity": 720},
@@ -359,21 +359,19 @@ ORIGIN_ASSETS = {
     "SHNGEN":   {"name": "Shoalhaven N-Gen",   "station": "Shoalhaven",          "fuel": "Hydro",      "region": "NSW1", "capacity": 240},
     "MOREESF1": {"name": "Moree Solar",        "station": "Moree Solar Farm",    "fuel": "Solar",      "region": "NSW1", "capacity": 56},
     "GUNNING1": {"name": "Gunning Wind",       "station": "Gunning Wind Farm",   "fuel": "Wind",       "region": "NSW1", "capacity": 46},
-    "ERABESS1": {"name": "Eraring Batt 1",     "station": "Eraring Battery",     "fuel": "Battery",    "region": "NSW1", "capacity": 460},
-    "ERABESS2": {"name": "Eraring Batt 2",     "station": "Eraring Battery",     "fuel": "Battery",    "region": "NSW1", "capacity": 460},
+    "ERABESS1": {"name": "Eraring Batt 1",     "station": "Eraring Battery",     "fuel": "Battery",    "region": "NSW1", "capacity": 230},
+    "ERABESS2": {"name": "Eraring Batt 2",     "station": "Eraring Battery",     "fuel": "Battery",    "region": "NSW1", "capacity": 230},
     # ── VIC ──────────────────────────────────────────────────────────────────
     "MORTLK1":  {"name": "Mortlake 1",         "station": "Mortlake",            "fuel": "Gas",        "region": "VIC1", "capacity": 282},
     "MORTLK2":  {"name": "Mortlake 2",         "station": "Mortlake",            "fuel": "Gas",        "region": "VIC1", "capacity": 282},
     "STOCKYD1": {"name": "Stockyard Hill",     "station": "Stockyard Hill",      "fuel": "Wind",       "region": "VIC1", "capacity": 530},
     # ── SA ───────────────────────────────────────────────────────────────────
-    "OSBORNE1": {"name": "Osborne 1",          "station": "Osborne",             "fuel": "Gas",        "region": "SA1",  "capacity": 180},
-    "OSBOROPS": {"name": "Osborne OPS",        "station": "Osborne",             "fuel": "Gas",        "region": "SA1",  "capacity": 180},
+    "OSBORNE1": {"name": "Osborne Steam",      "station": "Osborne Cogen",       "fuel": "Gas",        "region": "SA1",  "capacity": 180},
+    "OSBORNPS": {"name": "Osborne Peaker",     "station": "Osborne Cogen",       "fuel": "Gas",        "region": "SA1",  "capacity": 180},
     "QPSCL1":   {"name": "Quarantine 1",       "station": "Quarantine",          "fuel": "Gas",        "region": "SA1",  "capacity": 60},
     "QPSCL2":   {"name": "Quarantine 2",       "station": "Quarantine",          "fuel": "Gas",        "region": "SA1",  "capacity": 60},
     "QPSCL3":   {"name": "Quarantine 3",       "station": "Quarantine",          "fuel": "Gas",        "region": "SA1",  "capacity": 60},
     "QPSCL4":   {"name": "Quarantine 4",       "station": "Quarantine",          "fuel": "Gas",        "region": "SA1",  "capacity": 60},
-    "LADBROKE1":{"name": "Ladbroke Grove 1",   "station": "Ladbroke Grove",      "fuel": "Gas",        "region": "SA1",  "capacity": 80},
-    "LADBROKE2":{"name": "Ladbroke Grove 2",   "station": "Ladbroke Grove",      "fuel": "Gas",        "region": "SA1",  "capacity": 80},
     "LBBG1":    {"name": "Ladbroke Grove",     "station": "Ladbroke Grove",      "fuel": "Gas",        "region": "SA1",  "capacity": 80},
     "SNOWSF1":  {"name": "Snowtown North",     "station": "Snowtown North",      "fuel": "Wind",       "region": "SA1",  "capacity": 100},
     "SNOWTWN1": {"name": "Snowtown South",     "station": "Snowtown South",      "fuel": "Wind",       "region": "SA1",  "capacity": 270},
@@ -1496,18 +1494,15 @@ def scrape_all() -> dict:
         "Net Interchange":d.get("NETINTERCHANGE", 0),
     } for r, d in region_summary.items() if "DISPATCHABLEGENERATION" in d}
 
-    # Build Origin assets output — include today SCADA history per DUID
+    # Build Origin assets output — current MW only (history via /api/origin)
     origin_assets_out = {}
     for duid, info in ORIGIN_ASSETS.items():
         mw = scada_vals.get(duid)
-        hist_raw = _duid_history.get(duid, {})
-        hist_series = [{"interval": k, "mw": v} for k, v in sorted(hist_raw.items())]
         origin_assets_out[duid] = {
             **info,
             "mw":      mw,
             "pct":     round(mw / info["capacity"] * 100, 1) if mw is not None and info["capacity"] else None,
-            "status":  "running" if (mw is not None and mw > 5) else ("off" if mw is not None else "unknown"),
-            "history": hist_series,
+            "status":  "running" if (mw is not None and mw > 5) else ("charging" if (mw is not None and mw < -5) else ("off" if mw is not None else "unknown")),
         }
 
     # Keep trading (firm 30-min) and dispatch 5-min prices separate

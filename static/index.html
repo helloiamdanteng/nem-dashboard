@@ -2111,6 +2111,7 @@ function renderStations(fastData) {
 // ── Week Ahead ────────────────────────────────────────────────────────────────
 
 let weekRegionFilter = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
+let weekRenewFilter  = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']); // for renewables chart
 
 function toggleWeekRegion(region) {
   if (weekRegionFilter.has(region)) {
@@ -2121,13 +2122,27 @@ function toggleWeekRegion(region) {
   if (latestData) renderPanel('weekahead', latestData);
 }
 
+function toggleWeekRenew(region) {
+  if (region === 'NEM') {
+    // NEM = select all
+    REGIONS.forEach(r => weekRenewFilter.add(r));
+  } else {
+    if (weekRenewFilter.has(region)) {
+      if (weekRenewFilter.size > 1) weekRenewFilter.delete(region);
+    } else {
+      weekRenewFilter.add(region);
+    }
+  }
+  if (latestData) renderPanel('weekahead', latestData);
+}
+
 function renderWeekAhead(fastData) {
   if (slowData && slowData._unavailable) {
     return `<div class="state-msg"><div class="icon">⚠️</div><div>Week-ahead data unavailable<br><span style="font-size:10px">AEMO data could not be loaded. Will retry on next refresh.</span></div></div>`;
   }
   let html = '<div class="section-title">Week Ahead</div>';
 
-  // Region filter pills
+  // Region filter pills (demand chart)
   html += '<div class="region-pills">';
   for (const r of REGIONS) {
     const active = weekRegionFilter.has(r) ? 'active' : '';
@@ -2145,11 +2160,23 @@ function renderWeekAhead(fastData) {
     html += `<div class="week-chart-card"><div class="chart-title">7-Day Demand + Non-Sched Gen — ST PASA 50% probability</div><div style="position:relative;height:220px"><canvas id="weekPasaChart"></canvas></div></div>`;
   }
 
-  // 7-day Wind + Solar UIGF forecast
+  // 7-day Wind + Solar UIGF forecast with per-region toggles
   if (!hasSlowPasa) {
     html += `<div class="week-chart-card"><div class="chart-title">7-Day Wind + Solar Forecast (ST PASA)</div><div class="spinner"><div class="spinner-icon">📡</div><br>Loading forecast data…</div></div>`;
   } else {
-    html += `<div class="week-chart-card" style="margin-top:12px"><div class="chart-title">7-Day Semi-Scheduled Wind + Solar UIGF Forecast (ST PASA)</div><div style="position:relative;height:220px"><canvas id="weekRenewChart"></canvas></div></div>`;
+    html += `<div class="week-chart-card" style="margin-top:12px">`;
+    html += `<div class="chart-title">7-Day Semi-Sched Wind + Solar + Demand (ST PASA)</div>`;
+    // NEM + region toggle pills for renewables chart
+    html += '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px">';
+    const allOn = REGIONS.every(r => weekRenewFilter.has(r));
+    html += `<button onclick="toggleWeekRenew('NEM')" style="font-family:var(--font-mono);font-size:10px;padding:4px 8px;border-radius:20px;cursor:pointer;border:1px solid ${allOn?'#94a3b8':'#475569'};background:${allOn?'#94a3b822':'transparent'};color:${allOn?'#94a3b8':'#475569'}">NEM</button>`;
+    for (const r of REGIONS) {
+      const on = weekRenewFilter.has(r);
+      const color = REGION_COLORS[r];
+      html += `<button onclick="toggleWeekRenew('${r}')" style="font-family:var(--font-mono);font-size:10px;padding:4px 8px;border-radius:20px;cursor:pointer;border:1px solid ${on?color:color+'55'};background:${on?color+'22':'transparent'};color:${on?color:color+'88'}">${REGION_SHORT[r]}</button>`;
+    }
+    html += '</div>';
+    html += `<div style="position:relative;height:220px"><canvas id="weekRenewChart"></canvas></div></div>`;
   }
 
   return html;
@@ -2159,12 +2186,9 @@ function drawWeekCharts(fastData) {
   if (!slowData || !slowData.stpasa_demand) return;
   const pasa = slowData.stpasa_demand;
 
-  // Build sorted label list from selected regions
+  // Build full label spine from all regions (use all 5 regardless of filter)
   const pasaLabelSet = new Set();
-  for (const r of REGIONS) {
-    if (!weekRegionFilter.has(r)) continue;
-    (pasa[r] || []).forEach(p => pasaLabelSet.add(p.interval));
-  }
+  for (const r of REGIONS) (pasa[r] || []).forEach(p => pasaLabelSet.add(p.interval));
   const pasaLabels = Array.from(pasaLabelSet).sort();
   if (!pasaLabels.length) return;
 
@@ -2172,10 +2196,16 @@ function drawWeekCharts(fastData) {
     const l = this.getLabelForValue(v);
     try {
       const d = new Date(l.replace(' ', 'T'));
-      const h = d.getHours(), m = d.getMinutes();
-      if (h === 0 && m === 0) return d.toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short', timeZone:'Australia/Brisbane'});
+      if (d.getHours() === 0 && d.getMinutes() === 0)
+        return d.toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short', timeZone:'Australia/Brisbane'});
     } catch(e) {}
     return null;
+  };
+
+  const tooltipTitle = ts => {
+    try { const d = new Date(ts[0].label.replace(' ','T'));
+      return d.toLocaleDateString('en-AU',{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane'});
+    } catch { return ts[0].label; }
   };
 
   // ── Demand + Non-Sched Gen chart ─────────────────────────────────────────
@@ -2189,7 +2219,7 @@ function drawWeekCharts(fastData) {
       label: REGION_SHORT[r],
       data: pasaLabels.map(l => pm[l] !== undefined ? pm[l] : null),
       borderColor: color, backgroundColor: 'transparent',
-      borderWidth: 2, pointRadius: 0, tension: 0.3, spanGaps: true
+      borderWidth: 1.5, pointRadius: 0, tension: 0.3, spanGaps: true
     });
   }
 
@@ -2203,10 +2233,7 @@ function drawWeekCharts(fastData) {
         plugins: { ...CHART_DEFAULTS.plugins,
           legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:12, padding:8 } },
           tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
-            callbacks: {
-              label: c => c.raw !== null ? ` ${c.dataset.label}: ${fmt(c.raw)} MW` : null,
-              title: ts => { try { const d = new Date(ts[0].label.replace(' ','T')); return d.toLocaleDateString('en-AU',{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane'}); } catch { return ts[0].label; } }
-            }
+            callbacks: { label: c => c.raw !== null ? ` ${c.dataset.label}: ${fmt(c.raw)} MW` : null, title: tooltipTitle }
           }
         },
         scales: {
@@ -2217,37 +2244,50 @@ function drawWeekCharts(fastData) {
     });
   }
 
-  // ── Wind + Solar UIGF chart ───────────────────────────────────────────────
-  // Stacked area: solar (yellow) + wind (teal) per selected region
+  // ── Wind + Solar UIGF + Demand line chart ────────────────────────────────
   const renewDatasets = [];
-  for (const r of [...REGIONS].reverse()) {  // reverse so QLD renders on top visually
-    if (!weekRegionFilter.has(r)) continue;
-    const rColor = REGION_COLORS[r];
+
+  // Stacked solar + wind areas per filtered region
+  for (const r of [...REGIONS].reverse()) {
+    if (!weekRenewFilter.has(r)) continue;
     const solarMap = {}, windMap = {};
     (pasa[r] || []).forEach(p => {
-      if (p.solar_uigf !== null && p.solar_uigf !== undefined) solarMap[p.interval] = p.solar_uigf;
-      if (p.wind_uigf  !== null && p.wind_uigf  !== undefined) windMap[p.interval]  = p.wind_uigf;
+      if (p.solar_uigf != null) solarMap[p.interval] = p.solar_uigf;
+      if (p.wind_uigf  != null) windMap[p.interval]  = p.wind_uigf;
     });
-    const hasSolar = Object.keys(solarMap).length > 0;
-    const hasWind  = Object.keys(windMap).length > 0;
-    if (hasSolar) {
+    if (Object.keys(solarMap).length > 0) {
       renewDatasets.push({
-        label: REGION_SHORT[r] + ' Solar',
+        label: REGION_SHORT[r] + ' Solar', regionId: r, seriesType: 'solar',
         data: pasaLabels.map(l => solarMap[l] ?? null),
-        backgroundColor: '#ffd70099', borderColor: '#ffd700',
+        backgroundColor: '#ffd70088', borderColor: '#ffd700',
         borderWidth: 0.5, fill: true, pointRadius: 0, tension: 0.2,
-        spanGaps: true, stack: 'renew',
+        spanGaps: true, stack: 'renew', yAxisID: 'y',
       });
     }
-    if (hasWind) {
+    if (Object.keys(windMap).length > 0) {
       renewDatasets.push({
-        label: REGION_SHORT[r] + ' Wind',
+        label: REGION_SHORT[r] + ' Wind', regionId: r, seriesType: 'wind',
         data: pasaLabels.map(l => windMap[l] ?? null),
-        backgroundColor: '#4bc0c099', borderColor: '#4bc0c0',
+        backgroundColor: '#4bc0c088', borderColor: '#4bc0c0',
         borderWidth: 0.5, fill: true, pointRadius: 0, tension: 0.2,
-        spanGaps: true, stack: 'renew',
+        spanGaps: true, stack: 'renew', yAxisID: 'y',
       });
     }
+  }
+
+  // Demand lines per filtered region (right axis, not stacked)
+  for (const r of REGIONS) {
+    if (!weekRenewFilter.has(r)) continue;
+    const color = REGION_COLORS[r];
+    const pm = {};
+    (pasa[r] || []).forEach(p => { if (p.demand_50 != null) pm[p.interval] = p.demand_50; });
+    renewDatasets.push({
+      label: REGION_SHORT[r] + ' Demand', regionId: r, seriesType: 'demand',
+      data: pasaLabels.map(l => pm[l] ?? null),
+      borderColor: color, backgroundColor: 'transparent',
+      borderWidth: 1.5, pointRadius: 0, tension: 0.3,
+      spanGaps: true, fill: false, yAxisID: 'yDem', order: -1,
+    });
   }
 
   destroyChart('weekRenew');
@@ -2258,23 +2298,34 @@ function drawWeekCharts(fastData) {
       data: { labels: pasaLabels, datasets: renewDatasets },
       options: { ...CHART_DEFAULTS,
         plugins: { ...CHART_DEFAULTS.plugins,
-          legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:12, padding:8 } },
+          legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6,
+            filter: item => item.datasetIndex === renewDatasets.findIndex(d => d.label === item.text)
+          }},
           tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
+            filter: i => i.raw !== null,
             callbacks: {
-              label: c => c.raw !== null ? ` ${c.dataset.label}: ${fmt(c.raw)} MW` : null,
-              title: ts => { try { const d = new Date(ts[0].label.replace(' ','T')); return d.toLocaleDateString('en-AU',{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane'}); } catch { return ts[0].label; } }
+              label: c => {
+                if (c.raw === null) return null;
+                const lbl = c.dataset.label || '';
+                if (lbl.endsWith(' Demand')) return ` ${lbl}: ${fmt(c.raw)} MW`;
+                return ` ${lbl} UIGF: ${fmt(c.raw)} MW`;
+              },
+              title: tooltipTitle
             }
           }
         },
         scales: {
           x: { stacked: true, ticks: { color:'#64748b', font:{family:'Space Mono',size:8}, maxTicksLimit:10, maxRotation:0, callback: xTickCb }, grid:{color:'#1e2d4544'} },
-          y: { stacked: true, min: 0, ticks: { color:'#94a3b8', font:{family:'Space Mono',size:10}, callback: v => fmt(v)+' MW' }, grid:{color:'#1e2d45'} }
+          y: { stacked: true, min: 0, ticks: { color:'#94a3b8', font:{family:'Space Mono',size:10}, callback: v => fmt(v)+' MW' }, grid:{color:'#1e2d45'} },
+          yDem: { type: 'linear', position: 'right', min: 0,
+                  ticks: { color:'#94a3b8', font:{family:'Space Mono',size:10}, callback: v => fmt(v)+' MW' },
+                  grid: { drawOnChartArea: false } }
         }
       }
     });
   } else if (ctx2) {
-    ctx2.closest('.week-chart-card').querySelector('.chart-title').textContent =
-      'Wind + Solar forecast — not available in this ST PASA file';
+    const card = ctx2.closest('.week-chart-card');
+    if (card) card.querySelector('.chart-title').textContent = 'Wind + Solar forecast — not available in this ST PASA file';
   }
 }
 

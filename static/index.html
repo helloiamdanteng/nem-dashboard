@@ -511,6 +511,13 @@ function drawPriceChart(data) {
     },
     plugins: [nowLinePlugin(nowIdx)]
   });
+  // Default TAS off
+  charts.priceHist.data.datasets.forEach((ds, i) => {
+    if (ds.regionId === 'TAS1') charts.priceHist.getDatasetMeta(i).hidden = true;
+  });
+  charts.priceHist.update();
+  const prBtn = document.getElementById('pr-TAS1');
+  if (prBtn) { prBtn.dataset.on = '0'; prBtn.style.opacity = '0.35'; }
 }
 
 // ── Generation ────────────────────────────────────────────────────────────────
@@ -679,19 +686,31 @@ function drawGenChart(data) {
   }
 
   // Demand (DEMAND_AND_NONSCHEDGEN) actual history — from fast cache
-  const demHist = data.op_demand_history || data.demand_history || {};
+  // Use scheduled demand only (demand_history = TOTALDEMAND) — gen chart shows scheduled supply
+  const demHist = data.demand_history || {};
   const demHistLookup = {};
   for (const r of activeRegions) {
     demHistLookup[r] = {};
     for (const pt of (demHist[r] || [])) demHistLookup[r][pt.interval] = pt.demand;
   }
 
-  // Predispatch demand
+  // Predispatch demand (also scheduled)
   const pdDemand = data.predispatch_demand || {};
   const pdDemLookup = {};
   for (const r of activeRegions) {
     pdDemLookup[r] = {};
     for (const pt of (pdDemand[r] || [])) pdDemLookup[r][pt.interval] = pt.demand;
+  }
+
+  // BDU (battery) history for charging as negative area
+  const bduHist = data.bdu_history || {};
+  const bduLookup = {};
+  for (const r of activeRegions) {
+    bduLookup[r] = {};
+    for (const pt of (bduHist[r] || [])) {
+      // load = charging MW (positive value), we'll negate it for display
+      if (pt.load !== undefined) bduLookup[r][pt.interval] = pt.load;
+    }
   }
 
   // Last actual slot (fuel history)
@@ -700,11 +719,21 @@ function drawGenChart(data) {
   ) || '';
   const lastActualIdx = allSlots.indexOf(lastActualSlot);
 
+  // Battery charge totals per slot (summed across regions)
+  const battChargeMap = {};
+  for (const slot of allSlots) {
+    const hasData = activeRegions.some(r => bduLookup[r]?.[slot] !== undefined);
+    if (!hasData) continue;
+    const total = activeRegions.reduce((s,r) => s + (bduLookup[r]?.[slot] ?? 0), 0);
+    if (total > 0) battChargeMap[slot] = -Math.round(total); // negative for charging
+  }
+
   const activeFuels = fuelOrderFiltered.filter(fuel =>
+    fuel !== 'Battery' &&  // Battery gen handled separately below
     activeRegions.some(r => (fuelHist[r]||[]).some(pt => (pt[fuel]||0) > 0))
   );
 
-  // ── Stacked fuel area datasets (actuals only) ────────────────────────────────
+  // ── Stacked fuel area datasets (non-battery actuals) ────────────────────────
   const actualDatasets = activeFuels.map(fuel => {
     const color = fc[fuel] || '#95a5a6';
     return {
@@ -722,12 +751,45 @@ function drawGenChart(data) {
     };
   });
 
-  // ── Demand + Non-Sched Gen lines ──────────────────────────────────────────────
-  // Build value maps first to keep dataset logic simple and unambiguous
+  // Battery discharging (positive, stacked with generation)
+  const battColor = fc['Battery'] || '#9b59b6';
+  const battGenDataset = {
+    label: 'Battery',
+    data: allSlots.map(l => {
+      const hasData = activeRegions.some(r => histLookup[r]?.[l]);
+      if (!hasData) return null;
+      let total = 0;
+      for (const r of activeRegions) total += histLookup[r]?.[l]?.['Battery'] || 0;
+      return Math.round(total);
+    }),
+    backgroundColor: battColor + 'cc', borderColor: battColor,
+    borderWidth: 0.5, fill: true, pointRadius: 0,
+    tension: 0.2, stack: 'actual', spanGaps: false, yAxisID: 'y', order: 1,
+  };
+
+  // Battery charging (negative, below x-axis) — uses BDU load data
+  const battChargeDataset = {
+    label: 'Battery (charging)',
+    data: allSlots.map(l => {
+      const hasActual = activeRegions.some(r => histLookup[r]?.[l]);
+      if (!hasActual) return null;
+      return battChargeMap[l] ?? 0;
+    }),
+    backgroundColor: '#38bdf855', borderColor: '#38bdf8',
+    borderWidth: 0.5, fill: 'origin', pointRadius: 0,
+    tension: 0.2, stack: 'charge', spanGaps: false, yAxisID: 'y', order: 1,
+  };
+
+  // ── Scheduled demand lines ──────────────────────────────────────────────────
+  // Scheduled demand + battery charging = total electrical demand on the system
   const demValMap = {};
   for (const slot of allSlots) {
     const hasData = activeRegions.some(r => demHistLookup[r]?.[slot] !== undefined);
-    if (hasData) demValMap[slot] = Math.round(activeRegions.reduce((s,r) => s + (demHistLookup[r]?.[slot] ?? 0), 0));
+    if (!hasData) continue;
+    const schedDem = activeRegions.reduce((s,r) => s + (demHistLookup[r]?.[slot] ?? 0), 0);
+    // Add battery charging load so demand line = top of supply stack
+    const battLoad = activeRegions.reduce((s,r) => s + (bduLookup[r]?.[slot] ?? 0), 0);
+    demValMap[slot] = Math.round(schedDem + battLoad);
   }
   const pdValMap = {};
   for (const slot of allSlots) {
@@ -738,9 +800,8 @@ function drawGenChart(data) {
   const lastDemSlot = allSlots.slice().reverse().find(l => demValMap[l] !== undefined) || '';
   const lastDemSlotIdx = lastDemSlot ? allSlots.indexOf(lastDemSlot) : -1;
 
-  // Actual: all slots up to and including lastDemSlot that have data (no future bleed)
   const demActualDataset = {
-    label: 'Demand + Non-Sched',
+    label: 'Demand (sched + batt)',
     data: allSlots.map((l, i) => i <= lastDemSlotIdx ? (demValMap[l] ?? null) : null),
     borderColor: '#ffffff', backgroundColor: 'transparent',
     borderWidth: 2.5, pointRadius: 0, tension: 0.2,
@@ -748,11 +809,10 @@ function drawGenChart(data) {
     borderDash: [],
   };
 
-  // PD: bridge at lastDemSlot value, then PD data strictly after
   const demPdDataset = {
-    label: 'Demand forecast PD',
+    label: 'Demand forecast',
     data: allSlots.map((l, i) => {
-      if (i === lastDemSlotIdx) return demValMap[l] ?? null; // bridge connects to actual
+      if (i === lastDemSlotIdx) return demValMap[l] ?? null;
       if (i > lastDemSlotIdx && pdValMap[l] !== undefined) return pdValMap[l];
       return null;
     }),
@@ -762,7 +822,7 @@ function drawGenChart(data) {
     borderDash: [6, 4],
   };
 
-  const allDatasets = [...actualDatasets, demActualDataset, demPdDataset];
+  const allDatasets = [...actualDatasets, battGenDataset, battChargeDataset, demActualDataset, demPdDataset];
   const nowIdx = allSlots.findIndex(l => l >= nowAEST());
   const pdDemCount = activeRegions.reduce((s,r) => s + Object.keys(pdDemLookup[r]||{}).length, 0);
   if (card) card.querySelector('.chart-title').textContent =
@@ -778,7 +838,7 @@ function drawGenChart(data) {
         legend: { display: false },
         tooltip: {
           ...CHART_DEFAULTS.plugins.tooltip,
-          filter: i => i.raw !== null && i.raw > 0,
+          filter: i => i.raw !== null && i.raw !== 0,
           callbacks: {
             title: items => items[0]?.label || '',
             label: c => {
@@ -1046,6 +1106,13 @@ function drawDemandChart(data) {
     },
     plugins: [nowLinePlugin(nowIdx)]
   });
+  // Default TAS off
+  charts.demandHist.data.datasets.forEach((ds, i) => {
+    if (ds.regionId === 'TAS1') charts.demandHist.getDatasetMeta(i).hidden = true;
+  });
+  charts.demandHist.update();
+  const drBtn = document.getElementById('dr-TAS1');
+  if (drBtn) { drBtn.dataset.on = '0'; drBtn.style.opacity = '0.35'; }
 }
 
 // ── Interconnectors ───────────────────────────────────────────────────────────
@@ -2967,6 +3034,9 @@ function toggleDayAheadRegion(r) {
   } else {
     dayAheadRegionFilter.add(r);
   }
+  // Keep week filters in sync with top pills
+  weekRegionFilter = new Set(dayAheadRegionFilter);
+  weekRenewFilter  = new Set(dayAheadRegionFilter);
   if (latestData) renderPanel('dayahead', latestData);
 }
 
@@ -3015,15 +3085,7 @@ function renderDayAhead(data) {
 
   // ── Week-ahead section (merged from Week page) ────────────────────────────
   html += '<div class="section-title" style="margin-top:16px">7-Day Ahead</div>';
-
-  // Region pills for week-ahead
-  html += '<div class="region-pills">';
-  for (const r of REGIONS) {
-    const active = weekRegionFilter.has(r) ? 'active' : '';
-    const color = REGION_COLORS[r];
-    html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="toggleWeekRegion('${r}')">${REGION_SHORT[r]}</button>`;
-  }
-  html += '</div>';
+  html += '<div style="font-size:10px;color:#475569;font-family:var(--font-mono);padding:0 0 8px">Region filter follows buttons above</div>';
 
   const hasSlowPasa = slowData && slowData.stpasa_demand && Object.keys(slowData.stpasa_demand).length > 0;
 

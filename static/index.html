@@ -198,7 +198,9 @@ tr:last-child td { border-bottom:none; }
     <div class="pulse-dot loading" id="statusDot"></div>
   </div>
   <div class="last-updated" id="lastUpdated">Loading…</div>
+  <button onclick="showPanel('about')" style="background:none;border:none;color:#64748b;font-size:12px;cursor:pointer;font-family:var(--font-mono);padding:4px 8px;border-radius:6px" title="About">ℹ️</button>
   <button class="refresh-btn" onclick="fetchData()">↻</button>
+  <button onclick="showPanel('about')" style="background:none;border:none;color:#475569;font-family:var(--font-mono);font-size:11px;cursor:pointer;padding:4px 6px" title="About">ℹ️</button>
 </header>
 
 <main class="main" id="mainContent">
@@ -229,9 +231,6 @@ tr:last-child td { border-bottom:none; }
   </button>
   <button class="nav-btn" onclick="showPanel('weekahead')" id="nav-weekahead">
     <span class="icon">📅</span><span class="label">Week</span>
-  </button>
-  <button class="nav-btn" onclick="showPanel('about')" id="nav-about">
-    <span class="icon">ℹ️</span><span class="label">About</span>
   </button>
 </nav>
 
@@ -542,7 +541,7 @@ function renderGeneration(data) {
     border:1px solid ${genShowRooftop ? '#ffd700' : '#475569'};
     background:${genShowRooftop ? '#ffd70022' : 'transparent'};
     color:${genShowRooftop ? '#ffd700' : '#94a3b8'}">
-    ☀️ Rooftop
+    ☀️ SS Solar
   </button>`;
   html += '</div>';
 
@@ -1734,6 +1733,15 @@ function toggleStationsHideSmall() {
 
 let _stationModalChart = null;
 
+function openBattStationModal(regIdx) {
+  // Copy entry from _battRegistry into _stationRegistry at same index so openStationModal can find it
+  const entry = _battRegistry[regIdx];
+  if (!entry) return;
+  Object.keys(_stationRegistry).forEach(k => delete _stationRegistry[k]);
+  _stationRegistry[regIdx] = entry;
+  openStationModal(regIdx);
+}
+
 function closeStationModal() {
   document.getElementById('stationModal').classList.remove('open');
   const _ec = Chart.getChart('stationModalChart');
@@ -2227,7 +2235,7 @@ function renderBatteries(data) {
         const cap    = s.totalCap;
         const pct    = cap > 0 ? Math.min(Math.abs(netMw) / cap * 100, 100) : 0;
         const isCharging = netMw < -5;
-        html += `<div class="station-row" style="cursor:pointer" onclick="openStationModal(${regIdx}, _battRegistry)">
+        html += `<div class="station-row" style="cursor:pointer" onclick="openBattStationModal(${regIdx})">
           <div>
             <div class="station-name">${stn}</div>
             <div class="station-region" style="color:${color}">${REGION_SHORT[s.region]}${s.duids.length > 1 ? ' · '+s.duids.length+' units' : ''}</div>

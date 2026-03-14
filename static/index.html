@@ -215,9 +215,6 @@ tr:last-child td { border-bottom:none; }
   <button class="nav-btn" onclick="showPanel('generation')" id="nav-generation">
     <span class="icon">⚡</span><span class="label">Gen</span>
   </button>
-  <button class="nav-btn" onclick="showPanel('interconnectors')" id="nav-interconnectors">
-    <span class="icon">🔗</span><span class="label">IC</span>
-  </button>
   <button class="nav-btn" onclick="showPanel('stations')" id="nav-stations">
     <span class="icon">🏭</span><span class="label">Stations</span>
   </button>
@@ -455,7 +452,7 @@ function drawPriceChart(data) {
       label: REGION_SHORT[r], regionId: r, isPD: false,
       data: labels.map(l => hm[l] !== undefined ? hm[l] : null),
       borderColor: color, backgroundColor: 'transparent',
-      borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: false
+      borderWidth: 1, pointRadius: 0, tension: 0.2, spanGaps: false
     });
     // Dispatch 5-min fill — thinner solid
     datasets.push({
@@ -518,6 +515,8 @@ function drawPriceChart(data) {
 
 function renderGeneration(data) {
   const fc = (genData && genData.fuel_colors) || data.fuel_colors || {};
+  const icIds = Object.keys(data.ic_history || {}).sort();
+  const IC_COLORS = ['#00d4ff','#ff6b35','#2ed573','#ffd32a','#9b59b6','#e74c3c'];
   let html = '<div class="section-title">NEM Generation — 24hr Fuel Mix</div>';
 
   // Region selector
@@ -546,6 +545,18 @@ function renderGeneration(data) {
   }
   html += `<div style="display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10px;color:#94a3b8"><div style="width:18px;height:2px;background:#ffffff;border-radius:1px"></div>Demand + Non-Sched</div>`;
   html += '</div>';
+
+  // Interconnector chart
+  html += '<div class="section-title" style="margin-top:16px">Interconnector Flows — Today</div>';
+  html += '<div class="chart-card"><div class="chart-title">Actuals (solid) · Predispatch (dashed)</div>';
+  html += '<div class="chart-container" style="height:240px"><canvas id="icTimeChart"></canvas></div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+  icIds.forEach((id, i) => {
+    const color = IC_COLORS[i % IC_COLORS.length];
+    html += `<div style="display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10px;color:${color}"><div style="width:16px;height:2px;background:${color};border-radius:1px"></div>${id}</div>`;
+  });
+  html += '</div></div>';
+
   return html;
 }
 
@@ -691,15 +702,16 @@ function drawGenChart(data) {
     };
   });
 
-  // ── Demand + Non-Sched Gen: actual line ─────────────────────────────────────
-  // Bridge: find last actual demand slot, use that value as bridge point into PD
+  // ── Demand + Non-Sched Gen: actual + predispatch lines ───────────────────────
   const lastDemSlot = allSlots.slice().reverse().find(l =>
     activeRegions.some(r => demHistLookup[r]?.[l] !== undefined)
   ) || '';
+  const lastDemSlotIdx = lastDemSlot ? allSlots.indexOf(lastDemSlot) : -1;
 
+  // Actual line: all slots with real data including the last actual slot
   const demActualDataset = {
     label: 'Demand + Non-Sched',
-    data: allSlots.map(l => {
+    data: allSlots.map((l, i) => {
       const hasData = activeRegions.some(r => demHistLookup[r]?.[l] !== undefined);
       if (!hasData) return null;
       return Math.round(activeRegions.reduce((s,r) => s + (demHistLookup[r]?.[l] ?? 0), 0));
@@ -710,17 +722,15 @@ function drawGenChart(data) {
     borderDash: [],
   };
 
-  // ── Demand + Non-Sched Gen: predispatch forecast line ───────────────────────
-  // No bridge point — actual line ends at lastDemSlot, PD starts strictly after.
-  // spanGaps:true on PD line draws a connecting segment automatically.
-  const lastDemSlotIdx = allSlots.indexOf(lastDemSlot);
+  // PD line: starts strictly AFTER lastDemSlot, uses lastDemSlot value as bridge
+  const lastDemVal = lastDemSlotIdx >= 0
+    ? Math.round(activeRegions.reduce((s,r) => s + (demHistLookup[r]?.[lastDemSlot] ?? 0), 0))
+    : null;
   const demPdDataset = {
     label: 'Demand forecast PD',
     data: allSlots.map((l, i) => {
-      if (i < lastDemSlotIdx) return null; // null before bridge point
-      if (i === lastDemSlotIdx) {          // one shared bridge point — connects actual to PD
-        return Math.round(activeRegions.reduce((s,r) => s + (demHistLookup[r]?.[l] ?? 0), 0));
-      }
+      if (i < lastDemSlotIdx) return null;
+      if (i === lastDemSlotIdx) return lastDemVal; // bridge point shared with actual end
       const hasPd = activeRegions.some(r => pdDemLookup[r]?.[l] !== undefined);
       if (!hasPd) return null;
       return Math.round(activeRegions.reduce((s,r) => s + (pdDemLookup[r]?.[l] ?? 0), 0));
@@ -950,7 +960,7 @@ function drawDemandChart(data) {
         label: REGION_SHORT[r] + ' Op', regionId: r,
         data: labels.map(l => opHm[l] !== undefined ? opHm[l] : null),
         borderColor: color, backgroundColor: color + '18',
-        borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: false,
+        borderWidth: 1, pointRadius: 0, tension: 0.2, spanGaps: false,
         fill: false,
       });
     } else {
@@ -1055,49 +1065,77 @@ function drawIcChart(data) {
   const hist = data.ic_history || {};
   const pd   = data.predispatch_ic || {};
   const icIds = [...new Set([...Object.keys(hist), ...Object.keys(pd)])].sort();
-  const labelSet = new Set();
-  icIds.forEach(id => {
-    (hist[id] || []).forEach(p => labelSet.add(p.interval));
-    (pd[id]   || []).forEach(p => labelSet.add(p.interval));
-  });
-  const labels = Array.from(labelSet).sort();
-  if (labels.length === 0) {
-    ctx.closest('.chart-card').querySelector('.chart-title').textContent = 'IC history — accumulating data (refreshes every 5 min)';
+
+  if (icIds.length === 0) {
+    const card = ctx.closest('.chart-card');
+    if (card) card.querySelector('.chart-title').textContent = 'IC flows — accumulating (refreshes every 5 min)';
     ctx.style.display = 'none';
     return;
   }
+  ctx.style.display = '';
+
+  // Full 5-min spine
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
   const now = nowAEST();
-  const nowIdx = labels.findIndex(l => l >= now);
+  const nowIdx = allSlots.findIndex(l => l >= now);
   const IC_COLORS = ['#00d4ff','#ff6b35','#2ed573','#ffd32a','#9b59b6','#e74c3c'];
   const datasets = [];
+
   icIds.forEach((id, i) => {
     const color = IC_COLORS[i % IC_COLORS.length];
     const hm = {}; (hist[id] || []).forEach(p => hm[p.interval] = p.flow);
     const pm = {}; (pd[id]   || []).forEach(p => pm[p.interval] = p.flow);
+
+    // Find last actual slot for this IC
+    const lastActSlot = allSlots.slice().reverse().find(l => hm[l] !== undefined) || '';
+    const lastActIdx  = lastActSlot ? allSlots.indexOf(lastActSlot) : -1;
+    const lastActVal  = lastActIdx >= 0 ? hm[lastActSlot] : null;
+
+    // Actual: solid line up to and including lastActSlot
     datasets.push({
       label: id, icId: id,
-      data: labels.map(l => hm[l] !== undefined ? hm[l] : null),
+      data: allSlots.map(l => hm[l] !== undefined ? hm[l] : null),
       borderColor: color, backgroundColor: 'transparent',
-      borderWidth: 2.5, pointRadius: 0, tension: 0.3, spanGaps: false
+      borderWidth: 2, pointRadius: 0, tension: 0.3,
+      spanGaps: false, borderDash: [],
     });
+
+    // PD: dashed line from lastActSlot onward
     datasets.push({
       label: id + ' PD', icId: id,
-      data: labels.map(l => pm[l] !== undefined ? pm[l] : null),
-      borderColor: color + '55', backgroundColor: 'transparent',
-      borderWidth: 1.5, pointRadius: 0, tension: 0.3, spanGaps: false, borderDash: [4,4]
+      data: allSlots.map((l, i) => {
+        if (i < lastActIdx) return null;
+        if (i === lastActIdx) return lastActVal; // bridge
+        return pm[l] !== undefined ? pm[l] : null;
+      }),
+      borderColor: color + '88', backgroundColor: 'transparent',
+      borderWidth: 1.5, pointRadius: 0, tension: 0.3,
+      spanGaps: true, borderDash: [5, 4],
     });
   });
+
   charts.icTime = new Chart(ctx, {
-    type: 'line', data: {labels, datasets},
-    options: {...CHART_DEFAULTS,
-      plugins: {...CHART_DEFAULTS.plugins,
-        tooltip: {...CHART_DEFAULTS.plugins.tooltip,
+    type: 'line', data: { labels: allSlots, datasets },
+    options: { ...CHART_DEFAULTS,
+      plugins: { ...CHART_DEFAULTS.plugins,
+        legend: { display: false },
+        tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
           filter: i => i.raw !== null && !String(i.dataset.label||'').endsWith(' PD'),
-          callbacks: {label: c => c.raw !== null ? ` ${c.dataset.label}: ${c.raw > 0 ? "+" : ""}${fmt(c.raw)} MW` : null}
+          callbacks: { label: c => c.raw !== null ? ` ${c.dataset.label}: ${c.raw > 0 ? '+' : ''}${fmt(c.raw)} MW` : null }
         }
       },
-      scales: {...CHART_DEFAULTS.scales,
-        y: {...CHART_DEFAULTS.scales.y, ticks: {...CHART_DEFAULTS.scales.y.ticks, callback: v => (v>0?"+":"")+v.toLocaleString()+" MW"}}
+      scales: { ...CHART_DEFAULTS.scales,
+        x: { ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
+               callback:(v,i) => allSlots[i]?.endsWith(':00') ? allSlots[i] : null },
+             grid:{color:'#1e2d4544'} },
+        y: { ...CHART_DEFAULTS.scales.y,
+             ticks: { ...CHART_DEFAULTS.scales.y.ticks,
+               callback: v => (v>0?'+':'')+v.toLocaleString()+' MW' }
+        }
       }
     },
     plugins: [nowLinePlugin(nowIdx)]
@@ -2407,7 +2445,6 @@ function renderPanel(panel, data) {
     if (panel === 'prices')          html = renderPrices(data);
     else if (panel === 'generation') html = renderGeneration(data);
     else if (panel === 'demand')     html = renderDemand(data);
-    else if (panel === 'interconnectors') html = renderInterconnectors(data);
     else if (panel === 'origin')     html = renderOrigin(data);
     else if (panel === 'stations')   html = renderStations(data);
     else if (panel === 'weekahead')  html = renderWeekAhead(data);
@@ -2426,9 +2463,8 @@ function renderPanel(panel, data) {
   requestAnimationFrame(() => {
     try {
       if (panel === 'prices')          { drawPriceChart(data); drawDemandChart(data); }
-      else if (panel === 'generation') drawGenChart(data);
+      else if (panel === 'generation') { drawGenChart(data); drawIcChart(data); }
       else if (panel === 'demand')     drawDemandChart(data);
-      else if (panel === 'interconnectors') drawIcChart(data);
       else if (panel === 'weekahead')  drawWeekCharts(data);
       else if (panel === 'dayahead')   drawDayAheadCharts(data);
     } catch(e) {

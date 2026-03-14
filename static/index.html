@@ -1287,6 +1287,8 @@ function renderOrigin(data) {
   const fc     = data.fuel_colors   || {};
 
   // ── Group DUIDs → stations ─────────────────────────────────────────────
+  // History is loaded async from /api/origin to keep initial render fast
+  const cachedHist = window._originHistory || {};
   const stationMap = {};
   for (const [duid, a] of Object.entries(assets)) {
     const key = a.station;
@@ -1297,8 +1299,10 @@ function renderOrigin(data) {
     s.duids.push(duid);
     if (a.mw !== null && a.mw !== undefined) s.totalMw += a.mw;
     s.totalCap += (a.capacity || 0);
-    for (const pt of (a.history || [])) s.histMap[pt.interval] = (s.histMap[pt.interval] || 0) + pt.mw;
-    s.duidHists[duid] = { history: a.history || [], fuel: a.fuel, capacity: a.capacity || 0 };
+    // Use cached history if available
+    const hist = cachedHist[duid] || [];
+    for (const pt of hist) s.histMap[pt.interval] = (s.histMap[pt.interval] || 0) + pt.mw;
+    s.duidHists[duid] = { history: hist, fuel: a.fuel, capacity: a.capacity || 0 };
   }
 
   const visibleRegs = _originVisibleRegs();
@@ -1423,7 +1427,47 @@ function renderOrigin(data) {
   window._originFc = fc;
 
   setTimeout(() => _drawOriginPortfolioChart(stationMap, fc), 0);
+
+  // Fetch history async if not cached or stale (older than 5 min)
+  const histAge = window._originHistoryFetchedAt ? Date.now() - window._originHistoryFetchedAt : Infinity;
+  if (histAge > 4 * 60 * 1000) {
+    _fetchOriginHistory(data);
+  }
   return html;
+}
+
+async function _fetchOriginHistory(data) {
+  try {
+    const hist = await fetch('/api/origin').then(r => r.json());
+    window._originHistory = hist;
+    window._originHistoryFetchedAt = Date.now();
+    // Rebuild stationMap with history and redraw chart
+    if (currentPanel === 'origin' && latestData) {
+      const assets = latestData.origin_assets || {};
+      const fc = latestData.fuel_colors || {};
+      const stationMap = window._originStationMap || {};
+      // Inject history into existing stationMap
+      for (const [duid, histArr] of Object.entries(hist)) {
+        const a = assets[duid];
+        if (!a) continue;
+        const key = a.station;
+        const s = stationMap[key];
+        if (!s) continue;
+        // Rebuild histMap for this station
+        s.histMap = {};
+        s.duidHists[duid] = { history: histArr, fuel: a.fuel, capacity: a.capacity || 0 };
+        for (const [d2, dh] of Object.entries(s.duidHists)) {
+          for (const pt of (dh.history || [])) {
+            s.histMap[pt.interval] = (s.histMap[pt.interval] || 0) + pt.mw;
+          }
+        }
+      }
+      window._originStationMap = stationMap;
+      _drawOriginPortfolioChart(stationMap, fc);
+    }
+  } catch(e) {
+    console.warn('Origin history fetch failed:', e);
+  }
 }
 
 function toggleOriginState(val) {

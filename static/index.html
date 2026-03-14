@@ -1396,6 +1396,11 @@ function _drawOriginPortfolioChart(stationMap, fc) {
       borderColor: col,
       borderWidth: 1,
       fill: 'origin',
+      pointRadius: 0,
+      tension: 0.2,
+      spanGaps: true,
+      yAxisID: 'y',
+      order: 2,
     };
   });
 
@@ -2124,12 +2129,14 @@ function toggleWeekRegion(region) {
 
 function toggleWeekRenew(region) {
   if (region === 'NEM') {
-    // NEM = select all
     REGIONS.forEach(r => weekRenewFilter.add(r));
   } else {
-    if (weekRenewFilter.has(region)) {
-      if (weekRenewFilter.size > 1) weekRenewFilter.delete(region);
+    // Single region select: if already exactly this region, go back to NEM
+    const onlyThis = weekRenewFilter.size === 1 && weekRenewFilter.has(region);
+    if (onlyThis) {
+      REGIONS.forEach(r => weekRenewFilter.add(r)); // back to NEM
     } else {
+      weekRenewFilter.clear();
       weekRenewFilter.add(region);
     }
   }
@@ -2275,16 +2282,24 @@ function drawWeekCharts(fastData) {
     }
   }
 
-  // Demand lines per filtered region (right axis, not stacked)
-  for (const r of REGIONS) {
-    if (!weekRenewFilter.has(r)) continue;
-    const color = REGION_COLORS[r];
-    const pm = {};
-    (pasa[r] || []).forEach(p => { if (p.demand_50 != null) pm[p.interval] = p.demand_50; });
+  // Demand line — sum all filtered regions (NEM = total, single = that region)
+  const demRenewMap = {};
+  for (const l of pasaLabels) {
+    let total = 0, hasAny = false;
+    for (const r of REGIONS) {
+      if (!weekRenewFilter.has(r)) continue;
+      const pt = (pasa[r] || []).find(p => p.interval === l);
+      if (pt && pt.demand_50 != null) { total += pt.demand_50; hasAny = true; }
+    }
+    if (hasAny) demRenewMap[l] = Math.round(total);
+  }
+  const demLabel = weekRenewFilter.size === REGIONS.length ? 'NEM Demand' :
+    REGION_SHORT[[...weekRenewFilter][0]] + ' Demand';
+  if (Object.keys(demRenewMap).length > 0) {
     renewDatasets.push({
-      label: REGION_SHORT[r] + ' Demand', regionId: r, seriesType: 'demand',
-      data: pasaLabels.map(l => pm[l] ?? null),
-      borderColor: color, backgroundColor: 'transparent',
+      label: demLabel, seriesType: 'demand',
+      data: pasaLabels.map(l => demRenewMap[l] ?? null),
+      borderColor: '#ffffff', backgroundColor: 'transparent',
       borderWidth: 1.5, pointRadius: 0, tension: 0.3,
       spanGaps: true, fill: false, yAxisID: 'yDem', order: -1,
     });

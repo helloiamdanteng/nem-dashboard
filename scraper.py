@@ -743,7 +743,7 @@ def scrape_dispatch_history() -> dict:
                     pts.append(("demand", region, label, round(float(demand_str), 1)))
                     if op_demand_str:
                         pts.append(("op_demand", region, label, round(float(op_demand_str), 1)))
-                    rooftop_str = row.get("TOTALINTERMITTENTGENERATION", "")
+                    rooftop_str = row.get("SS_SOLAR_CLEAREDMW", "")
                     if rooftop_str:
                         try:
                             rooftop = round(float(rooftop_str), 1)
@@ -2133,19 +2133,21 @@ def scrape_gen() -> dict:
         logger.info(f"scrape_gen: {len(unmatched_log)} SCADA DUIDs region-inferred (no registry entry): "
                     + ", ".join(f"{d}={mw:.0f}MW" for d, mw in top if mw and mw > 1))
 
-    # Add Rooftop Solar from TOTALINTERMITTENTGENERATION in DISPATCH_REGIONSUM
+    # Add Rooftop Solar (non-scheduled, embedded in demand) from SS_SOLAR_CLEAREDMW
+    # Note: true rooftop solar is not published separately in DispatchIS.
+    # We use SS_SOLAR_CLEAREDMW as a proxy (utility-scale semi-scheduled solar).
     for row in _parse_aemo(dispatch_text, "DISPATCH_REGIONSUM"):
         region = row.get("REGIONID", "").strip()
         if region not in NEM_REGIONS:
             continue
         if row.get("INTERVENTION", "0") not in ("0", ""):
             continue
-        rooftop_str = row.get("TOTALINTERMITTENTGENERATION", "")
-        if rooftop_str:
+        solar_str = row.get("SS_SOLAR_CLEAREDMW", "")
+        if solar_str:
             try:
-                rooftop = round(float(rooftop_str), 1)
-                if rooftop > 0:
-                    fuel_mix[region]["Rooftop Solar"] = rooftop
+                solar = round(float(solar_str), 1)
+                if solar > 0:
+                    fuel_mix[region]["Rooftop Solar"] = solar
             except (ValueError, TypeError):
                 pass
 

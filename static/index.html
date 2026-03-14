@@ -217,7 +217,7 @@ tr:last-child td { border-bottom:none; }
     <span class="icon">⚡</span><span class="label">Gen</span>
   </button>
   <button class="nav-btn" onclick="showPanel('stations')" id="nav-stations">
-    <span class="icon">🏭</span><span class="label">Stations</span>
+    <span class="icon">🏭</span><span class="label">DUIDs</span>
   </button>
   <button class="nav-btn" onclick="showPanel('batteries')" id="nav-batteries">
     <span class="icon">🔋</span><span class="label">Batteries</span>
@@ -1264,10 +1264,10 @@ function toggleIcHighlight(id) {
 // ── Origin ────────────────────────────────────────────────────────────────────
 
 const ORIGIN_STATION_ORDER = {
-  QLD1: ['Darling Downs','Supernode Battery','Mt Stuart','Roma Gas','Clare Solar Farm','Darling Downs Solar','Daydream Solar'],
-  NSW1: ['Eraring','Eraring Battery','Uranquinty','Shoalhaven','Moree Solar Farm','Gunning Wind Farm'],
+  QLD1: ['Darling Downs','Supernode Battery 1','Mt Stuart','Roma','Clare Solar Farm','Darling Downs Solar','Daydream Solar'],
+  NSW1: ['Eraring','Eraring Battery','Uranquinty','Shoalhaven','Moree Solar Farm','Gunning Wind'],
   VIC1: ['Mortlake','Stockyard Hill'],
-  SA1:  ['Osborne Cogen','Quarantine','Ladbroke Grove','Snowtown North','Snowtown South','Bungala Solar'],
+  SA1:  ['Osborne','Quarantine','Ladbroke Grove','Snowtown North','Snowtown South','Bungala Solar 1','Bungala Solar 2'],
 };
 const ORIGIN_STATE_LABELS = {QLD1:'QLD',NSW1:'NSW',VIC1:'VIC',SA1:'SA'};
 const ORIGIN_STATE_COLORS = {QLD1:'#f39c12',NSW1:'#3498db',VIC1:'#2ed573',SA1:'#e74c3c'};
@@ -2108,22 +2108,24 @@ async function openStationModal(regIdx, registry) {
 
 function renderStations(fastData) {
   if (!genData) {
-    return `<div class="spinner"><div class="spinner-icon">⚙️</div><br>Loading generator data…<br><span style="font-size:10px;margin-top:8px;display:block">Fetching SCADA data from AEMO…</span></div>`;
+    return `<div class="spinner"><div class="spinner-icon">⚙️</div><br>Loading SCADA data…</div>`;
   }
   if (genData._unavailable || !genData.grouped) {
     return `<div class="state-msg"><div class="icon">⚠️</div><div>Generator data unavailable</div></div>`;
   }
 
-  // Reset registry on every render so indices stay in sync with tile onclick handlers
+  // Reset registry every render
   Object.keys(_stationRegistry).forEach(k => delete _stationRegistry[k]);
   _stationRegistryIdx = 0;
-  const grouped = genData.grouped;
-  const fc = genData.fuel_colors || {};
-  const prices = (fastData || {}).prices || {};
-  const FUEL_ORDER = ['Brown Coal','Black Coal','Gas','Hydro','Battery','Wind','Solar','Liquid','Other'];
 
-  // Build region pills + filter toggles
-  let html = '<div class="section-title">All NEM Generators</div>';
+  const grouped  = genData.grouped;
+  const fc       = genData.fuel_colors || {};
+  const prices   = (fastData || {}).prices || {};
+  const FUEL_ORDER = ['Brown Coal','Black Coal','Gas','Hydro','Battery','Wind','Solar','Rooftop Solar','Liquid','Other'];
+
+  let html = '<div class="section-title">All SCADA DUIDs</div>';
+
+  // Region pills
   html += '<div class="region-pills">';
   const allSelected = REGIONS.every(r => stationsRegionFilter.has(r));
   html += `<button class="region-pill ${allSelected ? 'active' : ''}" style="color:#94a3b8;border-color:#475569" onclick="toggleAllStationRegions()">${allSelected ? '✓ All' : 'All'}</button>`;
@@ -2134,7 +2136,7 @@ function renderStations(fastData) {
   }
   html += '</div>';
 
-  // Filter toggles
+  // Filter buttons
   html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px">';
   html += `<button onclick="toggleStationsHideOffline()" style="
     font-family:var(--font-mono);font-size:10px;padding:5px 12px;border-radius:20px;cursor:pointer;
@@ -2148,96 +2150,81 @@ function renderStations(fastData) {
     border:1px solid ${stationsHideSmall ? '#2ed573' : '#475569'};
     background:${stationsHideSmall ? '#2ed57322' : 'transparent'};
     color:${stationsHideSmall ? '#2ed573' : '#94a3b8'}">
-    ${stationsHideSmall ? '✓' : ''} Hide &lt;100 MW output now
+    ${stationsHideSmall ? '✓' : ''} Hide &lt;100 MW
   </button>`;
   html += '</div>';
 
-  // Collect all stations across selected regions, group by fuel
-  const byFuel = {};          // fuel → visible stations (for display)
-  const byFuelAll = {};       // fuel → ALL stations (for totals)
+  // Collect ALL individual DUIDs across selected regions
+  const allDuids = [];
   for (const region of REGIONS) {
     if (!stationsRegionFilter.has(region)) continue;
     const regionFuels = grouped[region] || {};
     for (const fuel of FUEL_ORDER) {
-      const units = regionFuels[fuel] || [];
-      if (!units.length) continue;
-      // Aggregate to station level
-      const stationMap = {};
-      for (const u of units) {
-        const key = u.station || u.duid;
-        if (!stationMap[key]) stationMap[key] = { name: key, region, fuel, totalMw: 0, totalCap: 0, units: [] };
-        stationMap[key].totalMw += u.mw || 0;
-        stationMap[key].totalCap += u.capacity || 0;
-        stationMap[key].units.push(u);
+      for (const u of (regionFuels[fuel] || [])) {
+        allDuids.push({ ...u, region, fuel });
       }
-      const allStations = Object.values(stationMap);
-      // Totals include ALL stations in this region/fuel (regardless of hide filters)
-      if (!byFuelAll[fuel]) byFuelAll[fuel] = [];
-      byFuelAll[fuel].push(...allStations);
-      // Visible list applies hide filters
-      const visible = allStations.filter(st => {
-        if (stationsHideOffline && st.totalMw <= 5) return false;
-        // Hide small: use capacity if known, otherwise use current MW output as proxy
-        if (stationsHideSmall) {
-          if (st.totalMw < 100) return false;
-        }
-        return true;
-      });
-      if (!visible.length) continue;
-      if (!byFuel[fuel]) byFuel[fuel] = [];
-      byFuel[fuel].push(...visible);
     }
   }
 
-  for (const fuel of FUEL_ORDER) {
-    const stations = byFuel[fuel];
-    const allStations = byFuelAll[fuel] || [];
-    if (!allStations.length) continue;
-    if (stations) stations.sort((a, b) => (b.totalMw || 0) - (a.totalMw || 0));
-    const color = (fc || {})[fuel] || '#95a5a6';
-    // Totals always from ALL stations (including hidden)
-    const totalMw  = allStations.reduce((s, x) => s + (x.totalMw || 0), 0);
-    const totalCap = allStations.reduce((s, x) => s + (x.totalCap || 0), 0);
-    const hiddenCount = allStations.length - (stations ? stations.length : 0);
-    html += `<div class="fuel-group">
-      <div class="fuel-group-header" style="border-top:3px solid ${color}">
-        <span style="color:${color}">${FUEL_ICONS[fuel] || '⚡'} ${fuel}</span>
-        <span class="fuel-group-total">${fmt(totalMw, 0)} / ${fmt(totalCap, 0)} MW${hiddenCount > 0 ? ` <span style="color:#475569;font-size:9px">(+${hiddenCount} hidden)</span>` : ''}</span>
-      </div>`;
-    for (const st of (stations || [])) {
-      const pct = st.totalCap > 0 ? Math.min(st.totalMw / st.totalCap * 100, 100) : 0;
-      const rc = REGION_COLORS[st.region] || '#64748b';
-      const mwColor = st.totalMw > 5 ? color : 'var(--text-muted)';
-      const isOffline = st.totalMw <= 5;
-      const allUnmatched = st.units && st.units.every(u => !u.matched);
-      const allDuids = st.units && st.units.length ? st.units.map(u => u.duid) : [st.name];
-      const regIdx = _stationRegistryIdx++;
-      _stationRegistry[regIdx] = { duids: allDuids, name: st.name, fuel, region: st.region, capacity: st.totalCap || 0 };
-      html += `<div class="station-row" style="${isOffline ? 'opacity:0.45' : ''};cursor:pointer"
-        onclick="openStationModal(${regIdx})">
-        <div>
-          <div class="station-name">${st.name}${allUnmatched ? ' <span title="DUID not in registry — fuel/region inferred" style="font-size:9px;color:#64748b;cursor:help">?</span>' : ''}</div>
-          <div class="station-region" style="color:${rc}">${REGION_SHORT[st.region] || st.region}${st.units && st.units.length > 1 ? ` · ${st.units.length} units` : ''}</div>
-        </div>
-        <div class="station-bar-wrap">
-          <div class="station-bar" style="width:${pct.toFixed(1)}%;background:${color}"></div>
-        </div>
-        <div>
-          <div class="station-mw" style="color:${mwColor}">${fmt(st.totalMw, 0)}<span style="font-size:9px;color:var(--text-muted)"> MW</span></div>
-          <div class="station-cap">${st.totalCap > 0 ? fmt(st.totalCap, 0) + ' cap' : ''}</div>
-        </div>
-      </div>`;
-    }
-    html += '</div>';
+  // Sort by |MW| descending
+  allDuids.sort((a, b) => Math.abs(b.mw || 0) - Math.abs(a.mw || 0));
+
+  // Apply filters
+  const visible = allDuids.filter(u => {
+    if (stationsHideOffline && (u.mw === null || Math.abs(u.mw || 0) <= 1)) return false;
+    if (stationsHideSmall && Math.abs(u.mw || 0) < 100) return false;
+    return true;
+  });
+
+  // Summary counts
+  const totalActive = allDuids.filter(u => Math.abs(u.mw || 0) > 1).length;
+  html += `<div style="font-family:var(--font-mono);font-size:10px;color:#475569;margin-bottom:10px">
+    ${allDuids.length} DUIDs in SCADA · ${totalActive} active · showing ${visible.length}
+  </div>`;
+
+  if (!visible.length) {
+    html += '<div style="font-family:var(--font-mono);font-size:11px;color:#475569;padding:16px 0">No DUIDs match current filters</div>';
+    return html;
   }
+
+  // DUID rows
+  html += '<div class="ic-list">';
+  for (const u of visible) {
+    const regIdx = _stationRegistryIdx++;
+    // Each DUID gets its own modal entry
+    _stationRegistry[regIdx] = { duids: [u.duid], name: u.station || u.duid, fuel: u.fuel, region: u.region, capacity: u.capacity || 0 };
+
+    const color    = REGION_COLORS[u.region] || '#64748b';
+    const fuelCol  = fc[u.fuel] || '#94a3b8';
+    const mw       = u.mw;
+    const cap      = u.capacity || 0;
+    const isCharge = mw !== null && mw < -1;
+    const isOn     = mw !== null && mw > 1;
+    const mwColor  = isCharge ? '#38bdf8' : (isOn ? '#2ed573' : '#475569');
+    const pct      = cap > 0 && mw !== null ? Math.min(Math.abs(mw) / cap * 100, 100) : 0;
+    const mwStr    = mw === null ? '—' : (isOn || isCharge) ? `${mw > 0 ? '+' : ''}${fmt(mw, 0)}` : '—';
+    const stationLabel = (u.station && u.station !== u.duid) ? u.station : '';
+
+    html += `<div class="station-row" style="cursor:pointer" onclick="openStationModal(${regIdx})">
+      <div style="min-width:0;flex:1">
+        <div style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--text)">${u.duid}</div>
+        <div style="font-family:var(--font-mono);font-size:9px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          ${stationLabel ? stationLabel + ' · ' : ''}<span style="color:${fuelCol}">${u.fuel}</span> · <span style="color:${color}">${REGION_SHORT[u.region]}</span>
+        </div>
+      </div>
+      <div class="station-bar-wrap">
+        <div class="station-bar" style="width:${pct.toFixed(1)}%;background:${mwColor}"></div>
+      </div>
+      <div style="text-align:right;min-width:56px">
+        <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:${mwColor}">${mwStr}<span style="font-size:9px;color:var(--text-muted)"> MW</span>${isCharge ? '<span style="font-size:8px;color:#38bdf8"> ↓</span>' : ''}</div>
+        <div style="font-family:var(--font-mono);font-size:9px;color:#475569">${cap > 0 ? fmt(cap, 0)+' cap' : ''}</div>
+      </div>
+    </div>`;
+  }
+  html += '</div>';
   return html;
 }
 
-// ── Batteries ─────────────────────────────────────────────────────────────────
-
-let batteryRegionFilter  = 'NEM';
-let battHideOffline      = true;   // default: hide offline/idle batteries
-let battSortDescending   = true;   // default: highest output first
 
 function setBatteryRegion(r) {
   batteryRegionFilter = r;

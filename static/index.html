@@ -1085,15 +1085,14 @@ function drawIcChart(data) {
   }
   ctx.style.display = '';
 
-  // Use actual data labels as spine — dense where we have data
-  const labelSet = new Set();
-  icIds.forEach(id => {
-    (hist[id] || []).forEach(p => labelSet.add(p.interval));
-    (pd[id]   || []).forEach(p => labelSet.add(p.interval));
-  });
-  const labels = Array.from(labelSet).sort();
+  // Full 24hr 5-min spine — keeps x-axis proportional regardless of PD interval density
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
   const now = nowAEST();
-  const nowIdx = labels.findIndex(l => l >= now);
+  const nowIdx = allSlots.findIndex(l => l >= now);
 
   const IC_COLORS = ['#00d4ff','#ff6b35','#2ed573','#ffd32a','#9b59b6','#e74c3c'];
   const datasets = [];
@@ -1102,12 +1101,12 @@ function drawIcChart(data) {
     const color = IC_COLORS[i % IC_COLORS.length];
     const hm = {}; (hist[id] || []).forEach(p => hm[p.interval] = p.flow);
     const pm = {}; (pd[id]   || []).forEach(p => pm[p.interval] = p.flow);
-    const lastActSlot = labels.slice().reverse().find(l => hm[l] !== undefined) || '';
+    const lastActSlot = allSlots.slice().reverse().find(l => hm[l] !== undefined) || '';
 
     // Actual: solid, normal weight
     datasets.push({
       label: id, icId: id, isActual: true,
-      data: labels.map(l => hm[l] !== undefined ? hm[l] : null),
+      data: allSlots.map(l => hm[l] !== undefined ? hm[l] : null),
       borderColor: color, backgroundColor: 'transparent',
       borderWidth: 1.5, pointRadius: 0, tension: 0.3,
       spanGaps: false, borderDash: [],
@@ -1115,10 +1114,10 @@ function drawIcChart(data) {
 
     // PD: dashed, faded, bridge from lastActSlot
     const lastActVal = lastActSlot ? hm[lastActSlot] : null;
-    const lastActIdx = lastActSlot ? labels.indexOf(lastActSlot) : -1;
+    const lastActIdx = lastActSlot ? allSlots.indexOf(lastActSlot) : -1;
     datasets.push({
       label: id + ' PD', icId: id, isActual: false,
-      data: labels.map((l, i) => {
+      data: allSlots.map((l, i) => {
         if (i === lastActIdx) return lastActVal;
         if (i > lastActIdx && pm[l] !== undefined) return pm[l];
         return null;
@@ -1130,7 +1129,7 @@ function drawIcChart(data) {
   });
 
   charts.icTime = new Chart(ctx, {
-    type: 'line', data: { labels, datasets },
+    type: 'line', data: { labels: allSlots, datasets },
     options: { ...CHART_DEFAULTS,
       plugins: { ...CHART_DEFAULTS.plugins,
         legend: { display: false },
@@ -1141,7 +1140,7 @@ function drawIcChart(data) {
       },
       scales: { ...CHART_DEFAULTS.scales,
         x: { ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
-               callback:(v,i) => labels[i]?.endsWith(':00') ? labels[i] : null },
+               callback:(v,i) => allSlots[i]?.endsWith(':00') ? allSlots[i] : null },
              grid:{color:'#1e2d4544'} },
         y: { ...CHART_DEFAULTS.scales.y,
              ticks: { ...CHART_DEFAULTS.scales.y.ticks,

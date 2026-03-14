@@ -1494,15 +1494,27 @@ def scrape_all() -> dict:
         "Net Interchange":d.get("NETINTERCHANGE", 0),
     } for r, d in region_summary.items() if "DISPATCHABLEGENERATION" in d}
 
-    # Build Origin assets output — current MW only (history via /api/origin)
+    # Build Origin assets output — use NEM_UNITS as source of truth for station/fuel/region
+    # ORIGIN_ASSETS only serves as the DUID whitelist; all metadata comes from NEM_UNITS
     origin_assets_out = {}
-    for duid, info in ORIGIN_ASSETS.items():
-        mw = scada_vals.get(duid)
+    for duid in ORIGIN_DUIDS:
+        mw   = scada_vals.get(duid)
+        # Get metadata from NEM_UNITS (AEMO registration) first, fall back to ORIGIN_ASSETS
+        reg_info    = NEM_UNITS.get(duid, {})
+        static_info = ORIGIN_ASSETS.get(duid, {})
+        station  = reg_info.get("station") or static_info.get("station") or duid
+        fuel     = reg_info.get("fuel")    or static_info.get("fuel")    or "Other"
+        region   = reg_info.get("region")  or static_info.get("region")  or ""
+        capacity = reg_info.get("capacity") or static_info.get("capacity")
         origin_assets_out[duid] = {
-            **info,
-            "mw":      mw,
-            "pct":     round(mw / info["capacity"] * 100, 1) if mw is not None and info["capacity"] else None,
-            "status":  "running" if (mw is not None and mw > 5) else ("charging" if (mw is not None and mw < -5) else ("off" if mw is not None else "unknown")),
+            "name":     static_info.get("name", duid),
+            "station":  station,
+            "fuel":     fuel,
+            "region":   region,
+            "capacity": capacity,
+            "mw":       mw,
+            "pct":      round(mw / capacity * 100, 1) if mw is not None and capacity else None,
+            "status":   "running" if (mw is not None and mw > 5) else ("charging" if (mw is not None and mw < -5) else ("off" if mw is not None else "unknown")),
         }
 
     # Keep trading (firm 30-min) and dispatch 5-min prices separate
@@ -2055,20 +2067,23 @@ def scrape_scada_history() -> None:
 def scrape_gen() -> dict:
     """
     SCADA-first: every DUID in DISPATCH_UNIT_SCADA is included.
-    Registry (NEM_UNITS) enriches with station name / fuel / capacity.
-    For unregistered DUIDs, region is inferred from CONNECTIONPOINTID
-    (first letter: N=NSW1, Q=QLD1, V=VIC1, S=SA1, T=TAS1).
+    Uses live AEMO registration list as primary source for station/fuel/capacity.
+    Falls back to NEM_UNITS static registry, then fuel inference from DUID name.
     """
     logger.info("scrape_gen starting...")
 
-    # Fetch SCADA and latest DispatchIS in parallel
-    with ThreadPoolExecutor(max_workers=2) as ex:
+    # Fetch SCADA, DispatchIS and registration list concurrently
+    with ThreadPoolExecutor(max_workers=3) as ex:
         f_scada    = ex.submit(_fetch_full_scada)
         f_dispatch = ex.submit(_fetch_dispatch_is)
+        f_reg      = ex.submit(_load_registration_list)
     scada         = f_scada.result()
     dispatch_text = f_dispatch.result()
+    live_reg      = f_reg.result()
 
-    reg = NEM_UNITS
+    # Merge: live registration list takes priority, NEM_UNITS fills any gaps
+    reg = {**NEM_UNITS, **live_reg} if live_reg else NEM_UNITS
+    logger.info(f"scrape_gen: using {len(live_reg)} live reg entries + {len(NEM_UNITS)} static")
 
     # Build DUID->region from CONNECTIONPOINTID in DISPATCH_UNIT_SOLUTION
     _CPID_REGION = {"N": "NSW1", "Q": "QLD1", "V": "VIC1", "S": "SA1", "T": "TAS1"}

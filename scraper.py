@@ -707,6 +707,7 @@ def scrape_dispatch_history() -> dict:
     op_demand: dict[str, dict] = {r: {} for r in NEM_REGIONS}
     prices: dict[str, dict] = {r: {} for r in NEM_REGIONS}
     ic_flows: dict[str, dict] = {}   # { ic_id: { label: flow } }
+    rooftop: dict[str, dict] = {r: {} for r in NEM_REGIONS}  # TOTALINTERMITTENTGENERATION
     fetch_ok = fetch_fail = fetch_empty = 0
     now_aest   = datetime.now(AEST)
     today_date = now_aest.date()
@@ -740,6 +741,14 @@ def scrape_dispatch_history() -> dict:
                     pts.append(("demand", region, label, round(float(demand_str), 1)))
                     if op_demand_str:
                         pts.append(("op_demand", region, label, round(float(op_demand_str), 1)))
+                    rooftop_str = row.get("TOTALINTERMITTENTGENERATION", "")
+                    if rooftop_str:
+                        try:
+                            rooftop = round(float(rooftop_str), 1)
+                            if rooftop > 0:
+                                pts.append(("rooftop", region, label, rooftop))
+                        except (ValueError, TypeError):
+                            pass
                 except (ValueError, TypeError):
                     pass
             # Extract price from DISPATCH_PRICE
@@ -806,6 +815,9 @@ def scrape_dispatch_history() -> dict:
                     if ic_id not in ic_flows:
                         ic_flows[ic_id] = {}
                     ic_flows[ic_id][label] = val
+                elif kind == "rooftop":
+                    _, region, label, val = item
+                    rooftop[region][label] = val
                 else:
                     _, region, label, val = item
                     prices[region][label] = val
@@ -822,6 +834,12 @@ def scrape_dispatch_history() -> dict:
         if ic_id not in _ic_history:
             _ic_history[ic_id] = {}
         _ic_history[ic_id].update(series)
+
+    # Backfill Rooftop Solar into _fuel_history so toggle works immediately
+    for region in NEM_REGIONS:
+        for label, val in rooftop[region].items():
+            if region in _fuel_history and label in _fuel_history[region]:
+                _fuel_history[region][label]["Rooftop Solar"] = val
 
     logger.info(f"DispatchIS history: demand={sum(len(v) for v in demand_result.values())} pts, "
                 f"prices={sum(len(v) for v in price_result.values())} pts, "

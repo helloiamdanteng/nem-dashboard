@@ -2331,7 +2331,7 @@ function renderBatteries(data) {
   // MW chart
   html += '<div class="chart-card">';
   html += `<div class="chart-title">Battery Output — ${isNEM ? 'NEM stacked by region' : REGION_SHORT[batteryRegionFilter]+' stacked by station'} (positive=discharge, negative=charge)</div>`;
-  html += '<div class="chart-container" style="height:260px"><canvas id="battMwChart"></canvas></div>';
+  html += '<div class="chart-container" style="height:338px"><canvas id="battMwChart"></canvas></div>';
   html += '</div>';
 
   // SOC chart
@@ -2458,7 +2458,7 @@ function drawBatteryCharts(data) {
           data: allSlots.map((l,i) => i <= lastIdx ? (hm[l] ?? null) : null),
           borderColor: color, backgroundColor: color + '55',
           borderWidth: 1.5, pointRadius: 0, tension: 0.2,
-          fill: 'origin', spanGaps: false, stack: 'batt', yAxisID: 'y',
+          fill: 'origin', spanGaps: false, stack: 'batt', yAxisID: 'y', order: 2,
         });
       }
     } else {
@@ -2510,7 +2510,7 @@ function drawBatteryCharts(data) {
           data: allSlots.map((l,i) => i <= lastIdx ? (hm[l] ?? null) : null),
           borderColor: color, backgroundColor: color+'55',
           borderWidth: 1.5, pointRadius: 0, tension: 0.2,
-          fill: 'origin', spanGaps: false, stack: 'batt', yAxisID: 'y',
+          fill: 'origin', spanGaps: false, stack: 'batt', yAxisID: 'y', order: 2,
         });
       }
 
@@ -2522,20 +2522,20 @@ function drawBatteryCharts(data) {
       const lastHistIdx  = lastHistSlot ? allSlots.indexOf(lastHistSlot) : -1;
       const lastHistVal  = lastHistIdx >= 0 ? (hpm[lastHistSlot] ?? livePrices[r] ?? null) : null;
       datasets.push({
-        label: 'Price (actual)', yAxisID: 'yPrice', stack: 'price',
+        label: 'Price (actual)', yAxisID: 'yPrice',
         data: allSlots.map((l,i) => i <= lastHistIdx ? (hpm[l] ?? null) : null),
         borderColor: '#f39c12', backgroundColor: 'transparent',
-        borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: true, fill: false,
+        borderWidth: 2, pointRadius: 0, tension: 0.2, spanGaps: true, fill: false, order: -1,
       });
       datasets.push({
-        label: 'Price (forecast)', yAxisID: 'yPrice', stack: 'price',
+        label: 'Price (forecast)', yAxisID: 'yPrice',
         data: allSlots.map((l,i) => {
           if (i === lastHistIdx) return lastHistVal;
           if (i > lastHistIdx) return pdpm[l] ?? null;
           return null;
         }),
         borderColor: '#f39c1299', backgroundColor: 'transparent',
-        borderWidth: 1.5, borderDash: [5,4], pointRadius: 0, tension: 0.2, spanGaps: true, fill: false,
+        borderWidth: 1.5, borderDash: [5,4], pointRadius: 0, tension: 0.2, spanGaps: true, fill: false, order: -1,
       });
     }
 

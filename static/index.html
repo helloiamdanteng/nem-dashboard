@@ -671,7 +671,7 @@ function drawGenChart(data) {
         scales: {
           x: { stacked: true, grid: { display: false },
                ticks: { color: '#94a3b8', font: { family: 'Space Mono', size: 10 } } },
-          y: { stacked: true, min: 0,
+          y: { stacked: true,
                ticks: { color: '#94a3b8', font: { family: 'Space Mono', size: 10 },
                         callback: v => (v/1000).toFixed(1)+'GW' },
                grid: { color: '#1e2d45' } }
@@ -787,7 +787,22 @@ function drawGenChart(data) {
     }),
     backgroundColor: '#38bdf855', borderColor: '#38bdf8',
     borderWidth: 0.5, fill: 'origin', pointRadius: 0,
-    tension: 0.2, stack: 'charge', spanGaps: false, yAxisID: 'y', order: 1,
+    tension: 0.2, stack: 'actual', spanGaps: false, yAxisID: 'y', order: 1,
+  };
+
+  // Pump hydro load (negative — stored as 'Pump Hydro' key in fuel history)
+  const pumpHydroDataset = {
+    label: 'Pump Hydro',
+    data: allSlots.map(l => {
+      const hasData = activeRegions.some(r => histLookup[r]?.[l]);
+      if (!hasData) return null;
+      let total = 0;
+      for (const r of activeRegions) total += histLookup[r]?.[l]?.['Pump Hydro'] || 0;
+      return total < -1 ? Math.round(total) : null;
+    }),
+    backgroundColor: '#22d3ee44', borderColor: '#22d3ee',
+    borderWidth: 0.5, fill: 'origin', pointRadius: 0,
+    tension: 0.2, stack: 'actual', spanGaps: false, yAxisID: 'y', order: 1,
   };
 
   // ── Scheduled demand lines ──────────────────────────────────────────────────
@@ -830,7 +845,7 @@ function drawGenChart(data) {
     borderDash: [6, 4],
   };
 
-  const allDatasets = [...actualDatasets, battGenDataset, battChargeDataset, demActualDataset, demPdDataset];
+  const allDatasets = [...actualDatasets, battGenDataset, battChargeDataset, pumpHydroDataset, demActualDataset, demPdDataset];
   const nowIdx = allSlots.findIndex(l => l >= nowAEST());
   const pdDemCount = activeRegions.reduce((s,r) => s + Object.keys(pdDemLookup[r]||{}).length, 0);
   if (card) card.querySelector('.chart-title').textContent =
@@ -864,7 +879,7 @@ function drawGenChart(data) {
              ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
                callback:(v,i) => allSlots[i]?.endsWith(':00') ? allSlots[i] : null },
              grid:{color:'#1e2d4544'} },
-        y: { stacked: true, min: 0,
+        y: { stacked: true,
              ticks:{ color:'#94a3b8', font:{family:'Space Mono',size:10},
                      callback: v => (v/1000).toFixed(1)+'GW' },
              grid:{color:'#1e2d45'} },
@@ -1183,6 +1198,20 @@ function drawRenewablesChart(data) {
 
   const datasets = [];
 
+  // Check if we have any data at all
+  const hasSolar = activeRegs.some(r => (solarHist[r] || []).length > 0);
+  const hasWind  = activeRegs.some(r => (windHist[r]  || []).length > 0);
+  if (!hasSolar && !hasWind) {
+    ctx.style.display = 'none';
+    const card = ctx.closest('.chart-card');
+    if (card) {
+      const title = card.querySelector('.chart-title');
+      if (title) title.textContent = 'Wind + Solar — Loading…';
+    }
+    return;
+  }
+  ctx.style.display = '';
+
   for (const r of activeRegs) {
     const col = REGION_COLORS[r] || '#94a3b8';
     const colFade = col + '55';
@@ -1197,7 +1226,7 @@ function drawRenewablesChart(data) {
     const pdLookup = {};
     for (const pt of (pdGen[r] || [])) {
       if (pt.interval > nowStr) {
-        pdLookup[pt.interval] = (pt.solar || 0) + (pt.wind || 0);
+        pdLookup[pt.interval] = pt.SemiScheduled || 0;
       }
     }
 

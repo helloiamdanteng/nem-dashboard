@@ -334,52 +334,47 @@ ALL_FUELS = list(FUEL_COLORS.keys())
 # Origin Energy assets — DUID -> display info
 # These are Origin's registered generating units in the NEM
 # ---------------------------------------------------------------------------
-ORIGIN_ASSETS = {
-    # ── QLD ──────────────────────────────────────────────────────────────────
-    "DDPS1":    {"name": "Darling Downs",      "station": "Darling Downs",       "fuel": "Gas",        "region": "QLD1", "capacity": 630},
-    "MSTUART1": {"name": "Mt Stuart 1",        "station": "Mt Stuart",           "fuel": "Gas",        "region": "QLD1", "capacity": 144},
-    "MSTUART2": {"name": "Mt Stuart 2",        "station": "Mt Stuart",           "fuel": "Gas",        "region": "QLD1", "capacity": 144},
-    "MSTUART3": {"name": "Mt Stuart 3",        "station": "Mt Stuart",           "fuel": "Gas",        "region": "QLD1", "capacity": 144},
-    "ROMA_7":   {"name": "Roma",               "station": "Roma Gas",            "fuel": "Gas",        "region": "QLD1", "capacity": 80},
-    "CLARESF1": {"name": "Clare Solar",        "station": "Clare Solar Farm",    "fuel": "Solar",      "region": "QLD1", "capacity": 100},
-    "DDSF1":    {"name": "Darling Downs Solar","station": "Darling Downs Solar", "fuel": "Solar",      "region": "QLD1", "capacity": 110},
-    "DAYDSF1":  {"name": "Daydream Solar",     "station": "Daydream Solar",      "fuel": "Solar",      "region": "QLD1", "capacity": 150},
-    "SNBESS1":  {"name": "Supernode Batt 1",   "station": "Supernode Battery",   "fuel": "Battery",    "region": "QLD1", "capacity": 260},
-    "SNBESS2":  {"name": "Supernode Batt 2",   "station": "Supernode Battery",   "fuel": "Battery",    "region": "QLD1", "capacity": 260},
-    # ── NSW ──────────────────────────────────────────────────────────────────
-    "ER01":     {"name": "Eraring 1",          "station": "Eraring",             "fuel": "Black Coal", "region": "NSW1", "capacity": 720},
-    "ER02":     {"name": "Eraring 2",          "station": "Eraring",             "fuel": "Black Coal", "region": "NSW1", "capacity": 720},
-    "ER03":     {"name": "Eraring 3",          "station": "Eraring",             "fuel": "Black Coal", "region": "NSW1", "capacity": 720},
-    "ER04":     {"name": "Eraring 4",          "station": "Eraring",             "fuel": "Black Coal", "region": "NSW1", "capacity": 720},
-    "URANQ1":   {"name": "Uranquinty 1",       "station": "Uranquinty",          "fuel": "Gas",        "region": "NSW1", "capacity": 160},
-    "URANQ2":   {"name": "Uranquinty 2",       "station": "Uranquinty",          "fuel": "Gas",        "region": "NSW1", "capacity": 160},
-    "URANQ3":   {"name": "Uranquinty 3",       "station": "Uranquinty",          "fuel": "Gas",        "region": "NSW1", "capacity": 160},
-    "URANQ4":   {"name": "Uranquinty 4",       "station": "Uranquinty",          "fuel": "Gas",        "region": "NSW1", "capacity": 160},
-    "SHGEN":    {"name": "Shoalhaven Gen",     "station": "Shoalhaven",          "fuel": "Hydro",      "region": "NSW1", "capacity": 240},
-    "SHNGEN":   {"name": "Shoalhaven N-Gen",   "station": "Shoalhaven",          "fuel": "Hydro",      "region": "NSW1", "capacity": 240},
-    "MOREESF1": {"name": "Moree Solar",        "station": "Moree Solar Farm",    "fuel": "Solar",      "region": "NSW1", "capacity": 56},
-    "GUNNING1": {"name": "Gunning Wind",       "station": "Gunning Wind Farm",   "fuel": "Wind",       "region": "NSW1", "capacity": 46},
-    "ERABESS1": {"name": "Eraring Batt 1",     "station": "Eraring Battery",     "fuel": "Battery",    "region": "NSW1", "capacity": 230},
-    "ERABESS2": {"name": "Eraring Batt 2",     "station": "Eraring Battery",     "fuel": "Battery",    "region": "NSW1", "capacity": 230},
-    # ── VIC ──────────────────────────────────────────────────────────────────
-    "MORTLK1":  {"name": "Mortlake 1",         "station": "Mortlake",            "fuel": "Gas",        "region": "VIC1", "capacity": 282},
-    "MORTLK2":  {"name": "Mortlake 2",         "station": "Mortlake",            "fuel": "Gas",        "region": "VIC1", "capacity": 282},
-    "STOCKYD1": {"name": "Stockyard Hill",     "station": "Stockyard Hill",      "fuel": "Wind",       "region": "VIC1", "capacity": 530},
-    # ── SA ───────────────────────────────────────────────────────────────────
-    "OSBORNE1": {"name": "Osborne Steam",      "station": "Osborne Cogen",       "fuel": "Gas",        "region": "SA1",  "capacity": 180},
-    "OSBORNPS": {"name": "Osborne Peaker",     "station": "Osborne Cogen",       "fuel": "Gas",        "region": "SA1",  "capacity": 180},
-    "QPSCL1":   {"name": "Quarantine 1",       "station": "Quarantine",          "fuel": "Gas",        "region": "SA1",  "capacity": 60},
-    "QPSCL2":   {"name": "Quarantine 2",       "station": "Quarantine",          "fuel": "Gas",        "region": "SA1",  "capacity": 60},
-    "QPSCL3":   {"name": "Quarantine 3",       "station": "Quarantine",          "fuel": "Gas",        "region": "SA1",  "capacity": 60},
-    "QPSCL4":   {"name": "Quarantine 4",       "station": "Quarantine",          "fuel": "Gas",        "region": "SA1",  "capacity": 60},
-    "LBBG1":    {"name": "Ladbroke Grove",     "station": "Ladbroke Grove",      "fuel": "Gas",        "region": "SA1",  "capacity": 80},
-    "SNOWSF1":  {"name": "Snowtown North",     "station": "Snowtown North",      "fuel": "Wind",       "region": "SA1",  "capacity": 100},
-    "SNOWTWN1": {"name": "Snowtown South",     "station": "Snowtown South",      "fuel": "Wind",       "region": "SA1",  "capacity": 270},
-    "BUNGWF1":  {"name": "Bungala Solar 1",    "station": "Bungala Solar",       "fuel": "Solar",      "region": "SA1",  "capacity": 110},
-    "BUNGWF2":  {"name": "Bungala Solar 2",    "station": "Bungala Solar",       "fuel": "Solar",      "region": "SA1",  "capacity": 110},
+# ── Origin Energy asset registry ──────────────────────────────────────────────
+# ORIGIN_DUIDS: the set of DUIDs that belong to Origin's portfolio.
+# All metadata (station, fuel, region, capacity) comes from nem_units.json / live reg list.
+# ORIGIN_DISPLAY_NAMES: overrides the AEMO station name with an Origin-branded name.
+# Only add overrides where the AEMO name differs from what we want to show.
+ORIGIN_DUIDS: set = {
+    # QLD
+    "DDPS1", "MSTUART1", "MSTUART2", "MSTUART3", "ROMA_7",
+    "CLARESF1", "DDSF1", "DAYDSF1",
+    "SNBESS1", "SNBESS2",
+    # NSW
+    "ER01", "ER02", "ER03", "ER04",
+    "URANQ1", "URANQ2", "URANQ3", "URANQ4",
+    "SHGEN", "SHNGEN",
+    "MOREESF1", "GUNNING1",
+    "ERABESS1", "ERABESS2",
+    # VIC
+    "MORTLK1", "MORTLK2",
+    "STOCKYD1",
+    # SA
+    "OSBORNE1", "OSBORNPS",
+    "QPSCL1", "QPSCL2", "QPSCL3", "QPSCL4",
+    "LBBG1",
+    "SNOWSF1", "SNOWTWN1",
+    "BUNGWF1", "BUNGWF2",
 }
 
-ORIGIN_DUIDS = set(ORIGIN_ASSETS.keys())
+# Display name overrides — maps DUID → display station name shown on Origin page.
+# Only needed where AEMO's registered name differs from what Origin calls it.
+ORIGIN_DISPLAY_NAMES: dict = {
+    "SNBESS1":  "Supernode Battery",
+    "SNBESS2":  "Supernode Battery",
+    "OSBORNE1": "Osborne Cogen",
+    "OSBORNPS": "Osborne Cogen",
+    "ROMA_7":   "Roma Gas",
+    "BUNGWF1":  "Bungala Solar",
+    "BUNGWF2":  "Bungala Solar",
+    "GUNNING1": "Gunning Wind Farm",
+    "ERABESS1": "Eraring Battery",   # keep consistent cap (460→230 handled in display)
+    "ERABESS2": "Eraring Battery",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -1494,20 +1489,16 @@ def scrape_all() -> dict:
         "Net Interchange":d.get("NETINTERCHANGE", 0),
     } for r, d in region_summary.items() if "DISPATCHABLEGENERATION" in d}
 
-    # Build Origin assets output — use NEM_UNITS as source of truth for station/fuel/region
-    # ORIGIN_ASSETS only serves as the DUID whitelist; all metadata comes from NEM_UNITS
+    # Build Origin assets output — ORIGIN_DISPLAY_NAMES overrides nem_units station name
     origin_assets_out = {}
     for duid in ORIGIN_DUIDS:
-        mw   = scada_vals.get(duid)
-        # Get metadata from NEM_UNITS (AEMO registration) first, fall back to ORIGIN_ASSETS
-        reg_info    = NEM_UNITS.get(duid, {})
-        static_info = ORIGIN_ASSETS.get(duid, {})
-        station  = reg_info.get("station") or static_info.get("station") or duid
-        fuel     = reg_info.get("fuel")    or static_info.get("fuel")    or "Other"
-        region   = reg_info.get("region")  or static_info.get("region")  or ""
-        capacity = reg_info.get("capacity") or static_info.get("capacity")
+        mw       = scada_vals.get(duid)
+        reg_info = NEM_UNITS.get(duid, {})
+        station  = ORIGIN_DISPLAY_NAMES.get(duid) or reg_info.get("station") or duid
+        fuel     = reg_info.get("fuel")     or "Other"
+        region   = reg_info.get("region")   or ""
+        capacity = reg_info.get("capacity")
         origin_assets_out[duid] = {
-            "name":     static_info.get("name", duid),
             "station":  station,
             "fuel":     fuel,
             "region":   region,

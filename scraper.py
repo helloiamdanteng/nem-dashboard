@@ -318,6 +318,17 @@ def _load_nem_units() -> dict:
 NEM_UNITS: dict = _load_nem_units()
 logger.info(f"NEM_UNITS loaded: {len(NEM_UNITS)} DUIDs")
 
+# Pump-load DUIDs: registered as scheduled LOAD in AEMO — SCADA reports positive MW
+# when consuming (pumping). We negate so they display as negative generation.
+PUMP_LOAD_DUIDS: set = {
+    "SHPUMP",       # Shoalhaven pump (NSW)
+    "WIVENPUMP1",   # Wivenhoe pump 1 (QLD)
+    "WIVENPUMP2",   # Wivenhoe pump 2 (QLD)
+    "MURRAY_PUMP",  # Murray pump (NSW)
+    "BENDEELA_P",   # Bendeela pump (NSW)
+    "KANGVALLEY",   # Kangaroo Valley pump (NSW)
+}
+
 FUEL_COLORS = {
     "Black Coal": "#4a4a6a",
     "Brown Coal": "#8B4513",
@@ -1317,7 +1328,9 @@ def _update_fuel_history(fuel_mix: dict, scada: dict | None = None) -> None:
                 continue
             if duid not in _duid_history:
                 _duid_history[duid] = {}
-            _duid_history[duid][label] = round(mw, 1)
+            # Pump-load DUIDs report positive MW when consuming — negate for display
+            stored_mw = -round(mw, 1) if duid in PUMP_LOAD_DUIDS else round(mw, 1)
+            _duid_history[duid][label] = stored_mw
             if len(_duid_history[duid]) > 290:
                 oldest = sorted(_duid_history[duid].keys())[0]
                 del _duid_history[duid][oldest]
@@ -2092,7 +2105,9 @@ def scrape_gen() -> dict:
     grouped:    dict = {}
     unmatched_log: list = []
 
-    for duid, mw in scada.items():
+    for duid, mw_raw in scada.items():
+        # Pump-load DUIDs report positive MW when consuming — negate for display
+        mw = -mw_raw if (duid in PUMP_LOAD_DUIDS and mw_raw is not None) else mw_raw
         info     = reg.get(duid.upper(), {})
         region   = info.get("region", "") or cpid_map.get(duid.upper(), "")
         raw_fuel = info.get("fuel", "")

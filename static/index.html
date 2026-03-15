@@ -1807,20 +1807,18 @@ function toggleGenRooftop() {
 }
 
 function toggleAllStationRegions() {
-  const allSelected = REGIONS.every(r => stationsRegionFilter.has(r));
-  if (allSelected) {
-    stationsRegionFilter.clear();
-  } else {
-    REGIONS.forEach(r => stationsRegionFilter.add(r));
-  }
+  stationsRegionFilter = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
   if (genData) renderPanel('stations', latestData);
 }
 
 function toggleStationRegion(region) {
-  if (stationsRegionFilter.has(region)) {
-    if (stationsRegionFilter.size > 1) stationsRegionFilter.delete(region);
+  // Radio behaviour: clicking a region isolates to that region;
+  // clicking it again returns to NEM (all regions)
+  const onlyThis = stationsRegionFilter.size === 1 && stationsRegionFilter.has(region);
+  if (onlyThis) {
+    stationsRegionFilter = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']); // back to NEM
   } else {
-    stationsRegionFilter.add(region);
+    stationsRegionFilter = new Set([region]); // isolate to this region
   }
   if (genData) renderPanel('stations', latestData);
 }
@@ -2123,12 +2121,12 @@ function renderStations(fastData) {
 
   let html = '<div class="section-title">DUIDs — Station View</div>';
 
-  // Region pills
+  // Region pills — radio style: NEM = all, clicking a state isolates it
   html += '<div class="region-pills">';
-  const allSelected = REGIONS.every(r => stationsRegionFilter.has(r));
-  html += `<button class="region-pill ${allSelected ? 'active' : ''}" style="color:#94a3b8;border-color:#475569" onclick="toggleAllStationRegions()">${allSelected ? '✓ All' : 'All'}</button>`;
+  const isNEM = REGIONS.every(r => stationsRegionFilter.has(r));
+  html += `<button class="region-pill ${isNEM ? 'active' : ''}" style="color:#94a3b8;border-color:#94a3b8" onclick="toggleAllStationRegions()">NEM</button>`;
   for (const r of REGIONS) {
-    const active = stationsRegionFilter.has(r) ? 'active' : '';
+    const active = !isNEM && stationsRegionFilter.has(r) ? 'active' : '';
     const color = REGION_COLORS[r];
     html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="toggleStationRegion('${r}')">${REGION_SHORT[r]}</button>`;
   }

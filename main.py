@@ -516,9 +516,9 @@ async def station_batch(duids: str):
 @app.get("/api/origin")
 async def origin_history():
     """Return Origin asset history — separate from fast cache to keep /api/data lean."""
-    from scraper import _duid_history, ORIGIN_ASSETS
+    from scraper import _duid_history, ORIGIN_DUIDS
     result = {}
-    for duid in ORIGIN_ASSETS:
+    for duid in ORIGIN_DUIDS:
         history = _duid_history.get(duid, {})
         if history:
             result[duid] = [{"interval": k, "mw": v} for k, v in sorted(history.items())]

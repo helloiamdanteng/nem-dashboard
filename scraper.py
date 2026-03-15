@@ -2045,7 +2045,9 @@ def scrape_scada_history() -> None:
             if mw is not None:
                 if duid not in _duid_history:
                     _duid_history[duid] = {}
-                _duid_history[duid][label] = round(mw, 1)
+                # Pump-load DUIDs report positive MW when consuming — negate for display
+                stored_mw = -round(mw, 1) if duid in PUMP_LOAD_DUIDS else round(mw, 1)
+                _duid_history[duid][label] = stored_mw
             if region not in NEM_REGIONS:
                 continue
             mw_pos = max(mw, 0) if mw is not None else 0

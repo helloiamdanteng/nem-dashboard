@@ -773,7 +773,7 @@ function drawGenChart(data) {
     data: allSlots.map(l => {
       const hasActual = activeRegions.some(r => histLookup[r]?.[l]);
       if (!hasActual) return null;
-      return battChargeMap[l] ?? 0;
+      return battChargeMap[l] ?? null;  // null when no charging (not 0)
     }),
     backgroundColor: '#38bdf855', borderColor: '#38bdf8',
     borderWidth: 0.5, fill: 'origin', pointRadius: 0,
@@ -2559,7 +2559,7 @@ function drawBatteryCharts(data) {
       type: 'line', data: { labels: allSlots, datasets },
       options: { ...CHART_DEFAULTS,
         plugins: { ...CHART_DEFAULTS.plugins,
-          legend: { display: true, labels:{color:'#94a3b8',font:{family:'Space Mono',size:9},boxWidth:10,padding:6,
+          legend: { display: isNEM, labels:{color:'#94a3b8',font:{family:'Space Mono',size:9},boxWidth:10,padding:6,
             filter: item => !String(item.label||'').startsWith('Price') } },
           tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw !== null,
             callbacks: { label: c => {

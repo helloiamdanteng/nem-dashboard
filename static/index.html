@@ -1408,8 +1408,10 @@ function renderOrigin(data) {
         opacity:${isUnknown ? '0.6' : '1'};
         transition:border-color 0.15s;active:border-color:${fuelCol}">
         <div style="font-family:var(--font-mono);font-size:9px;font-weight:700;
-          color:var(--text);line-height:1.3;margin-bottom:4px;
+          color:var(--text);line-height:1.3;margin-bottom:2px;
           white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${stnName}</div>
+        <div style="font-family:var(--font-mono);font-size:7px;color:#475569;margin-bottom:3px;
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.duids.join(', ')}</div>
         <div style="font-family:var(--font-mono);font-size:13px;font-weight:700;
           color:${displayCol}">
           ${isUnknown ? '?' : (isOn || isCharging) ? fmt(mw) : '—'}<span style="font-size:8px;color:var(--text-muted)"> MW</span>
@@ -2114,16 +2116,14 @@ function renderStations(fastData) {
     return `<div class="state-msg"><div class="icon">⚠️</div><div>Generator data unavailable</div></div>`;
   }
 
-  // Reset registry every render
   Object.keys(_stationRegistry).forEach(k => delete _stationRegistry[k]);
   _stationRegistryIdx = 0;
 
-  const grouped  = genData.grouped;
-  const fc       = genData.fuel_colors || {};
-  const prices   = (fastData || {}).prices || {};
+  const grouped   = genData.grouped;
+  const fc        = genData.fuel_colors || {};
   const FUEL_ORDER = ['Brown Coal','Black Coal','Gas','Hydro','Battery','Wind','Solar','Rooftop Solar','Liquid','Other'];
 
-  let html = '<div class="section-title">All SCADA DUIDs</div>';
+  let html = '<div class="section-title">DUIDs — Station View</div>';
 
   // Region pills
   html += '<div class="region-pills">';
@@ -2136,7 +2136,7 @@ function renderStations(fastData) {
   }
   html += '</div>';
 
-  // Filter buttons
+  // Filters
   html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px">';
   html += `<button onclick="toggleStationsHideOffline()" style="
     font-family:var(--font-mono);font-size:10px;padding:5px 12px;border-radius:20px;cursor:pointer;
@@ -2154,62 +2154,98 @@ function renderStations(fastData) {
   </button>`;
   html += '</div>';
 
-  // Collect ALL individual DUIDs across selected regions
-  const allDuids = [];
+  // ── Build station map: station name → { fuel, region, duids[], totalMw, totalCap }
+  // Group across all selected regions, using station name from genData
+  const stationMap = {};
   for (const region of REGIONS) {
     if (!stationsRegionFilter.has(region)) continue;
     const regionFuels = grouped[region] || {};
     for (const fuel of FUEL_ORDER) {
       for (const u of (regionFuels[fuel] || [])) {
-        allDuids.push({ ...u, region, fuel });
+        const key = (u.station && u.station !== u.duid) ? u.station : u.duid;
+        if (!stationMap[key]) {
+          stationMap[key] = { fuel, region, duids: [], totalMw: 0, totalCap: 0, units: [] };
+        }
+        stationMap[key].duids.push(u.duid);
+        stationMap[key].totalMw += (u.mw || 0);
+        stationMap[key].totalCap += (u.capacity || 0);
+        stationMap[key].units.push(u);
       }
     }
   }
 
-  // Sort by |MW| descending
-  allDuids.sort((a, b) => Math.abs(b.mw || 0) - Math.abs(a.mw || 0));
+  // ── Sort stations: by fuel order first, then by |MW| descending within fuel
+  const fuelRank = {};
+  FUEL_ORDER.forEach((f, i) => fuelRank[f] = i);
+
+  const stations = Object.entries(stationMap).sort((a, b) => {
+    const fA = fuelRank[a[1].fuel] ?? 99;
+    const fB = fuelRank[b[1].fuel] ?? 99;
+    if (fA !== fB) return fA - fB;
+    return Math.abs(b[1].totalMw) - Math.abs(a[1].totalMw);
+  });
 
   // Apply filters
-  const visible = allDuids.filter(u => {
-    if (stationsHideOffline && (u.mw === null || Math.abs(u.mw || 0) <= 1)) return false;
-    if (stationsHideSmall && Math.abs(u.mw || 0) < 100) return false;
+  const visible = stations.filter(([name, s]) => {
+    if (stationsHideOffline && Math.abs(s.totalMw) <= 1) return false;
+    if (stationsHideSmall && Math.abs(s.totalMw) < 100) return false;
     return true;
   });
 
-  // Summary counts
-  const totalActive = allDuids.filter(u => Math.abs(u.mw || 0) > 1).length;
+  const totalDuids = Object.values(stationMap).reduce((n, s) => n + s.duids.length, 0);
+  const activeStns = stations.filter(([,s]) => Math.abs(s.totalMw) > 1).length;
   html += `<div style="font-family:var(--font-mono);font-size:10px;color:#475569;margin-bottom:10px">
-    ${allDuids.length} DUIDs in SCADA · ${totalActive} active · showing ${visible.length}
+    ${stations.length} stations · ${totalDuids} DUIDs · ${activeStns} active · showing ${visible.length}
   </div>`;
 
   if (!visible.length) {
-    html += '<div style="font-family:var(--font-mono);font-size:11px;color:#475569;padding:16px 0">No DUIDs match current filters</div>';
+    html += '<div style="font-family:var(--font-mono);font-size:11px;color:#475569;padding:16px 0">No stations match current filters</div>';
     return html;
   }
 
-  // DUID rows
+  // ── Group visible stations by fuel for section headers
+  let currentFuel = null;
   html += '<div class="ic-list">';
-  for (const u of visible) {
-    const regIdx = _stationRegistryIdx++;
-    // Each DUID gets its own modal entry
-    _stationRegistry[regIdx] = { duids: [u.duid], name: u.station || u.duid, fuel: u.fuel, region: u.region, capacity: u.capacity || 0 };
 
-    const color    = REGION_COLORS[u.region] || '#64748b';
-    const fuelCol  = fc[u.fuel] || '#94a3b8';
-    const mw       = u.mw;
-    const cap      = u.capacity || 0;
-    const isCharge = mw !== null && mw < -1;
-    const isOn     = mw !== null && mw > 1;
+  for (const [stnName, s] of visible) {
+    // Fuel section header
+    if (s.fuel !== currentFuel) {
+      currentFuel = s.fuel;
+      const fuelCol = fc[s.fuel] || '#94a3b8';
+      html += `<div style="font-family:var(--font-mono);font-size:9px;font-weight:700;
+        color:${fuelCol};padding:10px 0 4px;letter-spacing:0.08em;border-bottom:1px solid ${fuelCol}33;margin-bottom:2px">
+        ${s.fuel.toUpperCase()}
+      </div>`;
+    }
+
+    // Register station for modal
+    const regIdx = _stationRegistryIdx++;
+    _stationRegistry[regIdx] = {
+      duids: s.duids,
+      name: stnName,
+      fuel: s.fuel,
+      region: s.region,
+      capacity: s.totalCap
+    };
+
+    const color    = REGION_COLORS[s.region] || '#64748b';
+    const fuelCol  = fc[s.fuel] || '#94a3b8';
+    const mw       = s.totalMw;
+    const cap      = s.totalCap;
+    const isCharge = mw < -1;
+    const isOn     = mw > 1;
     const mwColor  = isCharge ? '#38bdf8' : (isOn ? '#2ed573' : '#475569');
-    const pct      = cap > 0 && mw !== null ? Math.min(Math.abs(mw) / cap * 100, 100) : 0;
-    const mwStr    = mw === null ? '—' : (isOn || isCharge) ? `${mw > 0 ? '+' : ''}${fmt(mw, 0)}` : '—';
-    const stationLabel = (u.station && u.station !== u.duid) ? u.station : '';
+    const pct      = cap > 0 ? Math.min(Math.abs(mw) / cap * 100, 100) : 0;
+    const mwStr    = isOn || isCharge ? `${mw > 0 ? '+' : ''}${fmt(mw, 0)}` : '—';
+    const duidStr  = s.duids.length === 1 ? s.duids[0] : s.duids.join(', ');
 
     html += `<div class="station-row" style="cursor:pointer" onclick="openStationModal(${regIdx})">
       <div style="min-width:0;flex:1">
-        <div style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--text)">${u.duid}</div>
-        <div style="font-family:var(--font-mono);font-size:9px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-          ${stationLabel ? stationLabel + ' · ' : ''}<span style="color:${fuelCol}">${u.fuel}</span> · <span style="color:${color}">${REGION_SHORT[u.region]}</span>
+        <div style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--text)">${stnName}</div>
+        <div style="font-family:var(--font-mono);font-size:8px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px">
+          <span style="color:${color}">${REGION_SHORT[s.region]}</span> ·
+          <span style="color:#64748b">${duidStr}</span>
+          ${s.duids.length > 1 ? `<span style="color:#475569"> (${s.duids.length} units)</span>` : ''}
         </div>
       </div>
       <div class="station-bar-wrap">
@@ -2217,13 +2253,15 @@ function renderStations(fastData) {
       </div>
       <div style="text-align:right;min-width:56px">
         <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:${mwColor}">${mwStr}<span style="font-size:9px;color:var(--text-muted)"> MW</span>${isCharge ? '<span style="font-size:8px;color:#38bdf8"> ↓</span>' : ''}</div>
-        <div style="font-family:var(--font-mono);font-size:9px;color:#475569">${cap > 0 ? fmt(cap, 0)+' cap' : ''}</div>
+        <div style="font-family:var(--font-mono);font-size:9px;color:#475569">${cap > 0 ? fmt(cap,0)+' cap' : ''}</div>
       </div>
     </div>`;
   }
+
   html += '</div>';
   return html;
 }
+
 
 
 function setBatteryRegion(r) {

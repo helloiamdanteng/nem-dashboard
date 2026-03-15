@@ -1508,9 +1508,12 @@ def scrape_all() -> dict:
     origin_assets_out = {}
     for duid in ORIGIN_DUIDS:
         mw       = scada_vals.get(duid)
-        reg_info = NEM_UNITS.get(duid, {})
-        station  = ORIGIN_DISPLAY_NAMES.get(duid) or reg_info.get("station") or duid
+        reg_info = NEM_UNITS.get(duid, {})\
+        # Solar and wind absent from SCADA = generating 0 (semi-scheduled, not truly unknown)
         fuel     = reg_info.get("fuel")     or "Other"
+        if mw is None and fuel in ("Solar", "Wind"):
+            mw = 0.0
+        station  = ORIGIN_DISPLAY_NAMES.get(duid) or reg_info.get("station") or duid
         region   = reg_info.get("region")   or ""
         capacity = reg_info.get("capacity")
         origin_assets_out[duid] = {

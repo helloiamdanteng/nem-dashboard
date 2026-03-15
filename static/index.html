@@ -1432,9 +1432,9 @@ function renderOrigin(data) {
 
   setTimeout(() => _drawOriginPortfolioChart(stationMap, fc), 0);
 
-  // Fetch history async if not cached or stale (older than 5 min)
+  // Fetch history async - always refresh when on origin panel
   const histAge = window._originHistoryFetchedAt ? Date.now() - window._originHistoryFetchedAt : Infinity;
-  if (histAge > 4 * 60 * 1000) {
+  if (histAge > 60 * 1000) {  // refresh every 1 min (fast cache runs every 5 min)
     _fetchOriginHistory(data);
   }
   return html;
@@ -1445,22 +1445,29 @@ async function _fetchOriginHistory(data) {
     const hist = await fetch('/api/origin').then(r => r.json());
     window._originHistory = hist;
     window._originHistoryFetchedAt = Date.now();
-    // Rebuild stationMap with history and redraw chart
     if (currentPanel === 'origin' && latestData) {
+      // Rebuild stationMap completely with fresh history
       const assets = latestData.origin_assets || {};
       const fc = latestData.fuel_colors || {};
       const stationMap = window._originStationMap || {};
-      // Inject history into existing stationMap
+      // Reset all histMaps
+      for (const key of Object.keys(stationMap)) {
+        stationMap[key].histMap = {};
+        stationMap[key].duidHists = {};
+      }
+      // Inject history for each DUID
       for (const [duid, histArr] of Object.entries(hist)) {
         const a = assets[duid];
         if (!a) continue;
         const key = a.station;
         const s = stationMap[key];
         if (!s) continue;
-        // Rebuild histMap for this station
-        s.histMap = {};
         s.duidHists[duid] = { history: histArr, fuel: a.fuel, capacity: a.capacity || 0 };
-        for (const [d2, dh] of Object.entries(s.duidHists)) {
+      }
+      // Rebuild histMaps from duidHists
+      for (const s of Object.values(stationMap)) {
+        s.histMap = {};
+        for (const dh of Object.values(s.duidHists || {})) {
           for (const pt of (dh.history || [])) {
             s.histMap[pt.interval] = (s.histMap[pt.interval] || 0) + pt.mw;
           }
@@ -1492,6 +1499,27 @@ function _drawOriginPortfolioChart(stationMap, fc) {
     }
   }
   if (!visibleStns.length) return;
+
+  // If no history loaded yet, show loading placeholder and wait
+  const hasHistory = visibleStns.some(s => Object.keys(s.histMap||{}).length > 0);
+  if (!hasHistory) {
+    const card = canvas.closest('.chart-card');
+    if (card) {
+      const existing = card.querySelector('.origin-loading');
+      if (!existing) {
+        const div = document.createElement('div');
+        div.className = 'origin-loading';
+        div.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;color:#475569';
+        div.textContent = 'Loading history…';
+        canvas.parentElement.style.position = 'relative';
+        canvas.parentElement.appendChild(div);
+      }
+    }
+    return;
+  }
+  // Remove loading placeholder if present
+  const loadingEl = canvas.parentElement?.querySelector('.origin-loading');
+  if (loadingEl) loadingEl.remove();
 
   // Full 24hr 5-min spine so x-axis is always proportional
   const allSlots = [];
@@ -2618,9 +2646,7 @@ async function _loadBattDuidHistory(region, data) {
 
   const needFetch = battUnits.filter(d => !window._battDuidHistory[d]);
   if (!needFetch.length) {
-    if (batteryRegionFilter === region && latestData && myGen === (window._battRenderGen||0))
-      drawBatteryCharts(latestData);
-    return;
+    return;  // data already loaded, chart was already drawn
   }
   try {
     const results = await fetch(`/api/stations/batch?duids=${needFetch.map(encodeURIComponent).join(',')}`).then(r => r.json());

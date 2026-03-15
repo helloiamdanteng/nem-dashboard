@@ -143,6 +143,8 @@ _DUID_FUEL_PATTERNS = [
                 r"BLOWERING|BENDEELA|BATESMAN|DARTM|CETHANA|MACKINTOSH|"
                 r"BASTYAN|CATAGUNYA|DEVILS|FISHER|LEMONTHYME|DEVILS_G|"
                 r"REPULSE|ROWALLAN|TARRALEAH|TUNGATINAH|LIAPOOTAH)", re.I), "Hydro"),
+    # Pumped hydro load DUIDs (negative MW = pumping mode)
+    (re.compile(r"(PUMP|_PUMP\d?$|PUMP\d?$)", re.I), "Hydro"),
 
     # ── Wind ──────────────────────────────────────────────────────────────────
     (re.compile(r"(WF\d|_WF\d?$|WIND|SNOWYWIND)", re.I),  "Wind"),
@@ -2102,14 +2104,18 @@ def scrape_gen() -> dict:
             continue
 
         mw_val = mw if mw is not None else 0
-        mw_pos = max(mw_val, 0)
+        # fuel_mix is for the generation chart — always positive (generation only)
+        # grouped is for DUID/station display — signed (negative = pumping/charging)
+        mw_for_chart = max(mw_val, 0)
+        # Batteries and pump hydro show negative MW in grouped for display
+        mw_pos = mw_val if fuel in ("Battery", "Hydro") else mw_for_chart
 
         # Log significant unclassified units so we can fix them
-        if fuel == "Other" and mw_pos > 50:
+        if fuel == "Other" and abs(mw_val) > 50:
             logger.warning(f"OTHER_DUID: {duid} region={region} mw={mw_pos:.0f} raw_fuel={raw_fuel!r} station={station!r}")
 
-        fuel_mix[region][fuel] = round(fuel_mix[region].get(fuel, 0) + mw_pos, 1)
-        nem_totals[fuel]       = round(nem_totals.get(fuel, 0) + mw_pos, 1)
+        fuel_mix[region][fuel] = round(fuel_mix[region].get(fuel, 0) + mw_for_chart, 1)
+        nem_totals[fuel]       = round(nem_totals.get(fuel, 0) + mw_for_chart, 1)
 
         pct = round(mw_val / capacity * 100, 1) if (mw_val and capacity and capacity > 0) else None
         grouped.setdefault(region, {}).setdefault(fuel, []).append({

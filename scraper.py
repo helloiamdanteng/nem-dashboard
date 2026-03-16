@@ -2438,7 +2438,6 @@ BOM_STATIONS = {
     "NSW1": {"name": "Bankstown",              "geohash": "r3gx2u"},
     "VIC1": {"name": "Melbourne",              "geohash": "r1r0fs"},
     "SA1":  {"name": "Adelaide (West Terrace)","geohash": "r1f91f"},
-    "TAS1": {"name": "Hobart",                 "geohash": "r22ssd"},
 }
 
 def scrape_bom_weather() -> dict:

@@ -2432,6 +2432,61 @@ def scrape_yesterday() -> dict:
     }
 
 
+# BOM weather stations matching the screenshot locations (one per NEM region)
+BOM_STATIONS = {
+    "QLD1": {"name": "Archerfield",            "geohash": "r7hgdp"},
+    "NSW1": {"name": "Bankstown",              "geohash": "r3gx2u"},
+    "VIC1": {"name": "Melbourne",              "geohash": "r1r0fs"},
+    "SA1":  {"name": "Adelaide (West Terrace)","geohash": "r1f91f"},
+    "TAS1": {"name": "Hobart",                 "geohash": "r22ssd"},
+}
+
+def scrape_bom_weather() -> dict:
+    """
+    Fetch 7-day daily forecasts from BOM's public API for each NEM region station.
+    Returns { region: { name, days: [{date, day_of_week, temp_max, temp_min, short_text, rain_chance}] } }
+    BOM API: https://api.weather.bom.gov.au/v1/locations/{geohash}/forecasts/daily
+    """
+    import requests as req
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; NEM-Dashboard/1.0)",
+        "Accept": "application/json",
+        "Referer": "https://www.bom.gov.au/",
+    }
+    result = {}
+    for region, station in BOM_STATIONS.items():
+        url = f"https://api.weather.bom.gov.au/v1/locations/{station['geohash']}/forecasts/daily"
+        try:
+            r = req.get(url, headers=headers, timeout=10)
+            r.raise_for_status()
+            data = r.json().get("data", [])
+            days = []
+            for day in data:
+                date_str = day.get("date", "")[:10]   # "YYYY-MM-DD"
+                try:
+                    dt = datetime.strptime(date_str, "%Y-%m-%d")
+                    dow = dt.strftime("%a")            # "Mon", "Tue" …
+                    date_label = dt.strftime("%-d %b") # "16 Mar"
+                except ValueError:
+                    dow = ""
+                    date_label = date_str
+                days.append({
+                    "date":        date_str,
+                    "day_of_week": dow,
+                    "date_label":  date_label,
+                    "temp_max":    day.get("temp_max"),
+                    "temp_min":    day.get("temp_min"),
+                    "short_text":  day.get("short_text", ""),
+                    "rain_chance": day.get("rain", {}).get("chance"),
+                })
+            result[region] = {"name": station["name"], "days": days}
+            logger.info(f"BOM weather {region} ({station['name']}): {len(days)} days")
+        except Exception as e:
+            logger.warning(f"BOM weather fetch failed for {region}: {e}")
+            result[region] = {"name": station["name"], "days": []}
+    return result
+
+
 def scrape_slow() -> dict:
     """
     Week-ahead ST PASA demand forecast only.
@@ -2446,6 +2501,13 @@ def scrape_slow() -> dict:
         yesterday_data = scrape_yesterday()
     except Exception as e:
         logger.warning(f"scrape_yesterday failed: {e}")
+
+    # Weather forecast from BOM for D+ page
+    weather_data = {}
+    try:
+        weather_data = scrape_bom_weather()
+    except Exception as e:
+        logger.warning(f"scrape_bom_weather failed: {e}")
 
     # Extract tomorrow's demand from STPASA for Day Ahead page
     now_aest = datetime.now(AEST).replace(tzinfo=None)
@@ -2473,6 +2535,7 @@ def scrape_slow() -> dict:
         "stpasa_demand":          pasa,
         "tomorrow_demand_stpasa": tomorrow_demand_stpasa,
         "yesterday":              yesterday_data,
+        "weather":                weather_data,
         "fuel_colors":            FUEL_COLORS,
         "all_fuels":              ALL_FUELS,
     }

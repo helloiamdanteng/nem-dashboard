@@ -2056,6 +2056,7 @@ def scrape_scada_history() -> None:
     for label in sorted(all_snapshots.keys()):
         duids = all_snapshots[label]
         fuel_mix: dict = {r: {} for r in NEM_REGIONS}
+        pump_load_hist: dict = {}  # track pump hydro load per region
         for duid, mw in duids.items():
             info   = reg.get(duid, {})
             region = info.get("region", "") or cpid_map.get(duid, "")
@@ -2070,12 +2071,19 @@ def scrape_scada_history() -> None:
                 _duid_history[duid][label] = stored_mw
             if region not in NEM_REGIONS:
                 continue
-            mw_pos = max(mw, 0) if mw is not None else 0
+            mw_val_signed = mw if mw is not None else 0
+            mw_pos = max(mw_val_signed, 0)
             fuel_mix[region][fuel] = round(fuel_mix[region].get(fuel, 0) + mw_pos, 1)
-        # Store into _fuel_history
+            # Track pump hydro load (negative mw on Hydro DUIDs) same as scrape_gen
+            if fuel == "Hydro" and mw_val_signed < -1:
+                pump_load_hist[region] = round(pump_load_hist.get(region, 0) + mw_val_signed, 1)
+        # Store into _fuel_history with pump hydro
         for region in NEM_REGIONS:
             if fuel_mix[region]:
-                _fuel_history[region][label] = dict(fuel_mix[region])
+                snap = dict(fuel_mix[region])
+                if pump_load_hist.get(region, 0) < -1:
+                    snap["Pump Hydro"] = round(pump_load_hist[region], 1)
+                _fuel_history[region][label] = snap
         loaded += 1
 
     logger.info(f"scrape_scada_history: loaded {loaded} time slots into fuel history")

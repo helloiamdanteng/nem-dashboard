@@ -3100,8 +3100,8 @@ function drawWeekCharts(fastData) {
       renewDatasets.push({
         label: REGION_SHORT[r] + ' Solar', regionId: r, seriesType: 'solar',
         data: pasaLabels.map(l => solarMap[l] ?? null),
-        backgroundColor: '#ffd70088', borderColor: '#ffd700',
-        borderWidth: 0.5, fill: true, pointRadius: 0, tension: 0.2,
+        borderColor: REGION_COLORS[r], backgroundColor: REGION_COLORS[r] + '44',
+        borderWidth: 1, fill: 'origin', pointRadius: 0, tension: 0.2,
         spanGaps: true, stack: 'renew', yAxisID: 'y',
       });
     }
@@ -3109,34 +3109,11 @@ function drawWeekCharts(fastData) {
       renewDatasets.push({
         label: REGION_SHORT[r] + ' Wind', regionId: r, seriesType: 'wind',
         data: pasaLabels.map(l => windMap[l] ?? null),
-        backgroundColor: '#4bc0c088', borderColor: '#4bc0c0',
-        borderWidth: 0.5, fill: true, pointRadius: 0, tension: 0.2,
+        borderColor: REGION_COLORS[r], backgroundColor: REGION_COLORS[r] + '88',
+        borderWidth: 1.5, fill: 'stack', pointRadius: 0, tension: 0.2,
         spanGaps: true, stack: 'renew', yAxisID: 'y',
       });
     }
-  }
-
-  // Demand line — sum all filtered regions (NEM = total, single = that region)
-  const demRenewMap = {};
-  for (const l of pasaLabels) {
-    let total = 0, hasAny = false;
-    for (const r of REGIONS) {
-      if (!weekRenewFilter.has(r)) continue;
-      const pt = (pasa[r] || []).find(p => p.interval === l);
-      if (pt && pt.demand_50 != null) { total += pt.demand_50; hasAny = true; }
-    }
-    if (hasAny) demRenewMap[l] = Math.round(total);
-  }
-  const demLabel = weekRenewFilter.size === REGIONS.length ? 'NEM Demand' :
-    REGION_SHORT[[...weekRenewFilter][0]] + ' Demand';
-  if (Object.keys(demRenewMap).length > 0) {
-    renewDatasets.push({
-      label: demLabel, seriesType: 'demand',
-      data: pasaLabels.map(l => demRenewMap[l] ?? null),
-      borderColor: '#ffffff', backgroundColor: 'transparent',
-      borderWidth: 1.5, pointRadius: 0, tension: 0.3,
-      spanGaps: true, fill: false, yAxisID: 'yDem', order: -1,
-    });
   }
 
   destroyChart('weekRenew');
@@ -3156,7 +3133,6 @@ function drawWeekCharts(fastData) {
               label: c => {
                 if (c.raw === null) return null;
                 const lbl = c.dataset.label || '';
-                if (lbl.endsWith(' Demand')) return ` ${lbl}: ${fmt(c.raw)} MW`;
                 return ` ${lbl} UIGF: ${fmt(c.raw)} MW`;
               },
               title: tooltipTitle
@@ -3166,129 +3142,7 @@ function drawWeekCharts(fastData) {
         scales: {
           x: { stacked: true, ticks: { color:'#64748b', font:{family:'Space Mono',size:8}, maxTicksLimit:10, maxRotation:0, callback: xTickCb }, grid:{color:'#1e2d4544'} },
           y: { stacked: true, min: 0, ticks: { color:'#94a3b8', font:{family:'Space Mono',size:10}, callback: v => fmt(v)+' MW' }, grid:{color:'#1e2d45'} },
-          yDem: { type: 'linear', position: 'right', min: 0,
-                  ticks: { color:'#94a3b8', font:{family:'Space Mono',size:10}, callback: v => fmt(v)+' MW' },
-                  grid: { drawOnChartArea: false } }
-        }
-      }
-    });
-  } else if (ctx2) {
-    const card = ctx2.closest('.week-chart-card');
-    if (card) card.querySelector('.chart-title').textContent = 'Wind + Solar forecast — not available in this ST PASA file';
-  }
-}
 
-
-// ── D-1 (Yesterday) ───────────────────────────────────────────────────────────
-
-let dMinus1RegionFilter = 'NEM';
-
-function setDMinus1Region(r) {
-  dMinus1RegionFilter = r;
-  if (latestData) renderPanel('dminus1', latestData);
-}
-
-function renderDMinus1(data) {
-  const yest = slowData && slowData.yesterday;
-  const label = yest ? yest.label : 'Yesterday';
-
-  let html = `<div class="section-title">D-1 — ${label}</div>`;
-
-  // Region selector
-  html += '<div class="region-pills">';
-  for (const r of ['NEM', ...REGIONS]) {
-    const lbl   = r === 'NEM' ? 'NEM' : REGION_SHORT[r];
-    const color = r === 'NEM' ? '#94a3b8' : REGION_COLORS[r];
-    const active = dMinus1RegionFilter === r ? 'active' : '';
-    html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="setDMinus1Region('${r}')">${lbl}</button>`;
-  }
-  html += '</div>';
-
-  if (!yest || !yest.prices || !Object.keys(yest.prices).length) {
-    if (!slowData) {
-      html += '<div class="state-msg"><div class="icon">📆</div><div>Loading yesterday\'s data… (arrives within ~3 min)</div></div>';
-    } else {
-      html += '<div class="state-msg"><div class="icon">⚠️</div><div>Yesterday data not available</div><div style="font-size:11px;color:#475569;margin-top:6px">CURRENT directory may not have yesterday\'s files yet</div></div>';
-    }
-    return html;
-  }
-
-  // Price chart
-  html += '<div class="chart-card"><div class="chart-title">Spot Price ($/MWh) — 30-min Trading Price</div>';
-  html += '<div class="chart-container" style="height:220px"><canvas id="dm1PriceChart"></canvas></div></div>';
-
-  // Demand chart
-  html += '<div class="chart-card" style="margin-top:12px"><div class="chart-title">Demand + Non-Sched Gen (MW)</div>';
-  html += '<div class="chart-container" style="height:200px"><canvas id="dm1DemandChart"></canvas></div></div>';
-
-  // Renewable generation chart
-  html += '<div class="chart-card" style="margin-top:12px"><div class="chart-title">Semi-Scheduled Wind + Solar Cleared MW</div>';
-  html += '<div class="chart-container" style="height:200px"><canvas id="dm1RenewChart"></canvas></div></div>';
-
-  // Interconnector chart
-  html += '<div class="chart-card" style="margin-top:12px"><div class="chart-title">Interconnector Flows (MW)</div>';
-  html += '<div class="chart-container" style="height:200px"><canvas id="dm1IcChart"></canvas></div>';
-  const IC_COLORS = ['#00d4ff','#ff6b35','#2ed573','#ffd32a','#9b59b6','#e74c3c'];
-  const icIds = Object.keys((yest.ic_flows || {})).sort();
-  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">';
-  icIds.forEach((id, i) => {
-    const color = IC_COLORS[i % IC_COLORS.length];
-    html += `<div style="display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10px;color:${color}"><div style="width:14px;height:2px;background:${color};border-radius:1px"></div>${id}</div>`;
-  });
-  html += '</div></div>';
-
-  return html;
-}
-
-function drawDMinus1Charts(data) {
-  const yest = slowData && slowData.yesterday;
-  if (!yest || !yest.prices) return;
-
-  const isNEM = dMinus1RegionFilter === 'NEM';
-  const activeRegions = isNEM ? REGIONS : [dMinus1RegionFilter];
-
-  // Full 5-min spine (for demand/IC) and 30-min spine (for price)
-  const slots5 = [];
-  for (let h = 0; h < 24; h++)
-    for (let m = 0; m < 60; m += 5)
-      slots5.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
-
-  const slots30 = [];
-  for (let h = 0; h < 24; h++)
-    for (let m = 0; m < 60; m += 30)
-      slots30.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
-
-  const xTick5  = (v,i) => slots5[i]?.endsWith(':00')  ? slots5[i]  : null;
-  const xTick30 = (v,i) => slots30[i]?.endsWith(':00') ? slots30[i] : null;
-
-  const tooltipLabel = c => {
-    if (c.raw === null) return null;
-    const lbl = c.dataset.label || '';
-    if (lbl.includes('Price') || lbl.includes('$')) return ` ${lbl}: $${Number(c.raw).toFixed(2)}/MWh`;
-    return ` ${lbl}: ${fmt(c.raw,0)} MW`;
-  };
-
-  // ── Price chart ─────────────────────────────────────────────────────────────
-  destroyChart('dm1Price');
-  const pCtx = document.getElementById('dm1PriceChart');
-  if (pCtx) {
-    const pDatasets = [];
-    for (const r of activeRegions) {
-      const color = REGION_COLORS[r];
-      const pm = {};
-      (yest.prices[r] || []).forEach(p => { pm[p.interval] = p.rrp; });
-      pDatasets.push({
-        label: isNEM ? REGION_SHORT[r] : 'Price',
-        data: slots30.map(l => pm[l] ?? null),
-        borderColor: color, backgroundColor: 'transparent',
-        borderWidth: isNEM ? 1.5 : 2, pointRadius: 0, tension: 0.2, spanGaps: false,
-      });
-    }
-    charts.dm1Price = new Chart(pCtx, {
-      type: 'line', data: { labels: slots30, datasets: pDatasets },
-      options: { ...CHART_DEFAULTS,
-        plugins: { ...CHART_DEFAULTS.plugins,
-          legend: { display: isNEM, labels:{color:'#94a3b8',font:{family:'Space Mono',size:9},boxWidth:10,padding:6} },
           tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw !== null,
             callbacks: { label: tooltipLabel } }
         },

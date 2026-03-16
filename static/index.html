@@ -782,8 +782,8 @@ function drawGenChart(data) {
         for (const r of activeRegions) total += histLookup[r]?.[l]?.[fuel] || 0;
         return Math.round(total);
       }),
-      backgroundColor: color + '44', borderColor: color,
-      borderWidth: 1, fill: true, pointRadius: 0,
+      backgroundColor: color + 'cc', borderColor: color,
+      borderWidth: 0.5, fill: true, pointRadius: 0,
       tension: 0.2, stack: 'actual', spanGaps: false, yAxisID: 'y', order: 1,
     };
   });
@@ -903,10 +903,10 @@ function drawGenChart(data) {
              ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
                callback:(v,i) => allSlots[i]?.endsWith(':00') ? allSlots[i] : null },
              grid:{color:'#1e2d4544'} },
-        y: { stacked: true,
-             ticks:{ color:'#94a3b8', font:{family:'Space Mono',size:10},
-                     callback: v => (v/1000).toFixed(1)+'GW' },
-             grid:{color:'#1e2d45'} },
+        y: { stacked: true, min: 0,
+             ticks: { color:'#64748b', font:{family:'Space Mono',size:9} },
+             grid: { color:'#1e293b' },
+             title: { display:true, text:'MW', color:'#64748b', font:{family:'Space Mono',size:9} } },
 
       }
     },

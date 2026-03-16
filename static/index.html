@@ -3299,32 +3299,23 @@ function toggleWeekRenewFuel(fuel) {
 // ── Weather forecast table ────────────────────────────────────────────────────
 
 function tempColour(t, type) {
-  // type: 'max' or 'min' — returns a background colour string
-  if (t === null || t === undefined) return 'transparent';
+  // Returns [bgColour, textColour] pair
+  if (t === null || t === undefined) return ['transparent', '#94a3b8'];
   if (type === 'max') {
-    if (t >= 40) return '#7f1d1d';
-    if (t >= 37) return '#991b1b';
-    if (t >= 34) return '#b91c1c';
-    if (t >= 31) return '#dc2626';
-    if (t >= 28) return '#f97316';
-    if (t >= 25) return '#fb923c';
-    if (t >= 22) return '#fbbf24';
-    if (t >= 18) return '#a3e635';
-    if (t >= 14) return '#4ade80';
-    return '#34d399';
+    if (t >= 35) return ['#dc2626', '#fecaca'];  // red
+    if (t >= 30) return ['#f97316', '#1e293b'];  // orange
+    if (t < 15)  return ['#3b82f6', '#bfdbfe'];  // blue
+    return ['transparent', '#94a3b8'];            // no colour 15–30
   } else {
-    if (t >= 25) return '#dc2626';
-    if (t >= 20) return '#f97316';
-    if (t >= 16) return '#fbbf24';
-    if (t >= 12) return '#a3e635';
-    if (t >= 8)  return '#4ade80';
-    if (t >= 4)  return '#34d399';
-    return '#67e8f9';
+    if (t >= 20) return ['#dc2626', '#fecaca'];  // red
+    if (t >= 17) return ['#f97316', '#1e293b'];  // orange
+    if (t < 10)  return ['#3b82f6', '#bfdbfe'];  // blue
+    return ['transparent', '#94a3b8'];            // no colour 10–17
   }
 }
 
 function renderWeatherTable(weather) {
-  const regions = ['QLD1','NSW1','VIC1','SA1','TAS1'];
+  const regions = ['QLD1','NSW1','VIC1','SA1'];
   const REGION_LABEL = {QLD1:'QLD',NSW1:'NSW',VIC1:'VIC',SA1:'SA',TAS1:'TAS'};
 
   // Get days from first available region
@@ -3370,12 +3361,10 @@ function renderWeatherTable(weather) {
       t += `<td style="${labelCellStyle}">${rData.name}</td>`;
       for (const d of days) {
         const val = type === 'max' ? d.temp_max : d.temp_min;
-        const bg  = tempColour(val, type);
-        // Determine text colour based on background brightness
-        const darkBg = ['#7f1d1d','#991b1b','#b91c1c','#dc2626'].includes(bg);
-        const textCol = darkBg ? '#fca5a5' : '#1e293b';
-        t += `<td style="${cellStyle}background:${bg};color:${textCol};border-radius:3px;">
-          ${val !== null && val !== undefined ? val : '—'}
+        const [bg, textCol] = tempColour(val, type);
+        const hasBg = bg !== 'transparent';
+        t += `<td style="${cellStyle}background:${bg};color:${textCol};border-radius:${hasBg?'3px':'0'};font-weight:${hasBg?'700':'400'}">
+          ${val !== null && val !== undefined ? val + '°' : '—'}
         </td>`;
       }
       t += '</tr>';
@@ -3402,8 +3391,12 @@ function renderDayAhead(data) {
   html += '<div style="font-size:10px;color:#475569;padding:0 16px 8px;font-family:var(--font-mono)">All data is predispatch forecast · dashed lines</div>';
 
   // ── Weather forecast ─────────────────────────────────────────────────────────
-  const weather = (slowData && slowData.weather) || {};
-  html += renderWeatherTable(weather);
+  try {
+    const weather = (slowData && slowData.weather) || {};
+    html += renderWeatherTable(weather);
+  } catch(e) {
+    console.warn('Weather render error:', e);
+  }
 
   // Region filter pills — single set controlling all charts
   html += '<div class="region-pills">';

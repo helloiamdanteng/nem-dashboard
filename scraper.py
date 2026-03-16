@@ -986,7 +986,7 @@ def scrape_predispatch_demand(text: str) -> dict:
                 demand = round(float(demand_str), 1)
                 # DATETIME is end-of-interval; shift back 30min for display
                 dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                if dt.date() == today and dt >= now_aest - timedelta(minutes=30):
+                if dt.date() == today and dt > now_aest:
                     region_series[region][dt.strftime("%H:%M")] = demand
             except (ValueError, TypeError):
                 pass

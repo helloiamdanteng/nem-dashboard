@@ -858,7 +858,6 @@ function drawGenChart(data) {
   const demPdDataset = {
     label: 'Demand forecast',
     data: allSlots.map((l, i) => {
-      if (i === lastDemSlotIdx) return demValMap[l] ?? null;
       if (i > lastDemSlotIdx && pdValMap[l] !== undefined) return pdValMap[l];
       return null;
     }),
@@ -3722,14 +3721,7 @@ function renderPanel(panel, data) {
 
 // ── About ─────────────────────────────────────────────────────────────────────
 
-async function renderAbout(data) {
-  // Fetch/increment view counter
-  let views = {total:0, today:0};
-  try {
-    const r = await fetch('/api/views', {method:'POST'});
-    if (r.ok) views = await r.json();
-  } catch(e) {}
-
+function renderAbout(data) {
   return `
   <div class="section-title" style="margin-bottom:14px">About</div>
 
@@ -3782,31 +3774,7 @@ async function renderAbout(data) {
     </div>
   </div>
 
-  <div style="margin-top:16px;margin-bottom:8px;font-family:var(--font-mono);font-size:9px;color:var(--text-muted);letter-spacing:0.05em">DASHBOARD USAGE</div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-    <div class="chart-card" style="text-align:center;padding:14px 8px">
-      <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-bottom:4px">TOTAL VIEWS</div>
-      <div style="font-family:var(--font-mono);font-size:22px;font-weight:700;color:var(--accent)">${views.total.toLocaleString()}</div>
-    </div>
-    <div class="chart-card" style="text-align:center;padding:14px 8px">
-      <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-bottom:4px">THIS MONTH</div>
-      <div style="font-family:var(--font-mono);font-size:22px;font-weight:700;color:#2ed573">${(views.this_month||0).toLocaleString()}</div>
-    </div>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px">
-    <div class="chart-card" style="text-align:center;padding:14px 8px">
-      <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-bottom:4px">TODAY</div>
-      <div style="font-family:var(--font-mono);font-size:20px;font-weight:700;color:#f39c12">${(views.today||0).toLocaleString()}</div>
-    </div>
-    <div class="chart-card" style="text-align:center;padding:14px 8px">
-      <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-bottom:4px">UNIQUE TOTAL</div>
-      <div style="font-family:var(--font-mono);font-size:20px;font-weight:700;color:#a855f7">${(views.unique_total||0).toLocaleString()}</div>
-    </div>
-    <div class="chart-card" style="text-align:center;padding:14px 8px">
-      <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-bottom:4px">UNIQUE / MTH</div>
-      <div style="font-family:var(--font-mono);font-size:20px;font-weight:700;color:#38bdf8">${(views.unique_month||0).toLocaleString()}</div>
-    </div>
-  </div>`;
+  `;
 }
 
 // ── Data fetching ─────────────────────────────────────────────────────────────

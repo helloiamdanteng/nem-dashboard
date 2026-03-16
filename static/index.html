@@ -690,7 +690,7 @@ function drawGenChart(data) {
         scales: {
           x: { stacked: true, grid: { display: false },
                ticks: { color: '#64748b', font: { family: 'Space Mono', size: 9 } } },
-          y: { stacked: true, min: 0,
+          y: { stacked: true,
                ticks: { color:'#64748b', font:{family:'Space Mono',size:9} },
                grid: { color:'#1e293b' },
                title: { display:true, text:'MW', color:'#64748b', font:{family:'Space Mono',size:9} } }
@@ -1319,7 +1319,7 @@ function drawRenewablesChart(data) {
           },
           grid: { color:'#1e293b' }
         },
-        y: { stacked: true, min: 0,
+        y: { stacked: true,
           ticks: { color:'#64748b', font:{family:'Space Mono',size:9} },
           grid: { color:'#1e293b' },
           title: { display:true, text:'MW', color:'#64748b', font:{family:'Space Mono',size:9} }
@@ -1868,7 +1868,7 @@ function _drawOriginPortfolioChart(stationMap, fc) {
           },
           grid:{color:'#1e2d4522'}
         },
-        y:{stacked:true,min:0,ticks:{color:'#94a3b8',font:{family:'Space Mono',size:10},callback:v=>fmt(v)},grid:{color:'#1e2d45'}},
+        y:{ stacked:true, ticks:{color:'#64748b',font:{family:'Space Mono',size:9}}, grid:{color:'#1e293b'}, title:{display:true,text:'MW',color:'#64748b',font:{family:'Space Mono',size:9}} },
         yPrice: hasPrices ? {
           type:'linear', position:'right',
           ticks:{color:'#f39c12', font:{family:'Space Mono',size:9}, callback:v=>'$'+v.toFixed(0)},
@@ -2828,7 +2828,7 @@ function drawBatteryCharts(data) {
            ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
              callback:(v,i) => allSlots[i]?.endsWith(':00') ? allSlots[i] : null },
            grid:{color:'#1e2d4544'} },
-      y: { stacked: true, min: 0,
+      y: { stacked: true,
            ticks: { color:'#64748b', font:{family:'Space Mono',size:9} },
            grid: { color:'#1e293b' },
            title: { display:true, text:'MW', color:'#64748b', font:{family:'Space Mono',size:9} } },
@@ -2897,7 +2897,7 @@ function drawBatteryCharts(data) {
                ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
                  callback:(v,i) => allSlots[i]?.endsWith(':00') ? allSlots[i] : null },
                grid:{color:'#1e2d4544'} },
-          y: { stacked: true, min: 0,
+          y: { stacked: true,
                ticks: { color:'#64748b', font:{family:'Space Mono',size:9} },
                grid: { color:'#1e293b' },
                title: { display:true, text:'MWh', color:'#64748b', font:{family:'Space Mono',size:9} } }

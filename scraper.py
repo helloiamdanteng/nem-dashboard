@@ -2440,49 +2440,64 @@ BOM_STATIONS = {
     "SA1":  {"name": "Adelaide (West Terrace)","geohash": "r1f91f"},
 }
 
-def scrape_bom_weather() -> dict:
-    """
-    Fetch 7-day daily forecasts from BOM's public API for each NEM region station.
-    Returns { region: { name, days: [{date, day_of_week, temp_max, temp_min, short_text, rain_chance}] } }
-    BOM API: https://api.weather.bom.gov.au/v1/locations/{geohash}/forecasts/daily
-    """
+def _fetch_bom_station(region: str, station: dict) -> tuple:
+    """Fetch BOM forecast for a single station. Returns (region, result_dict)."""
     import requests as req
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; NEM-Dashboard/1.0)",
         "Accept": "application/json",
         "Referer": "https://www.bom.gov.au/",
     }
+    url = f"https://api.weather.bom.gov.au/v1/locations/{station['geohash']}/forecasts/daily"
+    try:
+        r = req.get(url, headers=headers, timeout=8)
+        r.raise_for_status()
+        data = r.json().get("data", [])
+        days = []
+        for day in data:
+            date_str = day.get("date", "")[:10]
+            try:
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                dow = dt.strftime("%a")
+                date_label = dt.strftime("%-d %b")
+            except ValueError:
+                dow = ""; date_label = date_str
+            days.append({
+                "date":        date_str,
+                "day_of_week": dow,
+                "date_label":  date_label,
+                "temp_max":    day.get("temp_max"),
+                "temp_min":    day.get("temp_min"),
+                "short_text":  day.get("short_text", ""),
+                "rain_chance": day.get("rain", {}).get("chance"),
+            })
+        logger.info(f"BOM weather {region} ({station['name']}): {len(days)} days")
+        return region, {"name": station["name"], "days": days}
+    except Exception as e:
+        logger.warning(f"BOM weather fetch failed for {region}: {e}")
+        return region, {"name": station["name"], "days": []}
+
+
+def scrape_bom_weather() -> dict:
+    """
+    Fetch 7-day daily forecasts from BOM in parallel (one request per NEM region station).
+    Returns { region: { name, days: [{date, day_of_week, temp_max, temp_min, short_text, rain_chance}] } }
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     result = {}
-    for region, station in BOM_STATIONS.items():
-        url = f"https://api.weather.bom.gov.au/v1/locations/{station['geohash']}/forecasts/daily"
-        try:
-            r = req.get(url, headers=headers, timeout=10)
-            r.raise_for_status()
-            data = r.json().get("data", [])
-            days = []
-            for day in data:
-                date_str = day.get("date", "")[:10]   # "YYYY-MM-DD"
-                try:
-                    dt = datetime.strptime(date_str, "%Y-%m-%d")
-                    dow = dt.strftime("%a")            # "Mon", "Tue" …
-                    date_label = dt.strftime("%-d %b") # "16 Mar"
-                except ValueError:
-                    dow = ""
-                    date_label = date_str
-                days.append({
-                    "date":        date_str,
-                    "day_of_week": dow,
-                    "date_label":  date_label,
-                    "temp_max":    day.get("temp_max"),
-                    "temp_min":    day.get("temp_min"),
-                    "short_text":  day.get("short_text", ""),
-                    "rain_chance": day.get("rain", {}).get("chance"),
-                })
-            result[region] = {"name": station["name"], "days": days}
-            logger.info(f"BOM weather {region} ({station['name']}): {len(days)} days")
-        except Exception as e:
-            logger.warning(f"BOM weather fetch failed for {region}: {e}")
-            result[region] = {"name": station["name"], "days": []}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {
+            pool.submit(_fetch_bom_station, region, station): region
+            for region, station in BOM_STATIONS.items()
+        }
+        for future in as_completed(futures, timeout=15):
+            try:
+                region, data = future.result()
+                result[region] = data
+            except Exception as e:
+                region = futures[future]
+                logger.warning(f"BOM weather future failed for {region}: {e}")
+                result[region] = {"name": BOM_STATIONS[region]["name"], "days": []}
     return result
 
 

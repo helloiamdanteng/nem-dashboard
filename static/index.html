@@ -730,12 +730,14 @@ function drawGenChart(data) {
 
   // BDU (battery) history for charging as negative area
   const bduHist = data.bdu_history || {};
-  const bduLookup = {};
+  const bduLookup  = {};  // battery charging load
+  const pumpLookup = {};  // pump hydro load
   for (const r of activeRegions) {
-    bduLookup[r] = {};
+    bduLookup[r]  = {};
+    pumpLookup[r] = {};
     for (const pt of (bduHist[r] || [])) {
-      // load = charging MW (positive value), we'll negate it for display
-      if (pt.load !== undefined) bduLookup[r][pt.interval] = pt.load;
+      if (pt.load      !== undefined) bduLookup[r][pt.interval]  = pt.load;
+      if (pt.pump_load !== undefined) pumpLookup[r][pt.interval] = pt.pump_load;
     }
   }
 
@@ -751,7 +753,14 @@ function drawGenChart(data) {
     const hasData = activeRegions.some(r => bduLookup[r]?.[slot] !== undefined);
     if (!hasData) continue;
     const total = activeRegions.reduce((s,r) => s + (bduLookup[r]?.[slot] ?? 0), 0);
-    if (total > 0) battChargeMap[slot] = -Math.round(total); // negative for charging
+    if (total > 0) battChargeMap[slot] = -Math.round(total);
+  }
+  const pumpChargeMap = {};
+  for (const slot of allSlots) {
+    const hasData = activeRegions.some(r => pumpLookup[r]?.[slot] !== undefined);
+    if (!hasData) continue;
+    const total = activeRegions.reduce((s,r) => s + (pumpLookup[r]?.[slot] ?? 0), 0);
+    if (total > 0) pumpChargeMap[slot] = -Math.round(total);
   }
 
   const activeFuels = fuelOrderFiltered.filter(fuel =>
@@ -801,23 +810,21 @@ function drawGenChart(data) {
       if (!hasActual) return null;
       return battChargeMap[l] ?? null;  // null when no charging (not 0)
     }),
-    backgroundColor: '#38bdf855', borderColor: '#38bdf8',
+    backgroundColor: '#a855f755', borderColor: '#a855f7',
     borderWidth: 0.5, fill: 'origin', pointRadius: 0,
     tension: 0.2, stack: 'negative', spanGaps: false, yAxisID: 'y', order: 1,
   };
 
-  // Pump hydro load (negative — stored as 'Pump Hydro' key in fuel history)
+  // Pump hydro load (negative — from bdu_history pump_load field, same 5-min resolution as battery)
   const pumpHydroDataset = {
     label: 'Pump Hydro',
     data: allSlots.map(l => {
-      const hasData = activeRegions.some(r => histLookup[r]?.[l]);
-      if (!hasData) return null;
-      let total = 0;
-      for (const r of activeRegions) total += histLookup[r]?.[l]?.['Pump Hydro'] || 0;
-      return total < -1 ? Math.round(total) : null;
+      const hasActual = activeRegions.some(r => histLookup[r]?.[l]);
+      if (!hasActual) return null;
+      return pumpChargeMap[l] ?? null;
     }),
-    backgroundColor: '#22d3ee44', borderColor: '#22d3ee',
-    borderWidth: 0.5, fill: 'origin', pointRadius: 0,
+    backgroundColor: '#06b6d455', borderColor: '#06b6d4',
+    borderWidth: 1, fill: 'origin', pointRadius: 0,
     tension: 0.2, stack: 'negative', spanGaps: false, yAxisID: 'y', order: 1,
   };
 
@@ -843,9 +850,9 @@ function drawGenChart(data) {
     label: 'Demand + NonSched',
     data: allSlots.map((l, i) => i <= lastDemSlotIdx ? (demValMap[l] ?? null) : null),
     borderColor: '#ffffff', backgroundColor: 'transparent',
-    borderWidth: 2.5, pointRadius: 0, tension: 0.2,
-    spanGaps: false, fill: false, yAxisID: 'yDem', order: -1,
-    borderDash: [],
+    borderWidth: 2, pointRadius: 0, tension: 0.2,
+    spanGaps: false, fill: false, yAxisID: 'y', order: -1,
+    borderDash: [3, 3],
   };
 
   const demPdDataset = {
@@ -855,9 +862,9 @@ function drawGenChart(data) {
       if (i > lastDemSlotIdx && pdValMap[l] !== undefined) return pdValMap[l];
       return null;
     }),
-    borderColor: '#ffffffaa', backgroundColor: 'transparent',
+    borderColor: '#ffffff66', backgroundColor: 'transparent',
     borderWidth: 1.5, pointRadius: 0, tension: 0.2,
-    spanGaps: true, fill: false, yAxisID: 'yDem', order: -1,
+    spanGaps: true, fill: false, yAxisID: 'y', order: -1,
     borderDash: [6, 4],
   };
 
@@ -899,10 +906,7 @@ function drawGenChart(data) {
              ticks:{ color:'#94a3b8', font:{family:'Space Mono',size:10},
                      callback: v => (v/1000).toFixed(1)+'GW' },
              grid:{color:'#1e2d45'} },
-        yDem: { type: 'linear', position: 'right', min: 0,
-                ticks: { color:'#94a3b8', font:{family:'Space Mono',size:10},
-                         callback: v => (v/1000).toFixed(1)+'GW' },
-                grid: { drawOnChartArea: false } }
+
       }
     },
     plugins: [nowLinePlugin(nowIdx)]

@@ -1848,6 +1848,46 @@ def _fetch_full_scada() -> dict:
     return result
 
 
+ROOFTOP_PV_URL = f"{NEMWEB_BASE}/Reports/CURRENT/ROOFTOP_PV/ACTUAL/"
+
+def _scrape_rooftop_pv_latest() -> dict:
+    """
+    Fetch the latest ROOFTOP_PV_ACTUAL file and return { regionid: mw }.
+    Published every 30 min with 30-min actuals by state.
+    Table: ROOFTOP_PV,ACTUAL  Cols: INTERVAL_DATETIME, REGIONID, POWER, QI
+    """
+    try:
+        url = get_latest_file_url(ROOFTOP_PV_URL, "PUBLIC_ROOFTOP_PV_ACTUAL")
+        if not url:
+            return {}
+        text = _read_zip(url)
+        if not text:
+            return {}
+        # Take latest interval per region (file may have multiple 30-min rows)
+        result = {}
+        latest_dt = {}
+        for row in _parse_aemo(text, "ROOFTOP_PV_ACTUAL"):
+            region = row.get("REGIONID", "").strip().upper()
+            if region not in NEM_REGIONS:
+                continue
+            dt_str  = row.get("INTERVAL_DATETIME", "")
+            power_str = row.get("POWER", "")
+            try:
+                mw = round(float(power_str), 1)
+                if mw < 0:
+                    continue
+                if dt_str > latest_dt.get(region, ""):
+                    latest_dt[region] = dt_str
+                    result[region] = mw
+            except (ValueError, TypeError):
+                pass
+        logger.info(f"Rooftop PV actual: {result}")
+        return result
+    except Exception as e:
+        logger.warning(f"Rooftop PV fetch failed: {e}")
+        return {}
+
+
 # ---------------------------------------------------------------------------
 # ST PASA — 7-day ahead regional demand forecast
 # ---------------------------------------------------------------------------
@@ -2205,23 +2245,11 @@ def scrape_gen() -> dict:
         logger.info(f"scrape_gen: {len(unmatched_log)} SCADA DUIDs region-inferred (no registry entry): "
                     + ", ".join(f"{d}={mw:.0f}MW" for d, mw in top if mw and mw > 1))
 
-    # Add Rooftop Solar (non-scheduled, embedded in demand) from SS_SOLAR_CLEAREDMW
-    # Note: true rooftop solar is not published separately in DispatchIS.
-    # We use SS_SOLAR_CLEAREDMW as a proxy (utility-scale semi-scheduled solar).
-    for row in _parse_aemo(dispatch_text, "DISPATCH_REGIONSUM"):
-        region = row.get("REGIONID", "").strip()
-        if region not in NEM_REGIONS:
-            continue
-        if row.get("INTERVENTION", "0") not in ("0", ""):
-            continue
-        solar_str = row.get("SS_SOLAR_CLEAREDMW", "")
-        if solar_str:
-            try:
-                solar = round(float(solar_str), 1)
-                if solar > 0:
-                    fuel_mix[region]["Rooftop Solar"] = solar
-            except (ValueError, TypeError):
-                pass
+    # Add real Rooftop Solar from AEMO ROOFTOP_PV/ACTUAL — 30-min intervals by state
+    rooftop_pv = _scrape_rooftop_pv_latest()
+    for region, mw in rooftop_pv.items():
+        if mw > 0:
+            fuel_mix[region]["Rooftop Solar"] = mw
 
     # Accumulate into in-memory history
     _update_fuel_history(fuel_mix, scada, pump_load)

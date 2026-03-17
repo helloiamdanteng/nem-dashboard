@@ -1816,7 +1816,7 @@ function _drawOriginPortfolioChart(stationMap, fc) {
     return {
       label: s.name,
       data: allSlots.map(t => s.histMap[t] ?? null),
-      backgroundColor: col + 'cc',
+      backgroundColor: col + 'ee',
       borderColor: col,
       borderWidth: 0.5,
       fill: true,
@@ -1846,14 +1846,14 @@ function _drawOriginPortfolioChart(stationMap, fc) {
         if (t === nowStr && live !== undefined) return live;
         return null;
       }),
-      borderColor: '#f39c12', backgroundColor: 'transparent',
+      borderColor: '#ffffff', backgroundColor: 'transparent',
       borderWidth: 1, pointRadius: 0, tension: 0.2,
       spanGaps: true, fill: false, yAxisID: 'yPrice', order: 1,
     });
     priceDatasets.push({
       label: 'Price (forecast)',
       data: allSlots.map(t => pdMap[t] !== undefined ? pdMap[t] : null),
-      borderColor: '#f39c12', backgroundColor: 'transparent',
+      borderColor: '#ffffff', backgroundColor: 'transparent',
       borderWidth: 1, borderDash: [5,4], pointRadius: 0, tension: 0.2,
       spanGaps: true, fill: false, yAxisID: 'yPrice', order: 1,
     });
@@ -1894,9 +1894,9 @@ function _drawOriginPortfolioChart(stationMap, fc) {
         y:{ stacked:true, ticks:{color:'#64748b',font:{family:'Space Mono',size:9}}, grid:{color:'#1e293b'}, title:{display:true,text:'MW',color:'#64748b',font:{family:'Space Mono',size:9}} },
         yPrice: hasPrices ? {
           type:'linear', position:'right',
-          ticks:{color:'#f39c12', font:{family:'Space Mono',size:9}, callback:v=>'$'+v.toFixed(0)},
+          ticks:{color:'#ffffff', font:{family:'Space Mono',size:9}, callback:v=>'$'+v.toFixed(0)},
           grid:{drawOnChartArea:false},
-          title:{display:true, text:'$/MWh', color:'#f39c12', font:{size:9}}
+          title:{display:true, text:'$/MWh', color:'#ffffff', font:{size:9}}
         } : {display:false}
       }
     },

@@ -1902,7 +1902,7 @@
     "capacity": 180
   },
   "SHPUMP": {
-    "station": "Shoalhaven",
+    "station": "Shoalhaven Pump",
     "fuel": "Hydro",
     "region": "NSW1",
     "capacity": 240
@@ -1942,5 +1942,11 @@
     "fuel": "Hydro",
     "region": "NSW1",
     "capacity": 250
+  },
+  "ERGT1": {
+    "station": "Eraring",
+    "fuel": "Liquid",
+    "region": "NSW1",
+    "capacity": 50
   }
 }

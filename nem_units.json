@@ -137,18 +137,6 @@
     "region": "TAS1",
     "station": "Brinbeal Wind"
   },
-  "BUNGWF1": {
-    "capacity": 110,
-    "fuel": "Solar",
-    "region": "SA1",
-    "station": "Bungala Solar 1"
-  },
-  "BUNGWF2": {
-    "capacity": 110,
-    "fuel": "Solar",
-    "region": "SA1",
-    "station": "Bungala Solar 2"
-  },
   "BW01": {
     "capacity": 660,
     "fuel": "Black Coal",
@@ -953,18 +941,6 @@
     "region": "VIC1",
     "station": "Moorabool Solar"
   },
-  "MORTLK1": {
-    "capacity": 282,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Mortlake"
-  },
-  "MORTLK2": {
-    "capacity": 282,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Mortlake"
-  },
   "MP1": {
     "capacity": 700,
     "fuel": "Black Coal",
@@ -1270,18 +1246,6 @@
     "fuel": "Gas",
     "region": "SA1",
     "station": "Snapper Point"
-  },
-  "SNOWSF1": {
-    "station": "Snowtown North",
-    "fuel": "Wind",
-    "region": "SA1",
-    "capacity": 100
-  },
-  "SNOWTWN1": {
-    "station": "Snowtown South",
-    "fuel": "Wind",
-    "region": "SA1",
-    "capacity": 270
   },
   "SNUGGERY1": {
     "capacity": 72,
@@ -1859,18 +1823,6 @@
     "region": "QLD1",
     "capacity": 150
   },
-  "SNBESS1": {
-    "station": "Supernode Battery 1",
-    "fuel": "Battery",
-    "region": "QLD1",
-    "capacity": 260
-  },
-  "SNBESS2": {
-    "station": "Supernode Battery 1",
-    "fuel": "Battery",
-    "region": "QLD1",
-    "capacity": 260
-  },
   "MOREESF1": {
     "station": "Moree Solar Farm",
     "fuel": "Solar",
@@ -1931,12 +1883,6 @@
     "region": "NSW1",
     "capacity": 250
   },
-  "ERGT1": {
-    "station": "Eraring",
-    "fuel": "Liquid",
-    "region": "NSW1",
-    "capacity": 50
-  },
   "URANQ11": {
     "station": "Uranquinty",
     "fuel": "Gas",
@@ -1966,5 +1912,41 @@
     "fuel": "Battery",
     "region": "NSW1",
     "capacity": 460
+  },
+  "SNB01": {
+    "station": "Supernode Battery",
+    "fuel": "Battery",
+    "region": "QLD1",
+    "capacity": 520
+  },
+  "ERGT01": {
+    "station": "Eraring",
+    "fuel": "Liquid",
+    "region": "NSW1",
+    "capacity": 50
+  },
+  "MORTLK11": {
+    "station": "Mortlake",
+    "fuel": "Gas",
+    "region": "VIC1",
+    "capacity": 282
+  },
+  "MORTLK12": {
+    "station": "Mortlake",
+    "fuel": "Gas",
+    "region": "VIC1",
+    "capacity": 282
+  },
+  "BNGSF1": {
+    "station": "Bungala Solar 1",
+    "fuel": "Solar",
+    "region": "SA1",
+    "capacity": 110
+  },
+  "BNGSF2": {
+    "station": "Bungala Solar 2",
+    "fuel": "Solar",
+    "region": "SA1",
+    "capacity": 110
   }
 }

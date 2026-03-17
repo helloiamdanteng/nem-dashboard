@@ -1937,13 +1937,14 @@ async function openOriginStationModal(stnName) {
   }
   const allLabels = allSlots.filter(s => s <= lastSlot);
 
-  // Price maps
-  const livePrices = (window.latestData?.prices) || {};
-  const histPrices = (window.latestData?.hist_prices?.[region]) || (window.latestData?.history?.[region]) || [];
-  const histPriceMap = {};
-  (window.latestData?.hist_prices?.[region] || []).forEach(p => { histPriceMap[p.interval] = p.rrp; });
-  const pdPriceMap = {};
-  (window.latestData?.pd_prices?.[region] || []).forEach(p => { if (p.interval > lastSlot) pdPriceMap[p.interval] = p.rrp; });
+  // Price maps — same pattern as DUIDs modal
+  const pdPricesArr   = (latestData?.predispatch_prices || {})[region] || [];
+  const histPricesArr = (latestData?.historical_prices  || {})[region] || [];
+  const livePrices    = latestData?.prices || {};
+  const pdPriceMap    = {};
+  for (const pt of pdPricesArr)   pdPriceMap[pt.interval]  = pt.rrp;
+  const histPriceMap  = {};
+  for (const pt of histPricesArr) histPriceMap[pt.interval] = pt.rrp;
 
   const nowStr = nowAEST();
   const nowIdx = allLabels.reduce((best,l,i) => l<=nowStr ? i : best, -1);
@@ -2087,6 +2088,20 @@ async function openOriginStationModal(stnName) {
   document.getElementById('stationModalStats').innerHTML = statsHtml;
 }
 
+
+// ── Station registries & modal state ─────────────────────────────────────────
+const _stationRegistry = {};       // index → {duids, name, fuel, region, capacity}
+let   _stationRegistryIdx = 0;
+const _battRegistry    = {};       // separate registry for battery page
+let   _stationModalChart = null;
+
+function openBattStationModal(regIdx) {
+  const entry = _battRegistry[regIdx];
+  if (!entry) return;
+  Object.keys(_stationRegistry).forEach(k => delete _stationRegistry[k]);
+  _stationRegistry[regIdx] = entry;
+  openStationModal(regIdx);
+}
 
 function closeStationModal() {
   document.getElementById('stationModal').classList.remove('open');

@@ -1877,18 +1877,6 @@
     "region": "NSW1",
     "capacity": 56
   },
-  "ERABESS1": {
-    "station": "Eraring Battery",
-    "fuel": "Battery",
-    "region": "NSW1",
-    "capacity": 460
-  },
-  "ERABESS2": {
-    "station": "Eraring Battery",
-    "fuel": "Battery",
-    "region": "NSW1",
-    "capacity": 460
-  },
   "STOCKYD1": {
     "station": "Stockyard Hill",
     "fuel": "Wind",
@@ -1948,5 +1936,35 @@
     "fuel": "Liquid",
     "region": "NSW1",
     "capacity": 50
+  },
+  "EB01": {
+    "station": "Eraring Battery",
+    "fuel": "Battery",
+    "region": "NSW1",
+    "capacity": 460
+  },
+  "URANQ11": {
+    "station": "Uranquinty",
+    "fuel": "Gas",
+    "region": "NSW1",
+    "capacity": 160
+  },
+  "URANQ12": {
+    "station": "Uranquinty",
+    "fuel": "Gas",
+    "region": "NSW1",
+    "capacity": 160
+  },
+  "URANQ13": {
+    "station": "Uranquinty",
+    "fuel": "Gas",
+    "region": "NSW1",
+    "capacity": 160
+  },
+  "URANQ14": {
+    "station": "Uranquinty",
+    "fuel": "Gas",
+    "region": "NSW1",
+    "capacity": 160
   }
 }

@@ -362,10 +362,11 @@ ORIGIN_DUIDS: set = {
     # NSW
     "ER01", "ER02", "ER03", "ER04",
     "URANQ1", "URANQ2", "URANQ3", "URANQ4",
+    "URANQ11", "URANQ12", "URANQ13", "URANQ14",  # aliases used in some AEMO files
     "SHGEN", "SHPUMP",
     "MOREESF1", "GUNNING1",
     "ERGT1",
-    "ERABESS1", "ERABESS2",
+    "EB01",
     # VIC
     "MORTLK1", "MORTLK2",
     "STOCKYD1",
@@ -388,8 +389,7 @@ ORIGIN_DISPLAY_NAMES: dict = {
     "BUNGWF1":  "Bungala Solar",
     "BUNGWF2":  "Bungala Solar",
     "GUNNING1": "Gunning Wind Farm",
-    "ERABESS1": "Eraring Battery",   # keep consistent cap (460→230 handled in display)
-    "ERABESS2": "Eraring Battery",
+    "EB01":     "Eraring Battery",
     "SHPUMP":   "Shoalhaven Pump",
     "ERGT1":    "Eraring",
 }

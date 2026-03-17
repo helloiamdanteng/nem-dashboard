@@ -371,18 +371,18 @@ ORIGIN_DUIDS: set = {
     "MORTLK11", "MORTLK12",
     "STOCKYD1",
     # SA
-    "OSBORNE1", "OSBORNPS",
-    "QPSCL1", "QPSCL2", "QPSCL3", "QPSCL4",
-    "LBBG1",
+    "OSB-AG",
+    "QPS1", "QPS2", "QPS3", "QPS4", "QPS5",
+    "LADBROK1", "LADBROK2",
     "BNGSF1", "BNGSF2",
+    "SNOWNTH1", "SNOWSTH1",
 }
 
 # Display name overrides — maps DUID → display station name shown on Origin page.
 # Only needed where AEMO's registered name differs from what Origin calls it.
 ORIGIN_DISPLAY_NAMES: dict = {
     "SNB01":    "Supernode Battery",
-    "OSBORNE1": "Osborne Cogen",
-    "OSBORNPS": "Osborne Cogen",
+    "OSB-AG":   "Osborne Cogen",
     "ROMA_7":   "Roma Gas",
     "BNGSF1":   "Bungala Solar 1",
     "BNGSF2":   "Bungala Solar 2",

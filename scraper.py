@@ -362,8 +362,9 @@ ORIGIN_DUIDS: set = {
     # NSW
     "ER01", "ER02", "ER03", "ER04",
     "URANQ1", "URANQ2", "URANQ3", "URANQ4",
-    "SHGEN", "SHNGEN",
+    "SHGEN", "SHPUMP",
     "MOREESF1", "GUNNING1",
+    "ERGT1",
     "ERABESS1", "ERABESS2",
     # VIC
     "MORTLK1", "MORTLK2",
@@ -389,6 +390,8 @@ ORIGIN_DISPLAY_NAMES: dict = {
     "GUNNING1": "Gunning Wind Farm",
     "ERABESS1": "Eraring Battery",   # keep consistent cap (460→230 handled in display)
     "ERABESS2": "Eraring Battery",
+    "SHPUMP":   "Shoalhaven Pump",
+    "ERGT1":    "Eraring",
 }
 
 

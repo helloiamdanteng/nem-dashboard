@@ -3023,7 +3023,9 @@ function renderWeekAhead(fastData) {
       html += `<button onclick="toggleWeekRenew('${r}')" style="font-family:var(--font-mono);font-size:10px;padding:4px 8px;border-radius:20px;cursor:pointer;border:1px solid ${on?color:color+'55'};background:${on?color+'22':'transparent'};color:${on?color:color+'88'}">${REGION_SHORT[r]}</button>`;
     }
     html += '</div>';
-    html += `<div style="position:relative;height:220px"><canvas id="weekRenewChart"></canvas></div></div>`;
+    html += `<div style="position:relative;height:220px"><canvas id="weekRenewChart"></canvas></div>`;
+    html += chartPills('renew', daRenewFilter);
+    html += '</div>';
   }
 
   return html;
@@ -3036,7 +3038,7 @@ const DA_DEFAULT = new Set(['QLD1','NSW1','VIC1','SA1']);
 let daPriceFilter  = new Set(DA_DEFAULT);
 let daDemandFilter = new Set(DA_DEFAULT);
 let daPasaFilter   = new Set(DA_DEFAULT);
-let daRenewFilter  = new Set(DA_DEFAULT);
+let daRenewFilter  = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
 
 // weekRenewFilter/weekRegionFilter kept in sync with daRenewFilter/daPasaFilter
 // for drawWeekCharts compatibility
@@ -3187,7 +3189,7 @@ function renderDayAhead(data) {
   // Helper: render per-chart region pills (TAS off by default)
   const chartPills = (chartId, filterVar) => {
     const allOn = REGIONS.every(r => filterVar.has(r));
-    let p = `<div class="region-pills" style="margin-bottom:6px">`;
+    let p = `<div class="region-pills" style="margin-top:6px;margin-bottom:2px">`;
     p += `<button class="region-pill ${allOn?'active':''}" style="color:#94a3b8;border-color:#94a3b8" onclick="toggleDAPills('${chartId}','NEM')" id="dap-${chartId}-NEM">NEM</button>`;
     for (const r of REGIONS) {
       const on = filterVar.has(r);
@@ -3201,15 +3203,15 @@ function renderDayAhead(data) {
   // Price chart
   html += '<div class="chart-card">';
   html += '<div class="chart-title">Price Forecast ($/MWh) — Predispatch</div>';
-  html += chartPills('price', daPriceFilter);
   html += '<div class="chart-container" style="height:220px"><canvas id="dayAheadPriceChart"></canvas></div>';
+  html += chartPills('price', daPriceFilter);
   html += '</div>';
 
   // Demand chart
   html += '<div class="chart-card" style="margin-top:12px">';
   html += '<div class="chart-title">Demand Forecast (MW) — ST PASA 50% probability</div>';
-  html += chartPills('demand', daDemandFilter);
   html += '<div class="chart-container" style="height:200px"><canvas id="dayAheadDemandChart"></canvas></div>';
+  html += chartPills('demand', daDemandFilter);
   html += '</div>';
 
   // ── Week-ahead section ────────────────────────────────────────────────────────
@@ -3222,11 +3224,11 @@ function renderDayAhead(data) {
     html += `<div class="week-chart-card" style="margin-top:8px"><div class="chart-title">7-Day Wind + Solar Forecast (ST PASA)</div><div class="spinner"><div class="spinner-icon">📡</div><br>Loading…</div></div>`;
   } else {
     html += `<div class="week-chart-card"><div class="chart-title">7-Day Demand + Non-Sched Gen — ST PASA 50%</div>`;
+    html += `<div style="position:relative;height:200px"><canvas id="weekPasaChart"></canvas></div>`;
     html += chartPills('pasa', daPasaFilter);
-    html += `<div style="position:relative;height:200px"><canvas id="weekPasaChart"></canvas></div></div>`;
+    html += '</div>';
 
     html += `<div class="week-chart-card" style="margin-top:8px"><div class="chart-title">7-Day Wind + Solar Forecast (ST PASA)</div>`;
-    html += chartPills('renew', daRenewFilter);
     html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">';
     html += '<button onclick="toggleWeekRenewFuel(\'solar\')" id="wr-solar" data-on="0" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;border:1px solid #f59e0b;background:#f59e0b33;color:#f59e0b;cursor:pointer;opacity:0.35">☀ Solar</button>';
     html += '<button onclick="toggleWeekRenewFuel(\'wind\')" id="wr-wind" data-on="1" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;border:1px solid #34d399;background:#34d39933;color:#34d399;cursor:pointer">💨 Wind</button>';
@@ -3397,7 +3399,7 @@ function drawWeekCharts(fastData) {
         },
         scales: {
           x: { ticks: { color:'#64748b', font:{family:'Space Mono',size:8}, maxTicksLimit:10, maxRotation:0, callback: xTickCb }, grid:{color:'#1e2d4544'} },
-          y: { min: 0, ticks: { color:'#94a3b8', font:{family:'Space Mono',size:10}, callback: v => fmt(v)+' MW' }, grid:{color:'#1e2d45'} }
+          y: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9}}, title:{display:true,text:'MW',color:'#64748b',font:{family:'Space Mono',size:9}}, grid:{color:'#1e293b'} }
         }
       }
     });
@@ -3461,7 +3463,7 @@ function drawWeekCharts(fastData) {
         },
         scales: {
           x: { stacked: true, ticks: { color:'#64748b', font:{family:'Space Mono',size:8}, maxTicksLimit:10, maxRotation:0, callback: xTickCb }, grid:{color:'#1e2d4544'} },
-          y: { stacked: true, min: 0, ticks: { color:'#94a3b8', font:{family:'Space Mono',size:10}, callback: v => fmt(v)+' MW' }, grid:{color:'#1e2d45'} }
+          y: { stacked: true, ticks:{color:'#64748b',font:{family:'Space Mono',size:9}}, title:{display:true,text:'MW',color:'#64748b',font:{family:'Space Mono',size:9}}, grid:{color:'#1e293b'} }
         }
       }
     });

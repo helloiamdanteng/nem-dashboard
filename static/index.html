@@ -1684,7 +1684,7 @@ function renderOrigin(data) {
       const isCharging = mw < -5;
       const isOn = mw > 5;
       const isUnknown = !mwKnown;
-      const displayCol = isCharging ? '#38bdf8' : (isOn ? fuelCol : 'var(--text-muted)');
+      const displayCol = isCharging ? '#38bdf8' : fuelCol;
       const safeName = stnName.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
 
       // In NEM mode, hide only stations confirmed near-zero (not unknown/null)
@@ -1820,8 +1820,11 @@ function _drawOriginPortfolioChart(stationMap, fc) {
   const nowStr = nowAEST();
   const nowIdx = allSlots.reduce((best,l,i) => l<=nowStr ? i : best, -1);
 
-  // Generation datasets — stacked area
-  // Count stations per fuel so we can vary brightness within each fuel group
+  // Generation datasets — dual-stack (positive above, negative below axis)
+  // Negative stations: pump hydro (SHPUMP) and battery charging
+  const NEGATIVE_STATIONS = new Set(['Shoalhaven Pump']);
+
+  // Count stations per fuel for brightness variation
   const fuelCounts = {};
   const fuelIdx    = {};
   visibleStns.forEach(s => { fuelCounts[s.fuel] = (fuelCounts[s.fuel]||0) + 1; fuelIdx[s.fuel] = 0; });
@@ -1829,22 +1832,26 @@ function _drawOriginPortfolioChart(stationMap, fc) {
   const genDatasets = visibleStns.map(s => {
     const baseCol = fc[s.fuel] || '#64748b';
     const total   = fuelCounts[s.fuel] || 1;
-    const idx     = fuelIdx[s.fuel]++;
-    // Vary brightness: lightest at 100%, darkest at 55% — spread evenly across stations
-    const brightness = total > 1 ? (1.0 - idx * 0.5 / (total - 1 || 1)) : 1.0;
-    // Parse hex and adjust
+    const i       = fuelIdx[s.fuel]++;
+    const brightness = total > 1 ? (1.0 - i * 0.5 / (total - 1 || 1)) : 1.0;
     const r = Math.round(parseInt(baseCol.slice(1,3),16) * brightness);
     const g = Math.round(parseInt(baseCol.slice(3,5),16) * brightness);
     const b = Math.round(parseInt(baseCol.slice(5,7),16) * brightness);
     const col = '#' + [r,g,b].map(v => Math.min(255,Math.max(0,v)).toString(16).padStart(2,'0')).join('');
+    const isNeg = NEGATIVE_STATIONS.has(s.name) || s.fuel === 'Battery';
     return {
       label: s.name,
-      data: allSlots.map(t => { const v = s.histMap[t]; return v !== undefined && v !== null ? Math.max(0, v) : null; }),
-      backgroundColor: col + 'bb',
+      data: allSlots.map(t => {
+        const v = s.histMap[t];
+        if (v === undefined || v === null) return null;
+        if (isNeg) return Math.min(0, v);   // battery/pump: only negative values
+        return Math.max(0, v);              // generators: only positive values
+      }),
+      backgroundColor: col + 'cc',
       borderColor: col,
       borderWidth: 0.5,
-      fill: true,
-      stack: 'stations',
+      fill: 'origin',
+      stack: isNeg ? 'neg' : 'pos',
       pointRadius: 0,
       tension: 0.2,
       spanGaps: false,

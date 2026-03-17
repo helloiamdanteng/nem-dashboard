@@ -731,12 +731,6 @@
     "region": "VIC1",
     "station": "Laverton North"
   },
-  "LBBG1": {
-    "capacity": 80,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Ladbroke Grove"
-  },
   "LD01": {
     "capacity": 500,
     "fuel": "Black Coal",
@@ -1061,18 +1055,6 @@
     "region": "VIC1",
     "station": "Oakland Hill"
   },
-  "OSBORNE1": {
-    "capacity": 180,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Osborne"
-  },
-  "OSBORNPS": {
-    "capacity": 180,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Osborne"
-  },
   "PELICAN1": {
     "capacity": 480,
     "fuel": "Gas",
@@ -1120,30 +1102,6 @@
     "fuel": "Gas",
     "region": "SA1",
     "station": "Pelican Point"
-  },
-  "QPSCL1": {
-    "capacity": 60,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Quarantine"
-  },
-  "QPSCL2": {
-    "capacity": 60,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Quarantine"
-  },
-  "QPSCL3": {
-    "capacity": 60,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Quarantine"
-  },
-  "QPSCL4": {
-    "capacity": 60,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Quarantine"
   },
   "RALPHS_BAY1": {
     "capacity": 60,
@@ -1948,5 +1906,65 @@
     "fuel": "Solar",
     "region": "SA1",
     "capacity": 110
+  },
+  "OSB-AG": {
+    "station": "Osborne Cogen",
+    "fuel": "Gas",
+    "region": "SA1",
+    "capacity": 180
+  },
+  "QPS1": {
+    "station": "Quarantine",
+    "fuel": "Gas",
+    "region": "SA1",
+    "capacity": 60
+  },
+  "QPS2": {
+    "station": "Quarantine",
+    "fuel": "Gas",
+    "region": "SA1",
+    "capacity": 60
+  },
+  "QPS3": {
+    "station": "Quarantine",
+    "fuel": "Gas",
+    "region": "SA1",
+    "capacity": 60
+  },
+  "QPS4": {
+    "station": "Quarantine",
+    "fuel": "Gas",
+    "region": "SA1",
+    "capacity": 60
+  },
+  "QPS5": {
+    "station": "Quarantine",
+    "fuel": "Gas",
+    "region": "SA1",
+    "capacity": 60
+  },
+  "LADBROK1": {
+    "station": "Ladbroke Grove",
+    "fuel": "Gas",
+    "region": "SA1",
+    "capacity": 80
+  },
+  "LADBROK2": {
+    "station": "Ladbroke Grove",
+    "fuel": "Gas",
+    "region": "SA1",
+    "capacity": 80
+  },
+  "SNOWNTH1": {
+    "station": "Snowtown 1",
+    "fuel": "Wind",
+    "region": "SA1",
+    "capacity": 99
+  },
+  "SNOWSTH1": {
+    "station": "Snowtown 2",
+    "fuel": "Wind",
+    "region": "SA1",
+    "capacity": 270
   }
 }

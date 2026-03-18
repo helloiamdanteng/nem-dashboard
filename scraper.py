@@ -2746,9 +2746,9 @@ def _safe_mtpasa_outages() -> list:
     try:
         with ThreadPoolExecutor(max_workers=1) as ex:
             fut = ex.submit(scrape_mtpasa_outages)
-            return fut.result(timeout=45)
+            return fut.result(timeout=30)
     except FuturesTimeout:
-        logger.warning("scrape_mtpasa_outages timed out after 45s — returning empty list")
+        logger.warning("scrape_mtpasa_outages timed out after 30s — returning empty list")
         return []
     except Exception as e:
         logger.warning(f"scrape_mtpasa_outages failed: {e}")
@@ -2799,7 +2799,6 @@ def scrape_slow() -> dict:
         "weather":                weather_data,
         "fuel_colors":            FUEL_COLORS,
         "all_fuels":              ALL_FUELS,
-        "mtpasa_outages":         _safe_mtpasa_outages(),
     }
 
 

@@ -1803,7 +1803,6 @@ function renderOrigin(data) {
       const s = stationMap[stnName];
       if (!s) continue;
       const mw = s.totalMw;
-      if (originHideOffline && Math.abs(mw) <= 5) continue;
       const mwKnown = s.duids.some(d => (assets[d] || {}).mw !== null && (assets[d] || {}).mw !== undefined);
       const cap = s.totalCap;
       const pct = cap > 0 ? Math.min(Math.abs(mw)/cap*100,100) : 0;
@@ -1814,8 +1813,8 @@ function renderOrigin(data) {
       const displayCol = isCharging ? '#38bdf8' : fuelCol;
       const safeName = stnName.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
 
-      // In NEM mode, hide only stations confirmed near-zero (not unknown/null)
-      if (Object.keys(ORIGIN_STATE_LABELS).every(r => originStateFilter.has(r)) && !isOn && !isCharging && mwKnown && mw <= 1) continue;
+      // Hide offline stations if toggle is on
+      if (originHideOffline && !isOn && !isCharging && mwKnown && Math.abs(mw) <= 5) continue;
 
       html += `<div onclick="openOriginStationModal('${safeName}')" style="
         background:var(--surface);
@@ -3407,8 +3406,6 @@ function renderDayAhead(data) {
     html += '<button onclick="toggleWeekRenewFuel(\'solar\')" id="wr-solar" data-on="0" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;border:1px solid #f59e0b;background:#f59e0b33;color:#f59e0b;cursor:pointer;opacity:0.35">☀ Solar</button>';
     html += '<button onclick="toggleWeekRenewFuel(\'wind\')" id="wr-wind" data-on="1" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;border:1px solid #34d399;background:#34d39933;color:#34d399;cursor:pointer">💨 Wind</button>';
     html += '</div>';
-    html += '</div>';
-    html += `<div style="position:relative;height:220px"><canvas id="weekRenewChart"></canvas></div>`;
     html += '</div>';
   }
 

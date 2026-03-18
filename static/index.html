@@ -241,6 +241,7 @@ let currentPanel = 'prices';
 let charts = {};
 let latestData = null;
 let genRegion = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']); // multi-select Set
+let genPriceFilter = new Set(); // price lines off by default
 let genShowRooftop = false;  // default: rooftop solar excluded
 let genData = null;
 let slowData = null;
@@ -586,6 +587,19 @@ function renderGeneration(data) {
   </button>`;
   html += '</div>';
 
+  // Price toggles per state
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 4px">';
+  for (const r of REGIONS) {
+    const color = REGION_COLORS[r];
+    const on = genPriceFilter.has(r);
+    html += `<button onclick="toggleGenPrice('${r}')" id="gp-${r}"
+      style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;cursor:pointer;
+      border:1px solid ${color};background:${on ? color+'33' : 'transparent'};
+      color:${on ? color : '#475569'};opacity:${on ? '1' : '0.5'}">
+      $ ${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div>';
+
   // Main 24hr chart
   html += '<div class="chart-card"><div class="chart-title">Loading…</div>';
   html += '<div class="chart-container" style="height:280px"><canvas id="fuelChart"></canvas></div>';
@@ -650,6 +664,12 @@ function toggleAllGenRegions() {
 function toggleGenRooftop() {
   genShowRooftop = !genShowRooftop;
   if (latestData) renderPanel('generation', latestData);
+}
+
+function toggleGenPrice(r) {
+  if (genPriceFilter.has(r)) { genPriceFilter.delete(r); }
+  else { genPriceFilter.add(r); }
+  if (latestData) drawGenChart(latestData);
 }
 
 function drawGenChart(data) {
@@ -903,6 +923,37 @@ function drawGenChart(data) {
   };
 
   const allDatasets = [...actualDatasets, battGenDataset, battChargeDataset, pumpHydroDataset, demActualDataset, demPdDataset];
+
+  // ── Price line datasets per region (only for toggled-on states) ──────────────
+  const priceDatasets = [];
+  if (genPriceFilter.size > 0) {
+    const histPricesMap = data.hist_prices || {};
+    const pdPricesMap   = data.pd_prices   || {};
+    const livePrices    = data.prices       || {};
+    for (const r of REGIONS) {
+      if (!genPriceFilter.has(r)) continue;
+      const color = REGION_COLORS[r];
+      const hm = {};
+      (histPricesMap[r] || []).forEach(p => { hm[p.interval] = p.rrp; });
+      const pdm = {};
+      (pdPricesMap[r] || []).forEach(p => { if (p.interval > (nowAEST()||'')) pdm[p.interval] = p.rrp; });
+      priceDatasets.push({
+        label: `${REGION_SHORT[r]} Price`,
+        data: allSlots.map(t => hm[t] ?? null),
+        borderColor: color, backgroundColor: 'transparent',
+        borderWidth: 1, pointRadius: 0, tension: 0.2,
+        spanGaps: true, fill: false, yAxisID: 'yPrice', order: 0,
+      });
+      priceDatasets.push({
+        label: `${REGION_SHORT[r]} Price (fcast)`,
+        data: allSlots.map(t => pdm[t] ?? null),
+        borderColor: color + '99', backgroundColor: 'transparent',
+        borderWidth: 1, borderDash: [4,3], pointRadius: 0, tension: 0.2,
+        spanGaps: true, fill: false, yAxisID: 'yPrice', order: 0,
+      });
+    }
+  }
+  allDatasets.push(...priceDatasets);
   const nowIdx = allSlots.findIndex(l => l >= nowAEST());
   const pdDemCount = activeRegions.reduce((s,r) => s + Object.keys(pdDemLookup[r]||{}).length, 0);
   if (card) card.querySelector('.chart-title').textContent =
@@ -915,7 +966,7 @@ function drawGenChart(data) {
       ...CHART_DEFAULTS,
       plugins: {
         ...CHART_DEFAULTS.plugins,
-        legend: { display: false },
+              legend: { display: false },
         tooltip: {
           ...CHART_DEFAULTS.plugins.tooltip,
           filter: i => i.raw !== null && i.raw !== 0,
@@ -940,6 +991,12 @@ function drawGenChart(data) {
              ticks: { color:'#64748b', font:{family:'Space Mono',size:9} },
              grid: { color:'#1e293b' },
              title: { display:true, text:'MW', color:'#64748b', font:{family:'Space Mono',size:9} } },
+        ...(genPriceFilter.size > 0 ? { yPrice: {
+          type:'linear', position:'right',
+          ticks:{ color:'#94a3b8', font:{family:'Space Mono',size:9}, callback: v=>'$'+v.toFixed(0) },
+          grid:{ drawOnChartArea:false },
+          title:{ display:true, text:'$/MWh', color:'#94a3b8', font:{family:'Space Mono',size:8} }
+        }} : {}),
 
       }
     },
@@ -1871,14 +1928,14 @@ function _drawOriginPortfolioChart(stationMap, fc) {
         if (t === nowStr && live !== undefined) return live;
         return null;
       }),
-      borderColor: '#f39c12', backgroundColor: 'transparent',
+      borderColor: '#ffffff', backgroundColor: 'transparent',
       borderWidth: 1, pointRadius: 0, tension: 0.2,
       spanGaps: true, fill: false, yAxisID: 'yPrice', order: 1,
     });
     priceDatasets.push({
       label: 'Price (forecast)',
       data: allSlots.map(t => pdMap[t] !== undefined ? pdMap[t] : null),
-      borderColor: '#f39c12', backgroundColor: 'transparent',
+      borderColor: '#ffffff', backgroundColor: 'transparent',
       borderWidth: 1, borderDash: [5,4], pointRadius: 0, tension: 0.2,
       spanGaps: true, fill: false, yAxisID: 'yPrice', order: 1,
     });
@@ -1919,9 +1976,9 @@ function _drawOriginPortfolioChart(stationMap, fc) {
         y:{ stacked:true, ticks:{color:'#64748b',font:{family:'Space Mono',size:9}}, grid:{color:'#1e293b'}, title:{display:true,text:'MW',color:'#64748b',font:{family:'Space Mono',size:9}} },
         yPrice: hasPrices ? {
           type:'linear', position:'right',
-          ticks:{color:'#f39c12', font:{family:'Space Mono',size:9}, callback:v=>'$'+v.toFixed(0)},
+          ticks:{color:'#94a3b8', font:{family:'Space Mono',size:9}, callback:v=>'$'+v.toFixed(0)},
           grid:{drawOnChartArea:false},
-          title:{display:true, text:'$/MWh', color:'#f39c12', font:{size:9}}
+          title:{display:true, text:'$/MWh', color:'#94a3b8', font:{size:9}}
         } : {display:false}
       }
     },

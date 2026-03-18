@@ -2416,9 +2416,9 @@ async function openStationModal(regIdx, registry) {
       if (t === lastSlot) return histPriceMap[t] ?? livePrices[region] ?? null;
       return null;
     }),
-    borderColor: '#f39c12',
+    borderColor: '#ffffff',
     backgroundColor: 'transparent',
-    borderWidth: 1,
+    borderWidth: 0.5,
     pointRadius: 0,
     tension: 0.2,
     spanGaps: true,
@@ -2429,9 +2429,9 @@ async function openStationModal(regIdx, registry) {
   datasets.push({
     label: 'Price (forecast)',
     data: allLabels.map(t => t > lastSlot ? (pdPriceMap[t] ?? null) : null),
-    borderColor: '#f39c12',
+    borderColor: '#ffffff66',
     backgroundColor: 'transparent',
-    borderWidth: 1,
+    borderWidth: 0.5,
     borderDash: [5,4],
     pointRadius: 0,
     tension: 0.2,
@@ -2504,9 +2504,9 @@ async function openStationModal(regIdx, registry) {
         },
         yPrice: {
           type: 'linear', position: 'right',
-          ticks: { color:'#f39c12', font:{family:'Space Mono',size:9}, callback: v=>'$'+v.toFixed(0) },
+          ticks: { color:'#94a3b8', font:{family:'Space Mono',size:9}, callback: v=>'$'+v.toFixed(0) },
           grid: { drawOnChartArea: false },
-          title: { display:true, text:'$/MWh', color:'#f39c12', font:{family:'Space Mono',size:8} }
+          title: { display:true, text:'$/MWh', color:'#94a3b8', font:{family:'Space Mono',size:8} }
         }
       }
     },

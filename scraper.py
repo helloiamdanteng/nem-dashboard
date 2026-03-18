@@ -29,6 +29,7 @@ PREDISPATCH_URL   = f"{NEMWEB_BASE}/Reports/CURRENT/PredispatchIS_Reports/"
 SCADA_URL         = f"{NEMWEB_BASE}/Reports/CURRENT/Dispatch_SCADA/"
 TRADING_CURRENT   = f"{NEMWEB_BASE}/Reports/CURRENT/TradingIS_Reports/"
 TRADING_ARCHIVE   = f"{NEMWEB_BASE}/Reports/ARCHIVE/TradingIS_Reports/"
+MTPASA_DUID_URL   = f"{NEMWEB_BASE}/Reports/CURRENT/MTPASA_DUIDAvailability/"
 ST_PASA_URL       = f"{NEMWEB_BASE}/Reports/CURRENT/Short_Term_PASA_Reports/"
 OPENNEM_API       = "https://api.opennem.org.au"
 AEMO_REG_LIST_URL = "https://www.aemo.com.au/-/media/Files/Electricity/NEM/Participant_Information/Current-Participants/NEM-Registration-and-Exemption-List.xls"
@@ -2302,6 +2303,150 @@ def scrape_gen() -> dict:
 # scrape_slow — background fetch for generators + week-ahead
 # ---------------------------------------------------------------------------
 
+def scrape_mtpasa_outages() -> list:
+    """
+    Fetch MTPASA DUID Availability report and identify units that are
+    currently offline, derated, or returning within the next 30 days.
+
+    Returns list of dicts:
+      { duid, station, fuel, region, capacity,
+        avail_today, state_today,
+        change_mw, change_date, return_date }
+    """
+    try:
+        files = _list_hrefs(MTPASA_DUID_URL)
+    except Exception as e:
+        logger.warning(f"scrape_mtpasa_outages: listing failed: {e}")
+        return []
+
+    if not files:
+        logger.warning("scrape_mtpasa_outages: no files found")
+        return []
+
+    # Take the most recent file
+    latest = sorted(files)[-1]
+    logger.info(f"scrape_mtpasa_outages: fetching {latest}")
+
+    try:
+        text = _read_zip(latest)
+    except Exception as e:
+        logger.warning(f"scrape_mtpasa_outages: read failed: {e}")
+        return []
+
+    if not text:
+        return []
+
+    # Parse rows — table name is MTPASA_DUIDAVAILABILITY
+    now_aest  = datetime.now(AEST)
+    today_str = now_aest.strftime("%Y/%m/%d")
+
+    # Collect per-DUID data: { duid: { date_str: {avail, state} } }
+    duid_data: dict = {}
+    for row in _parse_aemo(text, "MTPASA_DUIDAVAILABILITY"):
+        duid = row.get("DUID", "").strip()
+        if not duid:
+            continue
+        day  = row.get("DAY", "").strip()[:10]   # "YYYY/MM/DD"
+        try:
+            avail = float(row.get("PASAAVAILABILITY") or 0)
+        except ValueError:
+            avail = 0.0
+        state = row.get("UNITSTATE", "").strip() or "Unknown"
+
+        if duid not in duid_data:
+            duid_data[duid] = {}
+        duid_data[duid][day] = {"avail": avail, "state": state}
+
+    results = []
+    horizon = 30  # days to look ahead for return dates
+
+    for duid, days in duid_data.items():
+        unit = NEM_UNITS.get(duid, {})
+        capacity = unit.get("capacity") or 0
+        if capacity <= 0:
+            continue  # skip units we don't know
+
+        # Get today's or nearest availability
+        sorted_days = sorted(days.keys())
+        if not sorted_days:
+            continue
+
+        # Find the day entry closest to today
+        today_entry = None
+        for d in sorted_days:
+            if d >= today_str:
+                today_entry = days[d]
+                break
+        if today_entry is None:
+            today_entry = days[sorted_days[-1]]
+
+        avail_today = today_entry["avail"]
+        state_today = today_entry["state"]
+
+        # Skip fully available units with no derating
+        if avail_today >= capacity and state_today in ("NoDeratings", "Unknown"):
+            continue
+        # Skip mothballed units (long-term, less interesting day-to-day)
+        if state_today == "Mothballed":
+            continue
+
+        change_mw = avail_today - capacity
+
+        # Find return date: first future day where avail recovers to >= capacity
+        return_date = None
+        change_date = None
+        past_today  = False
+        prev_avail  = avail_today
+
+        for d in sorted_days:
+            if d < today_str:
+                continue
+            if not past_today:
+                past_today = True
+                continue
+            entry_avail = days[d]["avail"]
+            # Return: availability increases significantly (>= capacity)
+            if return_date is None and entry_avail >= capacity and prev_avail < capacity:
+                return_date = d
+            # Change date: first day availability changes from today
+            if change_date is None and abs(entry_avail - avail_today) > 10:
+                change_date = d
+            prev_avail = entry_avail
+
+        # Determine label
+        if avail_today == 0 and state_today in ("Forced", "Unknown"):
+            label = "Forced"
+        elif avail_today == 0 and state_today == "Planned":
+            label = "Planned"
+        elif avail_today == 0:
+            label = "Offline"
+        elif return_date and avail_today > 0 and change_mw > 0:
+            label = "Returning"
+        elif avail_today < capacity * 0.95:
+            label = "Derated"
+        else:
+            label = state_today
+
+        results.append({
+            "duid":        duid,
+            "station":     unit.get("station", duid),
+            "fuel":        unit.get("fuel", "Other"),
+            "region":      unit.get("region", ""),
+            "capacity":    int(capacity),
+            "avail_today": int(avail_today),
+            "state":       label,
+            "change_mw":   int(change_mw),
+            "change_date": change_date,
+            "return_date": return_date,
+        })
+
+    # Sort by change_mw ascending (largest losses first)
+    results.sort(key=lambda x: x["change_mw"])
+    logger.info(f"scrape_mtpasa_outages: {len(results)} units with availability changes")
+    return results
+
+
+
 def scrape_historical_prices(date_str: str) -> dict:
     """
     Fetch 30-min trading prices for any date (YYYYMMDD format).
@@ -2638,6 +2783,7 @@ def scrape_slow() -> dict:
         "weather":                weather_data,
         "fuel_colors":            FUEL_COLORS,
         "all_fuels":              ALL_FUELS,
+        "mtpasa_outages":         scrape_mtpasa_outages(),
     }
 
 

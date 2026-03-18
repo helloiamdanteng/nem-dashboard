@@ -1699,62 +1699,12 @@ function renderOrigin(data) {
 
   // ── State toggle buttons + NEM ──────────────────────────────────────────
   const isNEM = Object.keys(ORIGIN_STATE_LABELS).every(r => originStateFilter.has(r));
-  html += `<div style="display:flex;gap:5px;margin-bottom:8px">`;
-
-  // NEM button
-  html += `<button onclick="toggleOriginState('NEM')" style="
-    flex:1;padding:5px 2px;border-radius:7px;
-    border:1px solid #94a3b8;
-    background:${isNEM ? '#94a3b822' : 'transparent'};
-    color:${isNEM ? '#94a3b8' : '#475569'};
-    font-family:var(--font-mono);font-size:11px;font-weight:700;cursor:pointer;transition:all 0.15s">
-    NEM
-  </button>`;
-
+  html += '<div class="region-pills" style="margin-bottom:8px">';
+  html += `<button class="region-pill ${isNEM ? 'active' : ''}" style="color:#94a3b8;border-color:#94a3b8" onclick="toggleOriginState('NEM')">NEM</button>`;
   for (const [reg, label] of Object.entries(ORIGIN_STATE_LABELS)) {
     const active = originStateFilter.has(reg);
-    const col = ORIGIN_STATE_COLORS[reg];
-    html += `<button onclick="toggleOriginState('${reg}')" style="
-      flex:1;padding:5px 2px;border-radius:7px;
-      border:1px solid ${col};
-      background:${active ? col+'33' : 'transparent'};
-      color:${active ? col : '#475569'};
-      font-family:var(--font-mono);font-size:11px;font-weight:700;cursor:pointer;transition:all 0.15s">
-      ${label}
-    </button>`;
-  }
-  html += `</div>`;
-
-  // ── Total MW label ──────────────────────────────────────────────────────
-  let visibleMw = 0;
-  for (const reg of visibleRegs) {
-    for (const stn of (ORIGIN_STATION_ORDER[reg]||[])) {
-      if (stationMap[stn]) visibleMw += stationMap[stn].totalMw || 0;
-    }
-  }
-  html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-    <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted)">PORTFOLIO OUTPUT TODAY</span>
-    <span style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:#f39c12">${fmt(visibleMw)} <span style="font-size:9px;color:var(--text-muted)">MW</span></span>
-  </div>`;
-
-  // ── Portfolio chart ─────────────────────────────────────────────────────
-  html += `<div class="chart-card" style="margin-bottom:16px">
-    <div style="position:relative;height:280px"><canvas id="origin-portfolio-chart"></canvas></div>
-  </div>`;
-  // Price line toggles for origin chart
-  const _origAllOff = originPriceFilter.size === 0;
-  html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin:-10px 0 10px">';
-  html += `<button onclick="toggleOriginPriceOff()"
-    style="font-family:var(--font-mono);font-size:10px;padding:3px 8px;border-radius:20px;cursor:pointer;
-    border:1px solid #475569;background:${_origAllOff ? '#47556933' : 'transparent'};
-    color:${_origAllOff ? '#94a3b8' : '#475569'}">OFF</button>`;
-  for (const r of Object.keys(ORIGIN_STATE_LABELS)) {
-    const color = ORIGIN_STATE_COLORS[r] || REGION_COLORS[r];
-    const on = originPriceFilter.has(r);
-    html += `<button onclick="toggleOriginPrice('${r}')"
-      style="font-family:var(--font-mono);font-size:10px;padding:3px 8px;border-radius:20px;cursor:pointer;
-      border:1px solid ${on ? color : '#475569'};background:${on ? color+'33' : 'transparent'};
-      color:${on ? color : '#475569'}">${REGION_SHORT[r]}$</button>`;
+    const col = ORIGIN_STATE_COLORS[reg] || REGION_COLORS[reg];
+    html += `<button class="region-pill ${active ? 'active' : ''}" style="color:${col};border-color:${col}" onclick="toggleOriginState('${reg}')">${label}</button>`;
   }
   html += '</div>';
 
@@ -1933,28 +1883,48 @@ function _drawOriginPortfolioChart(stationMap, fc) {
   // Negative stations: pump hydro and battery charging
   const NEGATIVE_STATIONS = new Set(['Shoalhaven Pump']);
 
-  const genDatasets = visibleStns.map(s => {
-    const col    = fc[s.fuel] || '#64748b';
-    const isNeg  = NEGATIVE_STATIONS.has(s.name) || s.fuel === 'Battery';
-    return {
-      label: s.name,
-      data: allSlots.map(t => {
-        const v = s.histMap[t];
-        if (v === undefined || v === null) return null;
-        if (isNeg) return Math.min(0, v);   // battery/pump: only negative values
-        return Math.max(0, v);              // generators: only positive values
-      }),
-      backgroundColor: col + 'cc',
-      borderColor: col,
-      borderWidth: 0.5,
-      fill: 'origin',
-      stack: isNeg ? 'neg' : 'pos',
-      pointRadius: 0,
-      tension: 0.2,
-      spanGaps: false,
-      yAxisID: 'y',
-      order: 2,
-    };
+  const genDatasets = [];
+  visibleStns.forEach(s => {
+    const col   = fc[s.fuel] || '#64748b';
+    const isPump = NEGATIVE_STATIONS.has(s.name);
+    const isBatt = s.fuel === 'Battery';
+
+    if (isBatt) {
+      // Battery: discharge → positive stack, charging → negative stack
+      genDatasets.push({
+        label: s.name,
+        data: allSlots.map(t => {
+          const v = s.histMap[t];
+          return (v !== undefined && v !== null) ? Math.max(0, v) : null;
+        }),
+        backgroundColor: col + 'cc', borderColor: col, borderWidth: 0.5,
+        fill: 'origin', stack: 'pos', pointRadius: 0, tension: 0.2,
+        spanGaps: false, yAxisID: 'y', order: 2,
+      });
+      genDatasets.push({
+        label: s.name + ' (chg)',
+        data: allSlots.map(t => {
+          const v = s.histMap[t];
+          return (v !== undefined && v !== null) ? Math.min(0, v) : null;
+        }),
+        backgroundColor: (fc['Battery (charging)'] || col) + 'cc',
+        borderColor: fc['Battery (charging)'] || col,
+        borderWidth: 0.5, fill: 'origin', stack: 'neg',
+        pointRadius: 0, tension: 0.2, spanGaps: false, yAxisID: 'y', order: 2,
+      });
+    } else {
+      genDatasets.push({
+        label: s.name,
+        data: allSlots.map(t => {
+          const v = s.histMap[t];
+          if (v === undefined || v === null) return null;
+          return isPump ? Math.min(0, v) : Math.max(0, v);
+        }),
+        backgroundColor: col + 'cc', borderColor: col, borderWidth: 0.5,
+        fill: 'origin', stack: isPump ? 'neg' : 'pos',
+        pointRadius: 0, tension: 0.2, spanGaps: false, yAxisID: 'y', order: 2,
+      });
+    }
   });
 
   // Price overlay — only if a single region is selected

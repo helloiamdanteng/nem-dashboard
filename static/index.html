@@ -1708,6 +1708,39 @@ function renderOrigin(data) {
   }
   html += '</div>';
 
+  // ── Portfolio output total ────────────────────────────────────────────────
+  let visibleMw = 0;
+  for (const reg of visibleRegs) {
+    for (const stn of (ORIGIN_STATION_ORDER[reg]||[])) {
+      if (stationMap[stn]) visibleMw += stationMap[stn].totalMw || 0;
+    }
+  }
+  html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted)">PORTFOLIO OUTPUT TODAY</span>
+    <span style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:#f39c12">${fmt(visibleMw)} <span style="font-size:9px;color:var(--text-muted)">MW</span></span>
+  </div>`;
+
+  // ── Portfolio chart ───────────────────────────────────────────────────────
+  html += `<div class="chart-card" style="margin-bottom:16px">
+    <div style="position:relative;height:280px"><canvas id="origin-portfolio-chart"></canvas></div>
+  </div>`;
+  // Price line toggles for origin chart
+  const _origAllOff = originPriceFilter.size === 0;
+  html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin:-10px 0 10px">';
+  html += `<button onclick="toggleOriginPriceOff()"
+    style="font-family:var(--font-mono);font-size:10px;padding:3px 8px;border-radius:20px;cursor:pointer;
+    border:1px solid #475569;background:${_origAllOff ? '#47556933' : 'transparent'};
+    color:${_origAllOff ? '#94a3b8' : '#475569'}">OFF</button>`;
+  for (const r of Object.keys(ORIGIN_STATE_LABELS)) {
+    const color = ORIGIN_STATE_COLORS[r] || REGION_COLORS[r];
+    const on = originPriceFilter.has(r);
+    html += `<button onclick="toggleOriginPrice('${r}')"
+      style="font-family:var(--font-mono);font-size:10px;padding:3px 8px;border-radius:20px;cursor:pointer;
+      border:1px solid ${on ? color : '#475569'};background:${on ? color+'33' : 'transparent'};
+      color:${on ? color : '#475569'}">${REGION_SHORT[r]}$</button>`;
+  }
+  html += '</div>';
+
   // ── Station tiles grouped by state ──────────────────────────────────────
   for (const [reg, stateLabel] of Object.entries(ORIGIN_STATE_LABELS)) {
     if (!visibleRegs.includes(reg)) continue;

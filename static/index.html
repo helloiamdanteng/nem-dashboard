@@ -245,7 +245,8 @@ let charts = {};
 let latestData = null;
 let genRegion = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']); // multi-select Set
 let genPriceFilter   = new Set(); // price lines off by default (gen page)
-let originPriceFilter = new Set(); // price lines off by default (origin page)
+let originPriceFilter   = new Set(); // price lines off by default (origin page)
+let originHideOffline   = true;      // hide offline stations by default
 let originPriceWhite  = false;     // WHITE toggle for origin price lines
 let genPriceWhite     = false;     // WHITE toggle for gen price lines
 let genShowRooftop = false;  // default: rooftop solar excluded
@@ -695,6 +696,11 @@ function toggleGenPriceOff() {
 function toggleOriginPrice(r) {
   if (originPriceFilter.has(r)) { originPriceFilter.delete(r); }
   else { originPriceFilter.add(r); }
+  if (latestData) renderPanel('origin', latestData);
+}
+
+function toggleOriginHideOffline() {
+  originHideOffline = !originHideOffline;
   if (latestData) renderPanel('origin', latestData);
 }
 
@@ -1766,7 +1772,17 @@ function renderOrigin(data) {
     color:${originPriceWhite ? '#ffffff' : '#475569'}">WHITE</button>`;
   html += '</div>';
 
-  // ── Station tiles grouped by state ──────────────────────────────────────
+  // ── Hide offline button + Station tiles grouped by state ──────────────────
+  html += '<div style="display:flex;justify-content:flex-end;margin-bottom:8px">';
+  html += `<button onclick="toggleOriginHideOffline()" style="
+    font-family:var(--font-mono);font-size:10px;padding:5px 10px;border-radius:20px;cursor:pointer;
+    border:1px solid ${originHideOffline ? '#2ed573' : '#475569'};
+    background:${originHideOffline ? '#2ed57322' : 'transparent'};
+    color:${originHideOffline ? '#2ed573' : '#94a3b8'}">
+    ${originHideOffline ? '✓' : ''} Hide offline
+  </button>`;
+  html += '</div>';
+
   for (const [reg, stateLabel] of Object.entries(ORIGIN_STATE_LABELS)) {
     if (!visibleRegs.includes(reg)) continue;
     const stns = (ORIGIN_STATION_ORDER[reg]||[]).filter(s => stationMap[s]);
@@ -1787,6 +1803,7 @@ function renderOrigin(data) {
       const s = stationMap[stnName];
       if (!s) continue;
       const mw = s.totalMw;
+      if (originHideOffline && Math.abs(mw) <= 5) continue;
       const mwKnown = s.duids.some(d => (assets[d] || {}).mw !== null && (assets[d] || {}).mw !== undefined);
       const cap = s.totalCap;
       const pct = cap > 0 ? Math.min(Math.abs(mw)/cap*100,100) : 0;
@@ -3391,7 +3408,8 @@ function renderDayAhead(data) {
     html += '<button onclick="toggleWeekRenewFuel(\'wind\')" id="wr-wind" data-on="1" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;border:1px solid #34d399;background:#34d39933;color:#34d399;cursor:pointer">💨 Wind</button>';
     html += '</div>';
     html += '</div>';
-    html += `<div style="position:relative;height:220px"><canvas id="weekRenewChart"></canvas></div></div>`;
+    html += `<div style="position:relative;height:220px"><canvas id="weekRenewChart"></canvas></div>`;
+    html += '</div>';
   }
 
   return html;

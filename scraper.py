@@ -908,6 +908,10 @@ def scrape_dispatch_history() -> dict:
         if region not in _rooftop_history:
             _rooftop_history[region] = {}
         _rooftop_history[region].update(rooftop[region])
+        # Trim to 144 slots
+        if len(_rooftop_history[region]) > 144:
+            for k in sorted(_rooftop_history[region].keys())[:-144]:
+                del _rooftop_history[region][k]
 
     logger.info(f"DispatchIS history: demand={sum(len(v) for v in demand_result.values())} pts, "
                 f"prices={sum(len(v) for v in price_result.values())} pts, "
@@ -1345,21 +1349,21 @@ def _update_fuel_history(fuel_mix: dict, scada: dict | None = None, pump_load: d
         if pump_load and pump_load.get(region, 0) < -1:
             snap["Pump Hydro"] = round(pump_load[region], 1)
         _fuel_history[region][label] = snap
-        if len(_fuel_history[region]) > 290:
+        if len(_fuel_history[region]) > 144:
             oldest = sorted(_fuel_history[region].keys())[0]
             del _fuel_history[region][oldest]
 
     # Store per-DUID history for station drill-down
     if scada:
         for duid, mw in scada.items():
-            if mw is None:
+            if mw is None or duid not in NEM_UNITS:
                 continue
             if duid not in _duid_history:
                 _duid_history[duid] = {}
             # Pump-load DUIDs report positive MW when consuming — negate for display
             stored_mw = -round(mw, 1) if duid in PUMP_LOAD_DUIDS else round(mw, 1)
             _duid_history[duid][label] = stored_mw
-            if len(_duid_history[duid]) > 290:
+            if len(_duid_history[duid]) > 144:
                 oldest = sorted(_duid_history[duid].keys())[0]
                 del _duid_history[duid][oldest]
 
@@ -1430,6 +1434,9 @@ def _update_bdu_history(region_summary: dict) -> None:
             "storage":   round(soc, 1) if soc is not None else None,
             "max_avail": round(cap, 1) if cap is not None else None,
         }
+        if len(_bdu_history[region]) > 144:
+            oldest = sorted(_bdu_history[region].keys())[0]
+            del _bdu_history[region][oldest]
 
 
 def _update_live_duid_history(scada: dict) -> None:
@@ -1444,8 +1451,8 @@ def _update_live_duid_history(scada: dict) -> None:
         if duid not in _duid_history:
             _duid_history[duid] = {}
         _duid_history[duid][label] = stored_mw
-        # Trim to 290 points (~24h of 5-min data)
-        if len(_duid_history[duid]) > 290:
+        # Trim to 144 points (~12h of 5-min data)
+        if len(_duid_history[duid]) > 144:
             oldest = sorted(_duid_history[duid].keys())[0]
             del _duid_history[duid][oldest]
 
@@ -1602,6 +1609,7 @@ def scrape_all() -> dict:
     capped_dispatch_prices = {}
     for r in NEM_REGIONS:
         pts = [p for p in dispatch_price_5min.get(r, []) if p["interval"] <= now_label]
+        pts = pts[-144:]  # keep last 12h only
         if pts:
             capped_dispatch_prices[r] = pts
 
@@ -1619,10 +1627,8 @@ def scrape_all() -> dict:
         "op_demand":             op_demand,
         "generation":            generation,
         "interconnectors":       interconnectors,
-        "raw_summary":           region_summary,
-        "historical_prices":     trading_prices,
+        "historical_prices":     {r: v[-48:] for r, v in trading_prices.items()},
         "dispatch_prices_5min":  capped_dispatch_prices,
-        "price_fetch_stats":     trading.get("fetch_stats", {}),
         "predispatch_prices":    pd_prices,
         "demand_history":        demand_history,
         "op_demand_history":     dispatch_op_demand,
@@ -2158,8 +2164,8 @@ def scrape_scada_history() -> None:
             fuel   = raw_fuel if (raw_fuel and raw_fuel != "Other") else _infer_fuel_from_duid(duid)
             # Negate pump-load DUIDs (positive SCADA = consuming) for all fuel logic
             mw = -mw_raw if (duid in PUMP_LOAD_DUIDS and mw_raw is not None) else mw_raw
-            # Always store per-DUID history regardless of region match
-            if mw is not None:
+            # Store per-DUID history for known DUIDs only
+            if mw is not None and duid in NEM_UNITS:
                 if duid not in _duid_history:
                     _duid_history[duid] = {}
                 _duid_history[duid][label] = round(mw, 1)

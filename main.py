@@ -513,6 +513,26 @@ async def station_batch(duids: str):
     return JSONResponse(content=result)
 
 
+@app.get("/api/historical_prices")
+async def historical_prices(date: str):
+    """Fetch 30-min trading prices for a given date (YYYYMMDD)."""
+    import re
+    if not re.match(r'^\d{8}$', date):
+        return JSONResponse(status_code=400, content={"error": "date must be YYYYMMDD"})
+    from scraper import scrape_historical_prices
+    loop = asyncio.get_running_loop()
+    try:
+        data = await asyncio.wait_for(
+            loop.run_in_executor(None, scrape_historical_prices, date),
+            timeout=60
+        )
+        return data
+    except asyncio.TimeoutError:
+        return JSONResponse(status_code=504, content={"error": "timeout"})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @app.get("/api/origin")
 async def origin_history():
     """Return Origin asset history — separate from fast cache to keep /api/data lean."""

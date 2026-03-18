@@ -24,13 +24,13 @@ logger = logging.getLogger(**name**)
 
 AEST = ZoneInfo(“Australia/Brisbane”)  # UTC+10 fixed — AEMO never uses daylight saving
 NEMWEB_BASE       = “https://www.nemweb.com.au”
-DISPATCH_IS_URL   = f”{NEMWEB_BASE}/Reports/CURRENT/DispatchIS_Reports/”
-PREDISPATCH_URL   = f”{NEMWEB_BASE}/Reports/CURRENT/PredispatchIS_Reports/”
-SCADA_URL         = f”{NEMWEB_BASE}/Reports/CURRENT/Dispatch_SCADA/”
-TRADING_CURRENT   = f”{NEMWEB_BASE}/Reports/CURRENT/TradingIS_Reports/”
-TRADING_ARCHIVE   = f”{NEMWEB_BASE}/Reports/ARCHIVE/TradingIS_Reports/”
-MTPASA_DUID_URL   = f”{NEMWEB_BASE}/Reports/CURRENT/MTPASA_DUIDAvailability/”
-ST_PASA_URL       = f”{NEMWEB_BASE}/Reports/CURRENT/Short_Term_PASA_Reports/”
+DISPATCH_IS_URL   = f”{NEMWEB_BASE}/REPORTS/CURRENT/DispatchIS_Reports/”
+PREDISPATCH_URL   = f”{NEMWEB_BASE}/REPORTS/CURRENT/PredispatchIS_Reports/”
+SCADA_URL         = f”{NEMWEB_BASE}/REPORTS/CURRENT/Dispatch_SCADA/”
+TRADING_CURRENT   = f”{NEMWEB_BASE}/REPORTS/CURRENT/TradingIS_Reports/”
+TRADING_ARCHIVE   = f”{NEMWEB_BASE}/REPORTS/ARCHIVE/TradingIS_Reports/”
+MTPASA_DUID_URL   = f”{NEMWEB_BASE}/REPORTS/CURRENT/MTPASA_DUIDAvailability/”
+ST_PASA_URL       = f”{NEMWEB_BASE}/REPORTS/CURRENT/Short_Term_PASA_Reports/”
 OPENNEM_API       = “https://api.opennem.org.au”
 AEMO_REG_LIST_URL = “https://www.aemo.com.au/-/media/Files/Electricity/NEM/Participant_Information/Current-Participants/NEM-Registration-and-Exemption-List.xls”
 
@@ -1703,9 +1703,9 @@ return _reg_cache
 ```
 # Primary: NEMWeb Generators and Scheduled Loads CSV (no auth, no XLS)
 CSV_URLS = [
-    "https://www.nemweb.com.au/Reports/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV",
-    "https://nemweb.com.au/Reports/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV",
-    f"{NEMWEB_BASE}/Reports/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV",
+    "https://www.nemweb.com.au/REPORTS/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV",
+    "https://nemweb.com.au/REPORTS/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV",
+    f"{NEMWEB_BASE}/REPORTS/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV",
 ]
 # Fallback: AEMO static file page (sometimes available without redirect)
 AEMO_URLS = [
@@ -1735,18 +1735,18 @@ def _try_load_nemweb_csv() -> dict:
 # NEMWeb publishes Generators and Scheduled Loads via MMS tables
 # Try the Generators_and_Scheduled_Loads static file
 urls_to_try = [
-f”{NEMWEB_BASE}/Reports/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV”,
+f”{NEMWEB_BASE}/REPORTS/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV”,
 # Also try the NEM Registration list as a direct download from the data portal
 “https://data.wa.aemo.com.au/public/public-data/datafiles/facilities/facilities.csv”,  # WA only, skip
 ]
 # The most reliable source: MMS DUDETAILSUMMARY via NEMWeb
 # Available as a static file updated daily
-url = f”{NEMWEB_BASE}/Reports/CURRENT/Ancillary_Services/PUBLIC_DVD_DUDETAILSUMMARY_202503120000.zip”
+url = f”{NEMWEB_BASE}/REPORTS/CURRENT/Ancillary_Services/PUBLIC_DVD_DUDETAILSUMMARY_202503120000.zip”
 
 ```
 # Actually use the correct approach: scrape the Generators listing page
 # NEMWeb has a static CSV at this well-known path:
-gen_csv_url = "https://www.nemweb.com.au/Reports/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV"
+gen_csv_url = "https://www.nemweb.com.au/REPORTS/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV"
 r = _get(gen_csv_url, timeout=15)
 if r and r.status_code == 200 and len(r.content) > 1000:
     return _parse_registration_csv(r.text)
@@ -1911,7 +1911,7 @@ pass
 logger.info(f”Full SCADA: {len(result)} DUIDs”)
 return result
 
-ROOFTOP_PV_URL = f”{NEMWEB_BASE}/Reports/CURRENT/ROOFTOP_PV/ACTUAL/”
+ROOFTOP_PV_URL = f”{NEMWEB_BASE}/REPORTS/CURRENT/ROOFTOP_PV/ACTUAL/”
 
 def _scrape_rooftop_pv_latest() -> dict:
 “””

@@ -2742,7 +2742,8 @@ function renderStations(fastData) {
 let batteryRegionFilter  = 'NEM';
 let battHideOffline      = true;
 let battSortDescending   = true;
-let battShowPrices       = true;
+let battShowPrices       = false;
+let battWhitePrices      = false;
 
 function setBatteryRegion(r) {
   batteryRegionFilter = r;
@@ -2762,6 +2763,14 @@ function toggleBattHideOffline() {
 }
 function toggleBattSort() {
   battSortDescending = !battSortDescending;
+  if (latestData) renderPanel('batteries', latestData);
+}
+function toggleBattPrices() {
+  battShowPrices = !battShowPrices;
+  if (latestData) renderPanel('batteries', latestData);
+}
+function toggleBattWhite() {
+  battWhitePrices = !battWhitePrices;
   if (latestData) renderPanel('batteries', latestData);
 }
 
@@ -2792,11 +2801,16 @@ function renderBatteries(data) {
     const color = REGION_COLORS[r];
     html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="setBatteryRegion('${r}')">${REGION_SHORT[r]}</button>`;
   }
+  html += `<button onclick="toggleBattWhite()" style="
+    font-family:var(--font-mono);font-size:10px;padding:5px 10px;border-radius:20px;cursor:pointer;
+    border:1px solid ${battWhitePrices ? '#ffffff' : '#475569'};
+    background:${battWhitePrices ? '#ffffff22' : 'transparent'};
+    color:${battWhitePrices ? '#ffffff' : '#475569'}">WHITE</button>`;
   html += `<button onclick="toggleBattPrices()" style="
     font-family:var(--font-mono);font-size:10px;padding:5px 10px;border-radius:20px;cursor:pointer;
-    border:1px solid ${battShowPrices ? '#ffffff' : '#475569'};
-    background:${battShowPrices ? '#ffffff22' : 'transparent'};
-    color:${battShowPrices ? '#ffffff' : '#475569'}">PRICES</button>`;
+    border:1px solid ${battShowPrices ? '#94a3b8' : '#475569'};
+    background:${battShowPrices ? '#94a3b833' : 'transparent'};
+    color:${battShowPrices ? '#94a3b8' : '#475569'}">PRICES</button>`;
   html += '</div>';
 
   // MW chart
@@ -2946,7 +2960,7 @@ function drawBatteryCharts(data) {
           datasets.push({
             label: REGION_SHORT[r] + ' Price', yAxisID: 'yPrice',
             data: allSlots.map((l,i) => i <= lastHistIdx ? (hpm[l] ?? null) : null),
-            borderColor: color, backgroundColor: 'transparent',
+            borderColor: battWhitePrices ? '#ffffff' : color, backgroundColor: 'transparent',
             borderWidth: 1, pointRadius: 0, tension: 0.2, spanGaps: true, fill: false, order: -1,
           });
           datasets.push({
@@ -2956,7 +2970,7 @@ function drawBatteryCharts(data) {
               if (i > lastHistIdx) return pdpm[l] ?? null;
               return null;
             }),
-            borderColor: color + '77', backgroundColor: 'transparent',
+            borderColor: battWhitePrices ? '#ffffff77' : color + '77', backgroundColor: 'transparent',
             borderWidth: 1, borderDash: [4,3], pointRadius: 0, tension: 0.2, spanGaps: true, fill: false, order: -1,
           });
         }
@@ -3025,7 +3039,7 @@ function drawBatteryCharts(data) {
       datasets.push({
         label: 'Price (actual)', yAxisID: 'yPrice',
         data: allSlots.map((l,i) => i <= lastHistIdx ? (hpm[l] ?? null) : null),
-        borderColor: '#ffffff', backgroundColor: 'transparent',
+        borderColor: battWhitePrices ? '#ffffff' : REGION_COLORS[r], backgroundColor: 'transparent',
         borderWidth: 0.75, pointRadius: 0, tension: 0.2, spanGaps: true, fill: false, order: -1,
       });
       datasets.push({
@@ -3035,7 +3049,7 @@ function drawBatteryCharts(data) {
           if (i > lastHistIdx) return pdpm[l] ?? null;
           return null;
         }),
-        borderColor: '#ffffff99', backgroundColor: 'transparent',
+        borderColor: battWhitePrices ? '#ffffff99' : REGION_COLORS[r] + '99', backgroundColor: 'transparent',
         borderWidth: 0.75, borderDash: [5,4], pointRadius: 0, tension: 0.2, spanGaps: true, fill: false, order: -1,
       });
       } // end battShowPrices

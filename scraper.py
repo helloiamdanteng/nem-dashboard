@@ -330,7 +330,7 @@ PUMP_LOAD_DUIDS: set = {
 }
 
 FUEL_COLORS = {
-    "Black Coal":        "#4a4a6a",
+    "Black Coal":        "#6b7280",
     "Brown Coal":        "#8B4513",
     "Gas":               "#ff9f40",
     "Hydro":             "#36a2eb",

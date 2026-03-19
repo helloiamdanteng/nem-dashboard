@@ -1,1970 +1,491 @@
-{
-  "AGLSOM": {
-    "capacity": 180,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Somerton"
-  },
-  "ARARAT1": {
-    "capacity": 240,
-    "fuel": "Wind",
-    "region": "VIC1",
-    "station": "Ararat Wind"
-  },
-  "BARCABAT1": {
-    "capacity": 20,
-    "fuel": "Battery",
-    "region": "QLD1",
-    "station": "Barcaldine Battery"
-  },
-  "BARRON1": {
-    "capacity": 66,
-    "fuel": "Hydro",
-    "region": "QLD1",
-    "station": "Barron Gorge"
-  },
-  "BARRON2": {
-    "capacity": 66,
-    "fuel": "Hydro",
-    "region": "QLD1",
-    "station": "Barron Gorge"
-  },
-  "BASTYAN1": {
-    "capacity": 80,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Bastyan"
-  },
-  "BASTYAN2": {
-    "capacity": 80,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Bastyan"
-  },
-  "BELL_BAY3": {
-    "capacity": 121,
-    "fuel": "Gas",
-    "region": "TAS1",
-    "station": "Bell Bay"
-  },
-  "BELL_BAY4": {
-    "capacity": 121,
-    "fuel": "Gas",
-    "region": "TAS1",
-    "station": "Bell Bay"
-  },
-  "BENDEELA1": {
-    "capacity": 80,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Bendeela"
-  },
-  "BENDEELA2": {
-    "capacity": 80,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Bendeela"
-  },
-  "BLOWERNG": {
-    "capacity": 80,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Blowering"
-  },
-  "BLUFF1": {
-    "capacity": 52,
-    "fuel": "Wind",
-    "region": "SA1",
-    "station": "Bluff Wind"
-  },
-  "BOCORWF1": {
-    "capacity": 113,
-    "fuel": "Wind",
-    "region": "NSW1",
-    "station": "Boco Rock"
-  },
-  "BOMEN_SF1": {
-    "capacity": 121,
-    "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Bomen Solar"
-  },
-  "BPWF1": {
-    "capacity": 107,
-    "fuel": "Wind",
-    "region": "VIC1",
-    "station": "Bald Hills"
-  },
-  "BRAEMAR1": {
-    "capacity": 171,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Braemar"
-  },
-  "BRAEMAR2": {
-    "capacity": 171,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Braemar"
-  },
-  "BRAEMAR3": {
-    "capacity": 171,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Braemar"
-  },
-  "BRAEMAR7": {
-    "capacity": 192,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Braemar 2"
-  },
-  "BRAEMAR8": {
-    "capacity": 192,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Braemar 2"
-  },
-  "BRAEMAR9": {
-    "capacity": 192,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Braemar 2"
-  },
-  "BRINBA_WF1": {
-    "capacity": 157,
-    "fuel": "Wind",
-    "region": "TAS1",
-    "station": "Brinbeal Wind"
-  },
-  "BW01": {
-    "capacity": 660,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Bayswater"
-  },
-  "BW02": {
-    "capacity": 660,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Bayswater"
-  },
-  "BW03": {
-    "capacity": 660,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Bayswater"
-  },
-  "BW04": {
-    "capacity": 660,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Bayswater"
-  },
-  "CALLIDE3": {
-    "capacity": 450,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Callide C"
-  },
-  "CALLIDE4": {
-    "capacity": 450,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Callide C"
-  },
-  "CALL_B_1": {
-    "capacity": 350,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Callide B"
-  },
-  "CALL_B_2": {
-    "capacity": 350,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Callide B"
-  },
-  "CANUNDA1": {
-    "capacity": 46,
-    "fuel": "Wind",
-    "region": "SA1",
-    "station": "Canunda Wind"
-  },
-  "CAPTL_WF": {
-    "capacity": 140,
-    "fuel": "Wind",
-    "region": "NSW1",
-    "station": "Capital Wind"
-  },
-  "CATAGUNYA1": {
-    "capacity": 27,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Catagunya"
-  },
-  "CATAGUNYA2": {
-    "capacity": 27,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Catagunya"
-  },
-  "CATHROCK": {
-    "capacity": 66,
-    "fuel": "Wind",
-    "region": "SA1",
-    "station": "Cathedral Rock"
-  },
-  "CATTLE_HILL1": {
-    "capacity": 149,
-    "fuel": "Wind",
-    "region": "TAS1",
-    "station": "Cattle Hill"
-  },
-  "CATTLE_HILL2": {
-    "capacity": 149,
-    "fuel": "Wind",
-    "region": "TAS1",
-    "station": "Cattle Hill"
-  },
-  "CETHANA1": {
-    "capacity": 85,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Cethana"
-  },
-  "CHALLHWF": {
-    "capacity": 52,
-    "fuel": "Wind",
-    "region": "VIC1",
-    "station": "Challicum Hills"
-  },
-  "CLEMENTS1": {
-    "capacity": 57,
-    "fuel": "Wind",
-    "region": "SA1",
-    "station": "Clements Gap"
-  },
-  "COLONGRA1": {
-    "capacity": 187,
-    "fuel": "Gas",
-    "region": "NSW1",
-    "station": "Colongra"
-  },
-  "COLONGRA2": {
-    "capacity": 187,
-    "fuel": "Gas",
-    "region": "NSW1",
-    "station": "Colongra"
-  },
-  "COLONGRA3": {
-    "capacity": 187,
-    "fuel": "Gas",
-    "region": "NSW1",
-    "station": "Colongra"
-  },
-  "COLONGRA4": {
-    "capacity": 187,
-    "fuel": "Gas",
-    "region": "NSW1",
-    "station": "Colongra"
-  },
-  "CONDAMINE1": {
-    "capacity": 140,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Condamine"
-  },
-  "COOPERS1": {
-    "capacity": 453,
-    "fuel": "Wind",
-    "region": "QLD1",
-    "station": "Coopers Gap Wind"
-  },
-  "CRUDINE1": {
-    "capacity": 135,
-    "fuel": "Wind",
-    "region": "NSW1",
-    "station": "Crudine Ridge"
-  },
-  "CULLRGWF1": {
-    "capacity": 30,
-    "fuel": "Wind",
-    "region": "NSW1",
-    "station": "Cullerin Range"
-  },
-  "DARLPNT1": {
-    "capacity": 275,
-    "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Darlington Point"
-  },
-  "DARTM1": {
-    "capacity": 150,
-    "fuel": "Hydro",
-    "region": "VIC1",
-    "station": "Dartmouth"
-  },
-  "DARTM2": {
-    "capacity": 150,
-    "fuel": "Hydro",
-    "region": "VIC1",
-    "station": "Dartmouth"
-  },
-  "DARTM3": {
-    "capacity": 150,
-    "fuel": "Hydro",
-    "region": "VIC1",
-    "station": "Dartmouth"
-  },
-  "DARTM4": {
-    "capacity": 150,
-    "fuel": "Hydro",
-    "region": "VIC1",
-    "station": "Dartmouth"
-  },
-  "DDPS1": {
-    "capacity": 630,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Darling Downs"
-  },
-  "DEVILS_G1": {
-    "capacity": 60,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Devils Gate"
-  },
-  "DEVILS_G2": {
-    "capacity": 60,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Devils Gate"
-  },
-  "DRYCGT1": {
-    "capacity": 156,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Dry Creek"
-  },
-  "DRYCGT2": {
-    "capacity": 156,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Dry Creek"
-  },
-  "DRYCGT3": {
-    "capacity": 156,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Dry Creek"
-  },
-  "DUNDAS1": {
-    "capacity": 132,
-    "fuel": "Wind",
-    "region": "SA1",
-    "station": "Dundas Wind"
-  },
-  "DUNDONNELL1": {
-    "capacity": 336,
-    "fuel": "Wind",
-    "region": "VIC1",
-    "station": "Dundonnell"
-  },
-  "EILDON1": {
-    "capacity": 65,
-    "fuel": "Hydro",
-    "region": "VIC1",
-    "station": "Eildon"
-  },
-  "EILDON2": {
-    "capacity": 65,
-    "fuel": "Hydro",
-    "region": "VIC1",
-    "station": "Eildon"
-  },
-  "ER01": {
-    "capacity": 720,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Eraring"
-  },
-  "ER02": {
-    "capacity": 720,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Eraring"
-  },
-  "ER03": {
-    "capacity": 720,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Eraring"
-  },
-  "ER04": {
-    "capacity": 720,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Eraring"
-  },
-  "ERARING1": {
-    "capacity": 720,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Eraring"
-  },
-  "ERARING2": {
-    "capacity": 720,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Eraring"
-  },
-  "ERARING3": {
-    "capacity": 720,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Eraring"
-  },
-  "ERARING4": {
-    "capacity": 720,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Eraring"
-  },
-  "FINNSF1": {
-    "capacity": 100,
-    "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Finley Solar"
-  },
-  "FISHER1": {
-    "capacity": 14,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Fisher"
-  },
-  "FISHER2": {
-    "capacity": 14,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Fisher"
-  },
-  "FISHER3": {
-    "capacity": 14,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Fisher"
-  },
-  "GANNAWARRA1": {
-    "capacity": 25,
-    "fuel": "Battery",
-    "region": "VIC1",
-    "station": "Gannawarra Batt"
-  },
-  "GLAD1": {
-    "capacity": 280,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Gladstone"
-  },
-  "GLAD2": {
-    "capacity": 280,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Gladstone"
-  },
-  "GLAD3": {
-    "capacity": 280,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Gladstone"
-  },
-  "GLAD4": {
-    "capacity": 280,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Gladstone"
-  },
-  "GLAD5": {
-    "capacity": 280,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Gladstone"
-  },
-  "GLAD6": {
-    "capacity": 280,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Gladstone"
-  },
-  "GOONWF1": {
-    "capacity": 166,
-    "fuel": "Wind",
-    "region": "NSW1",
-    "station": "Gullen Range"
-  },
-  "GORDN1": {
-    "capacity": 144,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Gordon"
-  },
-  "GORDN2": {
-    "capacity": 144,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Gordon"
-  },
-  "GORDN3": {
-    "capacity": 144,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Gordon"
-  },
-  "GRANVILLE1": {
-    "capacity": 112,
-    "fuel": "Wind",
-    "region": "TAS1",
-    "station": "Granville Harbour"
-  },
-  "GSWF1": {
-    "capacity": 400,
-    "fuel": "Wind",
-    "region": "VIC1",
-    "station": "Golden Plains"
-  },
-  "GUNNING1": {
-    "capacity": 46,
-    "fuel": "Wind",
-    "region": "NSW1",
-    "station": "Gunning Wind"
-  },
-  "GUTHEGA1": {
-    "capacity": 60,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Guthega"
-  },
-  "HALWF1": {
-    "capacity": 100,
-    "fuel": "Wind",
-    "region": "SA1",
-    "station": "Hallett Wind"
-  },
-  "HAUGHT11": {
-    "capacity": 102,
-    "fuel": "Solar",
-    "region": "QLD1",
-    "station": "Haughton Solar"
-  },
-  "HDWF1": {
-    "capacity": 102,
-    "fuel": "Wind",
-    "region": "SA1",
-    "station": "Hornsdale Wind"
-  },
-  "HDWF2": {
-    "capacity": 102,
-    "fuel": "Wind",
-    "region": "SA1",
-    "station": "Hornsdale Wind"
-  },
-  "HDWF3": {
-    "capacity": 102,
-    "fuel": "Wind",
-    "region": "SA1",
-    "station": "Hornsdale Wind"
-  },
-  "HPRL1": {
-    "capacity": 150,
-    "fuel": "Battery",
-    "region": "SA1",
-    "station": "Hornsdale Reserve"
-  },
-  "HUME1": {
-    "capacity": 29,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Hume"
-  },
-  "HUME2": {
-    "capacity": 29,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Hume"
-  },
-  "HVGTS": {
-    "capacity": 50,
-    "fuel": "Gas",
-    "region": "NSW1",
-    "station": "Hunter Valley GT"
-  },
-  "JBUTTONS1": {
-    "capacity": 228,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Jeeralang B"
-  },
-  "JBUTTONS2": {
-    "capacity": 228,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Jeeralang B"
-  },
-  "JBUTTONS3": {
-    "capacity": 228,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Jeeralang B"
-  },
-  "JEERALANG1": {
-    "capacity": 195,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Jeeralang A"
-  },
-  "JEERALANG2": {
-    "capacity": 195,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Jeeralang A"
-  },
-  "JEERALANG3": {
-    "capacity": 195,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Jeeralang A"
-  },
-  "JLBGT1": {
-    "capacity": 228,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Jeeralang B"
-  },
-  "JLBGT2": {
-    "capacity": 228,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Jeeralang B"
-  },
-  "JLBGT3": {
-    "capacity": 228,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Jeeralang B"
-  },
-  "KANGAROO1": {
-    "capacity": 160,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Kangaroo Valley"
-  },
-  "KANGAROO2": {
-    "capacity": 160,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Kangaroo Valley"
-  },
-  "KAREEYA1": {
-    "capacity": 43,
-    "fuel": "Hydro",
-    "region": "QLD1",
-    "station": "Kareeya"
-  },
-  "KAREEYA2": {
-    "capacity": 43,
-    "fuel": "Hydro",
-    "region": "QLD1",
-    "station": "Kareeya"
-  },
-  "KAREEYA3": {
-    "capacity": 43,
-    "fuel": "Hydro",
-    "region": "QLD1",
-    "station": "Kareeya"
-  },
-  "KAREEYA4": {
-    "capacity": 43,
-    "fuel": "Hydro",
-    "region": "QLD1",
-    "station": "Kareeya"
-  },
-  "KING1": {
-    "capacity": 60,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "King River"
-  },
-  "KING2": {
-    "capacity": 60,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "King River"
-  },
-  "KSG1": {
-    "capacity": 750,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Kogan Creek"
-  },
-  "LADBROKE1": {
-    "capacity": 80,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Ladbroke Grove"
-  },
-  "LADBROKE2": {
-    "capacity": 80,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Ladbroke Grove"
-  },
-  "LAVERTON1": {
-    "capacity": 316,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Laverton North"
-  },
-  "LAVNORTH": {
-    "capacity": 312,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Laverton North"
-  },
-  "LD01": {
-    "capacity": 500,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Liddell"
-  },
-  "LD02": {
-    "capacity": 500,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Liddell"
-  },
-  "LD03": {
-    "capacity": 500,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Liddell"
-  },
-  "LD04": {
-    "capacity": 500,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Liddell"
-  },
-  "LEMONTHYME1": {
-    "capacity": 51,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Lemonthyme"
-  },
-  "LEMONTHYME2": {
-    "capacity": 51,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Lemonthyme"
-  },
-  "LIAPVALE1": {
-    "capacity": 228,
-    "fuel": "Wind",
-    "region": "VIC1",
-    "station": "Lal Lal Wind"
-  },
-  "LILYVALE1": {
-    "capacity": 119,
-    "fuel": "Solar",
-    "region": "QLD1",
-    "station": "Lilyvale Solar"
-  },
-  "LIMOSF11": {
-    "capacity": 249,
-    "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Limondale Solar"
-  },
-  "LKBONNY1": {
-    "capacity": 80,
-    "fuel": "Wind",
-    "region": "SA1",
-    "station": "Lake Bonney 1"
-  },
-  "LKBONNY2": {
-    "capacity": 159,
-    "fuel": "Wind",
-    "region": "SA1",
-    "station": "Lake Bonney 2"
-  },
-  "LKBONNY3": {
-    "capacity": 39,
-    "fuel": "Wind",
-    "region": "SA1",
-    "station": "Lake Bonney 3"
-  },
-  "LKBONNY4": {
-    "capacity": 60,
-    "fuel": "Wind",
-    "region": "SA1",
-    "station": "Lake Bonney 4"
-  },
-  "LLEWWF1": {
-    "capacity": 80,
-    "fuel": "Wind",
-    "region": "VIC1",
-    "station": "Crowlands"
-  },
-  "LOYNB1": {
-    "capacity": 82,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Loynton"
-  },
-  "LOYYB1": {
-    "capacity": 500,
-    "fuel": "Brown Coal",
-    "region": "VIC1",
-    "station": "Loy Yang B"
-  },
-  "LOYYB2": {
-    "capacity": 500,
-    "fuel": "Brown Coal",
-    "region": "VIC1",
-    "station": "Loy Yang B"
-  },
-  "LYA1": {
-    "capacity": 560,
-    "fuel": "Brown Coal",
-    "region": "VIC1",
-    "station": "Loy Yang A"
-  },
-  "LYA2": {
-    "capacity": 560,
-    "fuel": "Brown Coal",
-    "region": "VIC1",
-    "station": "Loy Yang A"
-  },
-  "LYA3": {
-    "capacity": 560,
-    "fuel": "Brown Coal",
-    "region": "VIC1",
-    "station": "Loy Yang A"
-  },
-  "LYA4": {
-    "capacity": 560,
-    "fuel": "Brown Coal",
-    "region": "VIC1",
-    "station": "Loy Yang A"
-  },
-  "MACKAYGT1": {
-    "capacity": 34,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Mackay GT"
-  },
-  "MACKNTSH1": {
-    "capacity": 80,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Mackintosh"
-  },
-  "MACKNTSH2": {
-    "capacity": 80,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Mackintosh"
-  },
-  "MANCALA1": {
-    "capacity": 150,
-    "fuel": "Solar",
-    "region": "SA1",
-    "station": "Mancala Solar"
-  },
-  "MCKAY1": {
-    "capacity": 75,
-    "fuel": "Hydro",
-    "region": "VIC1",
-    "station": "McKay Creek"
-  },
-  "MCKAY2": {
-    "capacity": 75,
-    "fuel": "Hydro",
-    "region": "VIC1",
-    "station": "McKay Creek"
-  },
-  "MEWF1": {
-    "capacity": 180,
-    "fuel": "Wind",
-    "region": "QLD1",
-    "station": "Mount Emerald Wind"
-  },
-  "MILLMERRAN1": {
-    "capacity": 432,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Millmerran"
-  },
-  "MILLMERRAN2": {
-    "capacity": 432,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Millmerran"
-  },
-  "MINTARO": {
-    "capacity": 90,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Mintaro"
-  },
-  "MINTARO1": {
-    "capacity": 90,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Mintaro"
-  },
-  "MOORABOOL1": {
-    "capacity": 227,
-    "fuel": "Wind",
-    "region": "VIC1",
-    "station": "Moorabool Wind"
-  },
-  "MOORPVF1": {
-    "capacity": 100,
-    "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Moorabool Solar"
-  },
-  "MP1": {
-    "capacity": 700,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Mt Piper"
-  },
-  "MP2": {
-    "capacity": 700,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Mt Piper"
-  },
-  "MSTUART1": {
-    "capacity": 144,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Mt Stuart"
-  },
-  "MSTUART2": {
-    "capacity": 144,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Mt Stuart"
-  },
-  "MSTUART3": {
-    "capacity": 144,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Mt Stuart"
-  },
-  "MTPIPER1": {
-    "capacity": 700,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Mt Piper"
-  },
-  "MTPIPER2": {
-    "capacity": 700,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Mt Piper"
-  },
-  "MURRA3WF1": {
-    "capacity": 158,
-    "fuel": "Wind",
-    "region": "VIC1",
-    "station": "Murra Warra"
-  },
-  "MURRAY1": {
-    "capacity": 256,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Murray"
-  },
-  "MURRAY2": {
-    "capacity": 256,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Murray"
-  },
-  "MUSSELROE1": {
-    "capacity": 168,
-    "fuel": "Wind",
-    "region": "TAS1",
-    "station": "Musselroe Wind"
-  },
-  "MUSSELROE2": {
-    "capacity": 168,
-    "fuel": "Wind",
-    "region": "TAS1",
-    "station": "Musselroe Wind"
-  },
-  "NEOEN_SA": {
-    "capacity": 150,
-    "fuel": "Battery",
-    "region": "SA1",
-    "station": "Hornsdale Reserve"
-  },
-  "NEOEN_VIC": {
-    "capacity": 300,
-    "fuel": "Battery",
-    "region": "VIC1",
-    "station": "Victorian Big Batt"
-  },
-  "NEVERTIRE1": {
-    "capacity": 120,
-    "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Nevertire Solar"
-  },
-  "NEWPORT": {
-    "capacity": 500,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Newport"
-  },
-  "NUMURKH1": {
-    "capacity": 128,
-    "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Numurkah Solar"
-  },
-  "OAKEY1": {
-    "capacity": 282,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Oakey"
-  },
-  "OAKEY2": {
-    "capacity": 282,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Oakey"
-  },
-  "OAKHNWF1": {
-    "capacity": 67,
-    "fuel": "Wind",
-    "region": "VIC1",
-    "station": "Oakland Hill"
-  },
-  "PELICAN1": {
-    "capacity": 480,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Pelican Point"
-  },
-  "POATINA1": {
-    "capacity": 75,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Poatina"
-  },
-  "POATINA2": {
-    "capacity": 75,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Poatina"
-  },
-  "POATINA3": {
-    "capacity": 75,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Poatina"
-  },
-  "POATINA4": {
-    "capacity": 75,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Poatina"
-  },
-  "POATINA5": {
-    "capacity": 75,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Poatina"
-  },
-  "POATINA6": {
-    "capacity": 75,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Poatina"
-  },
-  "PPCCGT": {
-    "capacity": 478,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Pelican Point"
-  },
-  "RALPHS_BAY1": {
-    "capacity": 60,
-    "fuel": "Wind",
-    "region": "TAS1",
-    "station": "Ralphs Bay Wind"
-  },
-  "REECE1": {
-    "capacity": 231,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Reece"
-  },
-  "REECE2": {
-    "capacity": 231,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Reece"
-  },
-  "REPULSE1": {
-    "capacity": 33,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Repulse"
-  },
-  "REPULSE2": {
-    "capacity": 33,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Repulse"
-  },
-  "ROMA_7": {
-    "capacity": 80,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Roma"
-  },
-  "ROOFTOP_NSW1": {
-    "capacity": 3000,
-    "fuel": "Rooftop Solar",
-    "region": "NSW1",
-    "station": "Rooftop Solar NSW"
-  },
-  "ROOFTOP_QLD1": {
-    "capacity": 3500,
-    "fuel": "Rooftop Solar",
-    "region": "QLD1",
-    "station": "Rooftop Solar QLD"
-  },
-  "ROOFTOP_SA1": {
-    "capacity": 1200,
-    "fuel": "Rooftop Solar",
-    "region": "SA1",
-    "station": "Rooftop Solar SA"
-  },
-  "ROOFTOP_TAS1": {
-    "capacity": 200,
-    "fuel": "Rooftop Solar",
-    "region": "TAS1",
-    "station": "Rooftop Solar TAS"
-  },
-  "ROOFTOP_VIC1": {
-    "capacity": 2000,
-    "fuel": "Rooftop Solar",
-    "region": "VIC1",
-    "station": "Rooftop Solar VIC"
-  },
-  "RRSF1": {
-    "capacity": 153,
-    "fuel": "Solar",
-    "region": "QLD1",
-    "station": "Ross River Solar"
-  },
-  "RUGBYR1": {
-    "capacity": 78,
-    "fuel": "Solar",
-    "region": "QLD1",
-    "station": "Rugby Run Solar"
-  },
-  "SAPHIRE1": {
-    "capacity": 270,
-    "fuel": "Wind",
-    "region": "NSW1",
-    "station": "Sapphire Wind"
-  },
-  "SHGEN": {
-    "capacity": 240,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Shoalhaven"
-  },
-  "SHNGEN": {
-    "capacity": 240,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Shoalhaven"
-  },
-  "SNAPPER1": {
-    "capacity": 319,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Snapper Point"
-  },
-  "SNUGGERY1": {
-    "capacity": 72,
-    "fuel": "Liquid",
-    "region": "SA1",
-    "station": "Snuggery"
-  },
-  "SOMERTON": {
-    "capacity": 160,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Somerton"
-  },
-  "SW1": {
-    "capacity": 365,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Stanwell"
-  },
-  "SW2": {
-    "capacity": 365,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Stanwell"
-  },
-  "SW3": {
-    "capacity": 365,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Stanwell"
-  },
-  "SW4": {
-    "capacity": 365,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Stanwell"
-  },
-  "SWAN_E": {
-    "capacity": 385,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Swanbank E"
-  },
-  "TALLAWARRA1": {
-    "capacity": 360,
-    "fuel": "Gas",
-    "region": "NSW1",
-    "station": "Tallawarra"
-  },
-  "TALLAWARRA2": {
-    "capacity": 316,
-    "fuel": "Gas",
-    "region": "NSW1",
-    "station": "Tallawarra B"
-  },
-  "TALLWRRA": {
-    "capacity": 440,
-    "fuel": "Gas",
-    "region": "NSW1",
-    "station": "Tallawarra A"
-  },
-  "TALLWRRB": {
-    "capacity": 316,
-    "fuel": "Gas",
-    "region": "NSW1",
-    "station": "Tallawarra B"
-  },
-  "TAMAR_GT1": {
-    "capacity": 208,
-    "fuel": "Gas",
-    "region": "TAS1",
-    "station": "Tamar Valley GT"
-  },
-  "TARALGA1": {
-    "capacity": 106,
-    "fuel": "Wind",
-    "region": "NSW1",
-    "station": "Taralga Wind"
-  },
-  "TARONG1": {
-    "capacity": 350,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Tarong"
-  },
-  "TARONG2": {
-    "capacity": 350,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Tarong"
-  },
-  "TARONG3": {
-    "capacity": 350,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Tarong"
-  },
-  "TARONG4": {
-    "capacity": 350,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Tarong"
-  },
-  "TAS1BES1": {
-    "capacity": 150,
-    "fuel": "Battery",
-    "region": "TAS1",
-    "station": "TAS Battery"
-  },
-  "TNPS1": {
-    "capacity": 443,
-    "fuel": "Black Coal",
-    "region": "QLD1",
-    "station": "Tarong North"
-  },
-  "TORRA1": {
-    "capacity": 200,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Torrens Island A"
-  },
-  "TORRA2": {
-    "capacity": 200,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Torrens Island A"
-  },
-  "TORRA3": {
-    "capacity": 200,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Torrens Island A"
-  },
-  "TORRA4": {
-    "capacity": 200,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Torrens Island A"
-  },
-  "TORRB1": {
-    "capacity": 200,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Torrens Island B"
-  },
-  "TORRB2": {
-    "capacity": 200,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Torrens Island B"
-  },
-  "TORRB3": {
-    "capacity": 200,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Torrens Island B"
-  },
-  "TORRB4": {
-    "capacity": 200,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Torrens Island B"
-  },
-  "TORRSA1": {
-    "capacity": 120,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Torrens Island A"
-  },
-  "TORRSA2": {
-    "capacity": 120,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Torrens Island A"
-  },
-  "TORRSA3": {
-    "capacity": 120,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Torrens Island A"
-  },
-  "TORRSA4": {
-    "capacity": 120,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Torrens Island A"
-  },
-  "TORRSB1": {
-    "capacity": 200,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Torrens Island B"
-  },
-  "TORRSB2": {
-    "capacity": 200,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Torrens Island B"
-  },
-  "TORRSB3": {
-    "capacity": 200,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Torrens Island B"
-  },
-  "TORRSB4": {
-    "capacity": 200,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Torrens Island B"
-  },
-  "TOWNSVILLE": {
-    "capacity": 180,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Townsville"
-  },
-  "TREVALLYN1": {
-    "capacity": 23,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Trevallyn"
-  },
-  "TREVALLYN2": {
-    "capacity": 23,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Trevallyn"
-  },
-  "TREVALLYN3": {
-    "capacity": 23,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Trevallyn"
-  },
-  "TREVALLYN4": {
-    "capacity": 23,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Trevallyn"
-  },
-  "TRIBUTE1": {
-    "capacity": 80,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Tribute"
-  },
-  "TRIBUTE2": {
-    "capacity": 80,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Tribute"
-  },
-  "TUMUT1": {
-    "capacity": 160,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Tumut 1"
-  },
-  "TUMUT2": {
-    "capacity": 160,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Tumut 2"
-  },
-  "TUMUT3": {
-    "capacity": 250,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Tumut 3"
-  },
-  "TUMUT3A": {
-    "capacity": 250,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Tumut 3"
-  },
-  "TUNGATINAH1": {
-    "capacity": 30,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Tungatinah"
-  },
-  "TUNGATINAH2": {
-    "capacity": 30,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Tungatinah"
-  },
-  "TUNGATINAH3": {
-    "capacity": 30,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Tungatinah"
-  },
-  "TUNGATINAH4": {
-    "capacity": 30,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Tungatinah"
-  },
-  "TUNGATINAH5": {
-    "capacity": 30,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Tungatinah"
-  },
-  "TYNDALL1": {
-    "capacity": 50,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Tyndall"
-  },
-  "TYNDALL2": {
-    "capacity": 50,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Tyndall"
-  },
-  "URANQ1": {
-    "capacity": 160,
-    "fuel": "Gas",
-    "region": "NSW1",
-    "station": "Uranquinty"
-  },
-  "URANQ2": {
-    "capacity": 160,
-    "fuel": "Gas",
-    "region": "NSW1",
-    "station": "Uranquinty"
-  },
-  "URANQ3": {
-    "capacity": 160,
-    "fuel": "Gas",
-    "region": "NSW1",
-    "station": "Uranquinty"
-  },
-  "URANQ4": {
-    "capacity": 160,
-    "fuel": "Gas",
-    "region": "NSW1",
-    "station": "Uranquinty"
-  },
-  "VALUNIT1": {
-    "capacity": 300,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Valley Power"
-  },
-  "VALUNIT2": {
-    "capacity": 300,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Valley Power"
-  },
-  "VALUNIT3": {
-    "capacity": 300,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Valley Power"
-  },
-  "VALUNIT4": {
-    "capacity": 300,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Valley Power"
-  },
-  "VALUNIT5": {
-    "capacity": 300,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Valley Power"
-  },
-  "VALUNIT6": {
-    "capacity": 300,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Valley Power"
-  },
-  "VP5": {
-    "capacity": 660,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Vales Point B"
-  },
-  "VP6": {
-    "capacity": 660,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Vales Point B"
-  },
-  "VPGS1": {
-    "capacity": 51,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Valley Power"
-  },
-  "VPGS2": {
-    "capacity": 51,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Valley Power"
-  },
-  "VPGS3": {
-    "capacity": 51,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Valley Power"
-  },
-  "VPGS4": {
-    "capacity": 51,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Valley Power"
-  },
-  "VPGS5": {
-    "capacity": 51,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Valley Power"
-  },
-  "VPGS6": {
-    "capacity": 51,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Valley Power"
-  },
-  "W/HOE_1": {
-    "capacity": 285,
-    "fuel": "Hydro",
-    "region": "QLD1",
-    "station": "Wivenhoe"
-  },
-  "W/HOE_2": {
-    "capacity": 285,
-    "fuel": "Hydro",
-    "region": "QLD1",
-    "station": "Wivenhoe"
-  },
-  "WANDBG1": {
-    "capacity": 100,
-    "fuel": "Battery",
-    "region": "QLD1",
-    "station": "Wandoan Battery"
-  },
-  "WAUBRAWF1": {
-    "capacity": 192,
-    "fuel": "Wind",
-    "region": "VIC1",
-    "station": "Waubra"
-  },
-  "WEMENSF1": {
-    "capacity": 221,
-    "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Wemen Solar"
-  },
-  "WGSA1": {
-    "capacity": 111,
-    "fuel": "Wind",
-    "region": "SA1",
-    "station": "Waterloo Wind"
-  },
-  "WGWF1": {
-    "capacity": 20,
-    "fuel": "Wind",
-    "region": "QLD1",
-    "station": "Windy Hill"
-  },
-  "WILLOGWF1": {
-    "capacity": 119,
-    "fuel": "Wind",
-    "region": "SA1",
-    "station": "Willogoleche Wind"
-  },
-  "WIVENHOE1": {
-    "capacity": 275,
-    "fuel": "Hydro",
-    "region": "QLD1",
-    "station": "Wivenhoe"
-  },
-  "WIVENHOE2": {
-    "capacity": 275,
-    "fuel": "Hydro",
-    "region": "QLD1",
-    "station": "Wivenhoe"
-  },
-  "WKIEWA1": {
-    "capacity": 40,
-    "fuel": "Hydro",
-    "region": "VIC1",
-    "station": "West Kiewa"
-  },
-  "WKIEWA2": {
-    "capacity": 40,
-    "fuel": "Hydro",
-    "region": "VIC1",
-    "station": "West Kiewa"
-  },
-  "WOODLWN1": {
-    "capacity": 48,
-    "fuel": "Wind",
-    "region": "NSW1",
-    "station": "Woodlawn"
-  },
-  "WOOLNORTH_WF1H": {
-    "capacity": 65,
-    "fuel": "Wind",
-    "region": "TAS1",
-    "station": "Woolnorth"
-  },
-  "WOOLNORTH_WF2H": {
-    "capacity": 65,
-    "fuel": "Wind",
-    "region": "TAS1",
-    "station": "Woolnorth"
-  },
-  "WPWF1": {
-    "capacity": 119,
-    "fuel": "Wind",
-    "region": "SA1",
-    "station": "Willogoleche Wind"
-  },
-  "YABULU2": {
-    "capacity": 242,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Yabulu"
-  },
-  "YAMBUKWF1": {
-    "capacity": 30,
-    "fuel": "Wind",
-    "region": "VIC1",
-    "station": "Yambuk"
-  },
-  "YWPS1": {
-    "capacity": 360,
-    "fuel": "Brown Coal",
-    "region": "VIC1",
-    "station": "Yallourn W"
-  },
-  "YWPS2": {
-    "capacity": 360,
-    "fuel": "Brown Coal",
-    "region": "VIC1",
-    "station": "Yallourn W"
-  },
-  "YWPS3": {
-    "capacity": 360,
-    "fuel": "Brown Coal",
-    "region": "VIC1",
-    "station": "Yallourn W"
-  },
-  "YWPS4": {
-    "capacity": 360,
-    "fuel": "Brown Coal",
-    "region": "VIC1",
-    "station": "Yallourn W"
-  },
-  "CLARESF1": {
-    "station": "Clare Solar Farm",
-    "fuel": "Solar",
-    "region": "QLD1",
-    "capacity": 100
-  },
-  "DDSF1": {
-    "station": "Darling Downs Solar",
-    "fuel": "Solar",
-    "region": "QLD1",
-    "capacity": 110
-  },
-  "DAYDSF1": {
-    "station": "Daydream Solar",
-    "fuel": "Solar",
-    "region": "QLD1",
-    "capacity": 150
-  },
-  "MOREESF1": {
-    "station": "Moree Solar Farm",
-    "fuel": "Solar",
-    "region": "NSW1",
-    "capacity": 56
-  },
-  "STOCKYD1": {
-    "station": "Stockyard Hill",
-    "fuel": "Wind",
-    "region": "VIC1",
-    "capacity": 530
-  },
-  "OSBOROPS": {
-    "station": "Osborne",
-    "fuel": "Gas",
-    "region": "SA1",
-    "capacity": 180
-  },
-  "SHPUMP": {
-    "station": "Shoalhaven Pump",
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "capacity": 240
-  },
-  "WIVENPUMP1": {
-    "station": "Wivenhoe",
-    "fuel": "Hydro",
-    "region": "QLD1",
-    "capacity": 500
-  },
-  "WIVENPUMP2": {
-    "station": "Wivenhoe",
-    "fuel": "Hydro",
-    "region": "QLD1",
-    "capacity": 500
-  },
-  "MURRAY_PUMP": {
-    "station": "Murray",
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "capacity": 150
-  },
-  "BENDEELA_P": {
-    "station": "Bendeela",
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "capacity": 80
-  },
-  "KANGVALLEY": {
-    "station": "Kangaroo Valley",
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "capacity": 160
-  },
-  "TALBINGO": {
-    "station": "Tumut 3",
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "capacity": 250
-  },
-  "URANQ11": {
-    "station": "Uranquinty",
-    "fuel": "Gas",
-    "region": "NSW1",
-    "capacity": 160
-  },
-  "URANQ12": {
-    "station": "Uranquinty",
-    "fuel": "Gas",
-    "region": "NSW1",
-    "capacity": 160
-  },
-  "URANQ13": {
-    "station": "Uranquinty",
-    "fuel": "Gas",
-    "region": "NSW1",
-    "capacity": 160
-  },
-  "URANQ14": {
-    "station": "Uranquinty",
-    "fuel": "Gas",
-    "region": "NSW1",
-    "capacity": 160
-  },
-  "ERB01": {
-    "station": "Eraring Battery",
-    "fuel": "Battery",
-    "region": "NSW1",
-    "capacity": 460
-  },
-  "SNB01": {
-    "station": "Supernode Battery",
-    "fuel": "Battery",
-    "region": "QLD1",
-    "capacity": 520
-  },
-  "ERGT01": {
-    "station": "Eraring",
-    "fuel": "Liquid",
-    "region": "NSW1",
-    "capacity": 50
-  },
-  "MORTLK11": {
-    "station": "Mortlake",
-    "fuel": "Gas",
-    "region": "VIC1",
-    "capacity": 282
-  },
-  "MORTLK12": {
-    "station": "Mortlake",
-    "fuel": "Gas",
-    "region": "VIC1",
-    "capacity": 282
-  },
-  "BNGSF1": {
-    "station": "Bungala Solar 1",
-    "fuel": "Solar",
-    "region": "SA1",
-    "capacity": 110
-  },
-  "BNGSF2": {
-    "station": "Bungala Solar 2",
-    "fuel": "Solar",
-    "region": "SA1",
-    "capacity": 110
-  },
-  "OSB-AG": {
-    "station": "Osborne Cogen",
-    "fuel": "Gas",
-    "region": "SA1",
-    "capacity": 180
-  },
-  "QPS1": {
-    "station": "Quarantine",
-    "fuel": "Gas",
-    "region": "SA1",
-    "capacity": 60
-  },
-  "QPS2": {
-    "station": "Quarantine",
-    "fuel": "Gas",
-    "region": "SA1",
-    "capacity": 60
-  },
-  "QPS3": {
-    "station": "Quarantine",
-    "fuel": "Gas",
-    "region": "SA1",
-    "capacity": 60
-  },
-  "QPS4": {
-    "station": "Quarantine",
-    "fuel": "Gas",
-    "region": "SA1",
-    "capacity": 60
-  },
-  "QPS5": {
-    "station": "Quarantine",
-    "fuel": "Gas",
-    "region": "SA1",
-    "capacity": 60
-  },
-  "LADBROK1": {
-    "station": "Ladbroke Grove",
-    "fuel": "Gas",
-    "region": "SA1",
-    "capacity": 80
-  },
-  "LADBROK2": {
-    "station": "Ladbroke Grove",
-    "fuel": "Gas",
-    "region": "SA1",
-    "capacity": 80
-  },
-  "SNOWNTH1": {
-    "station": "Snowtown 1",
-    "fuel": "Wind",
-    "region": "SA1",
-    "capacity": 99
-  },
-  "SNOWSTH1": {
-    "station": "Snowtown 2",
-    "fuel": "Wind",
-    "region": "SA1",
-    "capacity": 270
-  }
+# -*- coding: utf-8 -*-
+
+“””
+NEM Dashboard - FastAPI backend
+Fast cache: prices, demand, gen, IC, Origin - refreshed every 5 min
+Slow cache: all generators, ST PASA week-ahead - refreshed every 30 min
+“””
+
+import asyncio
+import io
+import logging
+import time
+import traceback
+from datetime import datetime, timezone
+from pathlib import Path
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from scraper import scrape_all, scrape_gen, scrape_slow, scrape_scada_history, scrape_mtpasa_outages
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(**name**)
+
+fast_cache   = {“data”: None, “last_updated”: None, “error”: None}
+mtpasa_cache = {“data”: [],   “last_updated”: None, “error”: None}
+gen_cache    = {“data”: None, “last_updated”: None, “error”: None}
+slow_cache   = {“data”: None, “last_updated”: None, “error”: None}
+
+FAST_INTERVAL = 300    # 5 min
+GEN_INTERVAL  = 900    # 15 min
+SLOW_INTERVAL = 1800   # 30 min
+
+_FAST_EMPTY = {
+“prices”: {}, “demand”: {}, “op_demand”: {}, “region_summary”: {},
+“historical_prices”: {}, “predispatch_prices”: {}, “predispatch_demand”: {},
+“predispatch_gen”: {}, “predispatch_ic”: {}, “ic_flows”: {}, “ic_history”: {},
+“origin_assets”: {}, “tomorrow_prices”: {}, “tomorrow_demand”: {},
+“dispatch_history”: {}, “fuel_mix”: {}, “predispatch_units”: {},
+“dispatch_prices_5min”: {}, “demand_history”: {}, “op_demand_history”: {},
+“interconnectors”: {}, “generation”: {}, “fuel_colors”: {}, “all_fuels”: [],
+“bdu_history”: {},
 }
+
+async def _run_fast():
+t0 = time.time()
+try:
+data = await asyncio.wait_for(
+asyncio.get_running_loop().run_in_executor(None, scrape_all),
+timeout=60,
+)
+fast_cache[“data”] = data
+fast_cache[“last_updated”] = datetime.now(timezone.utc).isoformat()
+fast_cache[“error”] = None
+logger.info(“Fast scrape done in %.1fs”, time.time() - t0)
+except asyncio.TimeoutError:
+logger.error(“Fast scrape timed out after 60s”)
+fast_cache[“error”] = “timeout”
+if fast_cache[“data”] is None:
+fast_cache[“data”] = dict(_FAST_EMPTY)
+fast_cache[“last_updated”] = datetime.now(timezone.utc).isoformat()
+except Exception as e:
+logger.error(“Fast scrape error: %s”, traceback.format_exc())
+fast_cache[“error”] = str(e)
+if fast_cache[“data”] is None:
+fast_cache[“data”] = dict(_FAST_EMPTY)
+fast_cache[“last_updated”] = datetime.now(timezone.utc).isoformat()
+
+async def _run_slow():
+t0 = time.time()
+try:
+loop = asyncio.get_running_loop()
+data = await asyncio.wait_for(
+loop.run_in_executor(None, scrape_slow),
+timeout=180
+)
+slow_cache[“data”] = data
+slow_cache[“last_updated”] = datetime.now(timezone.utc).isoformat()
+slow_cache[“error”] = None
+logger.info(“Slow scrape done in %.1fs”, time.time() - t0)
+except asyncio.TimeoutError:
+logger.error(“Slow scrape timed out after 180s”)
+slow_cache[“error”] = “timeout”
+if slow_cache[“data”] is None:
+slow_cache[“data”] = {
+“timestamp”: datetime.now(timezone.utc).isoformat(),
+“stpasa_demand”: {}, “fuel_colors”: {}, “all_fuels”: [],
+“weather”: {}, “tomorrow_demand_stpasa”: {}, “mtpasa_outages”: [],
+}
+slow_cache[“last_updated”] = datetime.now(timezone.utc).isoformat()
+except Exception as e:
+logger.error(“Slow scrape error: %s”, traceback.format_exc())
+slow_cache[“error”] = str(e)
+if slow_cache[“data”] is None:
+slow_cache[“data”] = {
+“timestamp”: datetime.now(timezone.utc).isoformat(),
+“stpasa_demand”: {}, “fuel_colors”: {}, “all_fuels”: [],
+“weather”: {}, “tomorrow_demand_stpasa”: {}, “mtpasa_outages”: [],
+}
+slow_cache[“last_updated”] = datetime.now(timezone.utc).isoformat()
+
+async def fast_loop():
+await _run_fast()
+while True:
+await asyncio.sleep(FAST_INTERVAL)
+try:
+await _run_fast()
+except Exception as e:
+logger.error(“Fast loop error: %s”, e)
+fast_cache[“error”] = str(e)
+
+async def _run_gen():
+t0 = time.time()
+try:
+loop = asyncio.get_running_loop()
+data = await asyncio.wait_for(loop.run_in_executor(None, scrape_gen), timeout=60)
+gen_cache[“data”] = data
+gen_cache[“last_updated”] = datetime.now(timezone.utc).isoformat()
+gen_cache[“error”] = None
+logger.info(“Gen scrape done in %.1fs - scada=%d reg=%d”,
+time.time() - t0, data.get(“scada_count”, 0), data.get(“reg_count”, 0))
+except asyncio.TimeoutError:
+logger.error(“Gen scrape timed out”)
+gen_cache[“error”] = “timeout”
+if gen_cache[“data”] is None:
+gen_cache[“data”] = {“fuel_mix”: {}, “nem_totals”: {}, “grouped”: {},
+“fuel_colors”: {}, “all_fuels”: [], “scada_count”: 0, “reg_count”: 0}
+except Exception as e:
+logger.error(“Gen scrape error: %s”, e)
+gen_cache[“error”] = str(e)
+
+async def gen_loop():
+await asyncio.sleep(5)
+try:
+loop = asyncio.get_running_loop()
+logger.info(“Starting SCADA history backfill…”)
+await asyncio.wait_for(
+loop.run_in_executor(None, scrape_scada_history), timeout=120
+)
+logger.info(“SCADA history backfill complete”)
+except Exception as e:
+logger.warning(“SCADA history backfill failed: %s”, e)
+await _run_gen()
+while True:
+await asyncio.sleep(GEN_INTERVAL)
+try:
+await _run_gen()
+except Exception as e:
+logger.error(“Gen loop error: %s”, e)
+gen_cache[“error”] = str(e)
+
+async def mtpasa_loop():
+await asyncio.sleep(10)
+while True:
+try:
+loop = asyncio.get_running_loop()
+data = await asyncio.wait_for(
+loop.run_in_executor(None, scrape_mtpasa_outages),
+timeout=120
+)
+mtpasa_cache[“data”] = data
+mtpasa_cache[“last_updated”] = datetime.now(timezone.utc).isoformat()
+mtpasa_cache[“error”] = None
+logger.info(“MTPASA scrape done: %d units”, len(data))
+except asyncio.TimeoutError:
+logger.warning(“MTPASA scrape timed out”)
+mtpasa_cache[“error”] = “timeout”
+except Exception as e:
+logger.warning(“MTPASA scrape error: %s”, e)
+mtpasa_cache[“error”] = str(e)
+await asyncio.sleep(1800)
+
+async def slow_loop():
+await asyncio.sleep(15)
+await _run_slow()
+while True:
+await asyncio.sleep(SLOW_INTERVAL)
+try:
+await _run_slow()
+except Exception as e:
+logger.error(“Slow loop error: %s”, e)
+slow_cache[“error”] = str(e)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+# Yield immediately - health check passes at once, scraping runs in background
+fast_task   = asyncio.create_task(fast_loop())
+gen_task    = asyncio.create_task(gen_loop())
+slow_task   = asyncio.create_task(slow_loop())
+mtpasa_task = asyncio.create_task(mtpasa_loop())
+yield
+fast_task.cancel()
+gen_task.cancel()
+slow_task.cancel()
+mtpasa_task.cancel()
+
+app = FastAPI(title=“NEM Dashboard”, lifespan=lifespan)
+
+static_dir = Path(**file**).parent / “static”
+static_dir.mkdir(exist_ok=True)
+(static_dir / “data”).mkdir(exist_ok=True)
+app.mount(”/static”, StaticFiles(directory=str(static_dir)), name=“static”)
+
+@app.get(”/api/data”)
+async def get_data():
+if fast_cache[“data”] is None:
+return JSONResponse(
+content={“error”: fast_cache.get(“error”, “Loading…”), “loading”: True},
+status_code=202,
+)
+return JSONResponse(content={
+**fast_cache[“data”],
+“last_updated”: fast_cache[“last_updated”],
+“cache_error”:  fast_cache.get(“error”),
+})
+
+@app.get(”/api/gen”)
+async def get_gen():
+if gen_cache[“data”] is None:
+return JSONResponse(
+content={“loading”: True, “error”: gen_cache.get(“error”)},
+status_code=202,
+)
+return JSONResponse(content={
+**gen_cache[“data”],
+“last_updated”: gen_cache[“last_updated”],
+“cache_error”:  gen_cache.get(“error”),
+})
+
+@app.get(”/api/slow”)
+async def get_slow():
+if slow_cache[“data”] is None:
+return JSONResponse(
+content={“loading”: True, “error”: slow_cache.get(“error”)},
+status_code=202,
+)
+return JSONResponse(content={
+**slow_cache[“data”],
+“mtpasa_outages”: mtpasa_cache[“data”],
+“last_updated”: slow_cache[“last_updated”],
+“cache_error”:  slow_cache.get(“error”),
+})
+
+@app.get(”/api/health”)
+async def health():
+return {
+“status”:        “ok”,
+“fast_updated”:  fast_cache[“last_updated”],
+“slow_updated”:  slow_cache[“last_updated”],
+“fast_has_data”: fast_cache[“data”] is not None,
+“slow_has_data”: slow_cache[“data”] is not None,
+“fast_error”:    fast_cache.get(“error”),
+“slow_error”:    slow_cache.get(“error”),
+}
+
+@app.get(”/api/debug”)
+async def debug():
+from scraper import _list_hrefs, _read_zip, _parse_aemo
+from zoneinfo import ZoneInfo
+result = {}
+aest = ZoneInfo(“Australia/Brisbane”)
+result[“now_aest”] = datetime.now(aest).isoformat()
+if fast_cache[“data”]:
+d = fast_cache[“data”]
+result[“fast_cache”] = {
+“prices”:      d.get(“prices”, {}),
+“hist_prices”: {r: len(v) for r, v in d.get(“historical_prices”, {}).items()},
+“pd_prices”:   {r: len(v) for r, v in d.get(“predispatch_prices”, {}).items()},
+}
+if slow_cache[“data”]:
+d = slow_cache[“data”]
+result[“slow_cache”] = {
+“stpasa_pts”: {r: len(v) for r, v in d.get(“stpasa_demand”, {}).items()},
+}
+return JSONResponse(content=result)
+
+@app.get(”/api/reg-test”)
+async def reg_test():
+import time as _time
+result = {}
+try:
+from scraper import AEMO_REG_LIST_URL, SESSION
+result[“url”] = AEMO_REG_LIST_URL
+t0 = _time.time()
+r = SESSION.get(AEMO_REG_LIST_URL, timeout=30, allow_redirects=True)
+result[“status_code”] = r.status_code
+result[“content_length”] = len(r.content)
+result[“fetch_ms”] = round((_time.time() - t0) * 1000)
+except Exception as e:
+result[“exception”] = str(e)
+return JSONResponse(content=result)
+
+@app.get(”/api/scada-debug”)
+async def scada_debug():
+from scraper import _fetch_full_scada, NEM_UNITS
+loop = asyncio.get_running_loop()
+scada = await loop.run_in_executor(None, _fetch_full_scada)
+matched, unmatched = {}, {}
+for duid, mw in scada.items():
+info = NEM_UNITS.get(duid.upper())
+if info:
+matched[duid] = {**info, “mw”: mw}
+else:
+unmatched[duid] = mw
+top_unmatched = dict(sorted(unmatched.items(), key=lambda x: abs(x[1] or 0), reverse=True)[:50])
+return JSONResponse(content={
+“total_scada”: len(scada), “matched”: len(matched), “unmatched”: len(unmatched),
+“top_unmatched_by_mw”: top_unmatched,
+})
+
+@app.get(”/api/gen-debug”)
+async def gen_debug():
+from scraper import _fetch_full_scada, NEM_UNITS, _infer_fuel_from_duid
+data = gen_cache.get(“data”) or {}
+grouped = data.get(“grouped”, {})
+other_by_region = {
+region: sorted(fuels.get(“Other”, []), key=lambda x: x.get(“mw”) or 0, reverse=True)[:20]
+for region, fuels in grouped.items() if fuels.get(“Other”)
+}
+loop = asyncio.get_running_loop()
+scada = await loop.run_in_executor(None, _fetch_full_scada)
+unmatched = {
+duid: {“mw”: mw, “inferred_fuel”: _infer_fuel_from_duid(duid)}
+for duid, mw in scada.items() if not NEM_UNITS.get(duid.upper())
+}
+top = dict(sorted(unmatched.items(), key=lambda x: abs(x[1][“mw”] or 0), reverse=True)[:30])
+return JSONResponse(content={“other_by_region”: other_by_region, “top_unmatched”: top})
+
+@app.get(”/api/station/{duid}”)
+async def station_detail(duid: str):
+from scraper import _duid_history, NEM_UNITS
+duid = duid.strip().upper()
+info = NEM_UNITS.get(duid, {})
+history = _duid_history.get(duid, {})
+return JSONResponse(content={
+“duid”: duid, “station”: info.get(“station”, duid),
+“fuel”: info.get(“fuel”, “Other”), “region”: info.get(“region”, “”),
+“capacity”: info.get(“capacity”),
+“history”: [{“interval”: k, “mw”: v} for k, v in sorted(history.items())],
+“predispatch”: [],
+})
+
+@app.get(”/api/stations/batch”)
+async def station_batch(duids: str):
+from scraper import _duid_history, NEM_UNITS
+result = []
+for duid in duids.upper().split(”,”):
+duid = duid.strip()
+if not duid:
+continue
+info = NEM_UNITS.get(duid, {})
+history = _duid_history.get(duid, {})
+result.append({
+“duid”: duid, “station”: info.get(“station”, duid),
+“fuel”: info.get(“fuel”, “Other”), “region”: info.get(“region”, “”),
+“capacity”: info.get(“capacity”),
+“history”: [{“interval”: k, “mw”: v} for k, v in sorted(history.items())],
+“predispatch”: [],
+})
+return JSONResponse(content=result)
+
+@app.get(”/api/historical_prices”)
+async def historical_prices(date: str):
+import re
+if not re.match(r”^\d{8}$”, date):
+return JSONResponse(status_code=400, content={“error”: “date must be YYYYMMDD”})
+from scraper import scrape_historical_prices
+loop = asyncio.get_running_loop()
+try:
+data = await asyncio.wait_for(
+loop.run_in_executor(None, scrape_historical_prices, date), timeout=60)
+return data
+except asyncio.TimeoutError:
+return JSONResponse(status_code=504, content={“error”: “timeout”})
+except Exception as e:
+return JSONResponse(status_code=500, content={“error”: str(e)})
+
+@app.get(”/api/origin”)
+async def origin_history():
+from scraper import _duid_history, ORIGIN_DUIDS
+result = {}
+for duid in ORIGIN_DUIDS:
+history = _duid_history.get(duid, {})
+if history:
+result[duid] = [{“interval”: k, “mw”: v} for k, v in sorted(history.items())]
+return JSONResponse(content=result)
+
+@app.get(”/api/station-debug”)
+async def station_debug():
+from scraper import _duid_history
+sample = {}
+for duid in list(_duid_history.keys())[:10]:
+pts = len(_duid_history[duid])
+last = sorted(_duid_history[duid].keys())[-1] if _duid_history[duid] else None
+sample[duid] = {“pts”: pts, “last”: last}
+return JSONResponse(content={“total_duids”: len(_duid_history), “sample”: sample})
+
+@app.post(”/api/views”)
+async def record_view(request: Request):
+import json, hashlib, os
+from datetime import timedelta
+import requests as _requests
+
+```
+AEST     = timezone(timedelta(hours=10))
+now_aest = datetime.now(AEST)
+today    = now_aest.strftime("%Y-%m-%d")
+month    = now_aest.strftime("%Y-%m")
+
+forwarded = request.headers.get("x-forwarded-for")
+raw_ip    = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
+ip_hash   = hashlib.sha256(raw_ip.encode()).hexdigest()[:16]
+
+GIST_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+GIST_ID    = os.environ.get("VIEWS_GIST_ID", "")
+
+data: dict = {}
+if GIST_TOKEN and GIST_ID:
+    try:
+        loop = asyncio.get_running_loop()
+        r = await loop.run_in_executor(None, lambda: _requests.get(
+            "https://api.github.com/gists/" + GIST_ID,
+            headers={"Authorization": "token " + GIST_TOKEN,
+                     "Accept": "application/vnd.github.v3+json"},
+            timeout=8
+        ))
+        if r.status_code == 200:
+            files = r.json().get("files", {})
+            raw   = next(iter(files.values()), {}).get("content", "{}")
+            data  = json.loads(raw)
+    except Exception:
+        pass
+
+data.setdefault("total", 0)
+data.setdefault("by_day", {})
+data.setdefault("by_month", {})
+data.setdefault("unique_ips", [])
+data.setdefault("unique_by_day", {})
+data.setdefault("unique_by_month", {})
+
+data["total"] += 1
+data["by_day"][today]   = data["by_day"].get(today, 0) + 1
+data["by_month"][month] = data["by_month"].get(month, 0) + 1
+
+if ip_hash not in data["unique_ips"]:
+    data["unique_ips"].append(ip_hash)
+if ip_hash not in data["unique_by_day"].setdefault(today, []):
+    data["unique_by_day"][today].append(ip_hash)
+if ip_hash not in data["unique_by_month"].setdefault(month, []):
+    data["unique_by_month"][month].append(ip_hash)
+
+if len(data["by_day"]) > 60:
+    for old in sorted(data["by_day"].keys())[:-60]:
+        data["by_day"].pop(old, None)
+        data["unique_by_day"].pop(old, None)
+
+if GIST_TOKEN and GIST_ID:
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, lambda: _requests.patch(
+            "https://api.github.com/gists/" + GIST_ID,
+            headers={"Authorization": "token " + GIST_TOKEN,
+                     "Accept": "application/vnd.github.v3+json"},
+            json={"files": {"views.json": {"content": json.dumps(data)}}},
+            timeout=8
+        ))
+    except Exception:
+        pass
+
+return {
+    "total":        data["total"],
+    "today":        data["by_day"].get(today, 0),
+    "this_month":   data["by_month"].get(month, 0),
+    "unique_total": len(data["unique_ips"]),
+    "unique_today": len(data["unique_by_day"].get(today, [])),
+    "unique_month": len(data["unique_by_month"].get(month, [])),
+}
+```
+
+@app.get(”/”, response_class=HTMLResponse)
+async def dashboard():
+html_path = Path(**file**).parent / “static” / “index.html”
+if html_path.exists():
+return HTMLResponse(content=html_path.read_text())
+return HTMLResponse(content=”<h1>Loading…</h1>”)
+
+if **name** == “**main**”:
+import uvicorn
+uvicorn.run(“main:app”, host=“0.0.0.0”, port=8000, reload=True)

@@ -1349,21 +1349,21 @@ def _update_fuel_history(fuel_mix: dict, scada: dict | None = None, pump_load: d
         if pump_load and pump_load.get(region, 0) < -1:
             snap["Pump Hydro"] = round(pump_load[region], 1)
         _fuel_history[region][label] = snap
-        if len(_fuel_history[region]) > 144:
+        if len(_fuel_history[region]) > 290:
             oldest = sorted(_fuel_history[region].keys())[0]
             del _fuel_history[region][oldest]
 
     # Store per-DUID history for station drill-down
     if scada:
         for duid, mw in scada.items():
-            if mw is None or duid not in NEM_UNITS:
+            if mw is None:
                 continue
             if duid not in _duid_history:
                 _duid_history[duid] = {}
             # Pump-load DUIDs report positive MW when consuming — negate for display
             stored_mw = -round(mw, 1) if duid in PUMP_LOAD_DUIDS else round(mw, 1)
             _duid_history[duid][label] = stored_mw
-            if len(_duid_history[duid]) > 144:
+            if len(_duid_history[duid]) > 290:
                 oldest = sorted(_duid_history[duid].keys())[0]
                 del _duid_history[duid][oldest]
 
@@ -1451,8 +1451,8 @@ def _update_live_duid_history(scada: dict) -> None:
         if duid not in _duid_history:
             _duid_history[duid] = {}
         _duid_history[duid][label] = stored_mw
-        # Trim to 144 points (~12h of 5-min data)
-        if len(_duid_history[duid]) > 144:
+        # Trim to 290 points (~24h of 5-min data)
+        if len(_duid_history[duid]) > 290:
             oldest = sorted(_duid_history[duid].keys())[0]
             del _duid_history[duid][oldest]
 
@@ -1609,7 +1609,6 @@ def scrape_all() -> dict:
     capped_dispatch_prices = {}
     for r in NEM_REGIONS:
         pts = [p for p in dispatch_price_5min.get(r, []) if p["interval"] <= now_label]
-        pts = pts[-144:]  # keep last 12h only
         if pts:
             capped_dispatch_prices[r] = pts
 
@@ -1627,7 +1626,7 @@ def scrape_all() -> dict:
         "op_demand":             op_demand,
         "generation":            generation,
         "interconnectors":       interconnectors,
-        "historical_prices":     {r: v[-48:] for r, v in trading_prices.items()},
+        "historical_prices":     trading_prices,
         "dispatch_prices_5min":  capped_dispatch_prices,
         "predispatch_prices":    pd_prices,
         "demand_history":        demand_history,
@@ -2164,8 +2163,8 @@ def scrape_scada_history() -> None:
             fuel   = raw_fuel if (raw_fuel and raw_fuel != "Other") else _infer_fuel_from_duid(duid)
             # Negate pump-load DUIDs (positive SCADA = consuming) for all fuel logic
             mw = -mw_raw if (duid in PUMP_LOAD_DUIDS and mw_raw is not None) else mw_raw
-            # Store per-DUID history for known DUIDs only
-            if mw is not None and duid in NEM_UNITS:
+            # Always store per-DUID history regardless of region match
+            if mw is not None:
                 if duid not in _duid_history:
                     _duid_history[duid] = {}
                 _duid_history[duid][label] = round(mw, 1)

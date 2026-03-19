@@ -1,7 +1,7 @@
 “””
 NEM Dashboard - FastAPI backend
-Fast cache: prices, demand, gen, IC, Origin — refreshed every 5 min
-Slow cache: all generators, ST PASA week-ahead — refreshed every 30 min
+Fast cache: prices, demand, gen, IC, Origin - refreshed every 5 min
+Slow cache: all generators, ST PASA week-ahead - refreshed every 30 min
 “””
 
 import asyncio
@@ -118,7 +118,7 @@ data = await asyncio.wait_for(loop.run_in_executor(None, scrape_gen), timeout=60
 gen_cache[“data”] = data
 gen_cache[“last_updated”] = datetime.now(timezone.utc).isoformat()
 gen_cache[“error”] = None
-logger.info(f”Gen scrape done in {time.time()-t0:.1f}s — “
+logger.info(f”Gen scrape done in {time.time()-t0:.1f}s - “
 f”scada={data.get(‘scada_count’,0)} reg={data.get(‘reg_count’,0)}”)
 except asyncio.TimeoutError:
 logger.error(“Gen scrape timed out”)
@@ -135,7 +135,7 @@ await asyncio.sleep(5)   # let fast scrape start first
 # Backfill 24hr SCADA history once at startup
 try:
 loop = asyncio.get_running_loop()
-logger.info(“Starting SCADA history backfill…”)
+logger.info(“Starting SCADA history backfill?”)
 await asyncio.wait_for(
 loop.run_in_executor(None, scrape_scada_history), timeout=120
 )
@@ -188,7 +188,7 @@ slow_cache[“error”] = str(e)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 # Yield immediately so health check passes right away.
-# All scraping runs as background tasks — /api/data returns 202 until ready.
+# All scraping runs as background tasks - /api/data returns 202 until ready.
 fast_task   = asyncio.create_task(fast_loop())
 gen_task    = asyncio.create_task(gen_loop())
 slow_task   = asyncio.create_task(slow_loop())

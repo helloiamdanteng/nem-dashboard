@@ -294,21 +294,8 @@ def _fetch_aemo_registration() -> dict:
 
 
 def _load_nem_units() -> dict:
-    """Load DUID registry: try live AEMO registration list first, fall back to static JSON."""
-    live = _fetch_aemo_registration()
-    if len(live) > 100:
-        # Merge static file on top to fill any gaps / override bad fuel mappings
-        p = _Path(__file__).parent / "nem_units.json"
-        try:
-            static = _json.loads(p.read_text())
-            # Static overrides live for DUIDs we've manually verified
-            merged = {**live, **static}
-            logger.info(f"NEM_UNITS: {len(live)} live + {len(static)} static overrides = {len(merged)} total")
-            return merged
-        except Exception:
-            return live
-    # Fallback to static
-    logger.warning("Live AEMO registration failed — using static nem_units.json")
+    """Load DUID registry from static JSON only (fast, no network).
+    The live AEMO registration list is fetched later during scrape_gen() runs."""
     p = _Path(__file__).parent / "nem_units.json"
     try:
         return _json.loads(p.read_text())

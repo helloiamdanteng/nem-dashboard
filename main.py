@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 “””
 NEM Dashboard - FastAPI backend
 Fast cache: prices, demand, gen, IC, Origin - refreshed every 5 min
@@ -52,7 +54,7 @@ timeout=60,
 fast_cache[“data”] = data
 fast_cache[“last_updated”] = datetime.now(timezone.utc).isoformat()
 fast_cache[“error”] = None
-logger.info(f”Fast scrape done in {time.time()-t0:.1f}s”)
+logger.info(“Fast scrape done in %.1fs”, time.time() - t0)
 except asyncio.TimeoutError:
 logger.error(“Fast scrape timed out after 60s”)
 fast_cache[“error”] = “timeout”
@@ -60,7 +62,7 @@ if fast_cache[“data”] is None:
 fast_cache[“data”] = dict(_FAST_EMPTY)
 fast_cache[“last_updated”] = datetime.now(timezone.utc).isoformat()
 except Exception as e:
-logger.error(f”Fast scrape error: {e}\n{traceback.format_exc()}”)
+logger.error(“Fast scrape error: %s”, traceback.format_exc())
 fast_cache[“error”] = str(e)
 if fast_cache[“data”] is None:
 fast_cache[“data”] = dict(_FAST_EMPTY)
@@ -72,12 +74,12 @@ try:
 loop = asyncio.get_running_loop()
 data = await asyncio.wait_for(
 loop.run_in_executor(None, scrape_slow),
-timeout=180  # MTPASA(45s) + BOM(15s) + STPASA + margin
+timeout=180
 )
 slow_cache[“data”] = data
 slow_cache[“last_updated”] = datetime.now(timezone.utc).isoformat()
 slow_cache[“error”] = None
-logger.info(f”Slow scrape done in {time.time()-t0:.1f}s”)
+logger.info(“Slow scrape done in %.1fs”, time.time() - t0)
 except asyncio.TimeoutError:
 logger.error(“Slow scrape timed out after 180s”)
 slow_cache[“error”] = “timeout”
@@ -89,7 +91,7 @@ slow_cache[“data”] = {
 }
 slow_cache[“last_updated”] = datetime.now(timezone.utc).isoformat()
 except Exception as e:
-logger.error(f”Slow scrape error: {e}\n{traceback.format_exc()}”)
+logger.error(“Slow scrape error: %s”, traceback.format_exc())
 slow_cache[“error”] = str(e)
 if slow_cache[“data”] is None:
 slow_cache[“data”] = {
@@ -100,14 +102,13 @@ slow_cache[“data”] = {
 slow_cache[“last_updated”] = datetime.now(timezone.utc).isoformat()
 
 async def fast_loop():
-# First run immediately, then every FAST_INTERVAL
 await _run_fast()
 while True:
 await asyncio.sleep(FAST_INTERVAL)
 try:
 await _run_fast()
 except Exception as e:
-logger.error(f”Fast scrape error: {e}\n{traceback.format_exc()}”)
+logger.error(“Fast loop error: %s”, e)
 fast_cache[“error”] = str(e)
 
 async def _run_gen():
@@ -118,8 +119,8 @@ data = await asyncio.wait_for(loop.run_in_executor(None, scrape_gen), timeout=60
 gen_cache[“data”] = data
 gen_cache[“last_updated”] = datetime.now(timezone.utc).isoformat()
 gen_cache[“error”] = None
-logger.info(f”Gen scrape done in {time.time()-t0:.1f}s - “
-f”scada={data.get(‘scada_count’,0)} reg={data.get(‘reg_count’,0)}”)
+logger.info(“Gen scrape done in %.1fs - scada=%d reg=%d”,
+time.time() - t0, data.get(“scada_count”, 0), data.get(“reg_count”, 0))
 except asyncio.TimeoutError:
 logger.error(“Gen scrape timed out”)
 gen_cache[“error”] = “timeout”
@@ -127,33 +128,31 @@ if gen_cache[“data”] is None:
 gen_cache[“data”] = {“fuel_mix”: {}, “nem_totals”: {}, “grouped”: {},
 “fuel_colors”: {}, “all_fuels”: [], “scada_count”: 0, “reg_count”: 0}
 except Exception as e:
-logger.error(f”Gen scrape error: {e}”)
+logger.error(“Gen scrape error: %s”, e)
 gen_cache[“error”] = str(e)
 
 async def gen_loop():
-await asyncio.sleep(5)   # let fast scrape start first
-# Backfill 24hr SCADA history once at startup
+await asyncio.sleep(5)
 try:
 loop = asyncio.get_running_loop()
-logger.info(“Starting SCADA history backfill?”)
+logger.info(“Starting SCADA history backfill…”)
 await asyncio.wait_for(
 loop.run_in_executor(None, scrape_scada_history), timeout=120
 )
 logger.info(“SCADA history backfill complete”)
 except Exception as e:
-logger.warning(f”SCADA history backfill failed: {e}”)
-# First gen scrape, then every GEN_INTERVAL
+logger.warning(“SCADA history backfill failed: %s”, e)
 await _run_gen()
 while True:
 await asyncio.sleep(GEN_INTERVAL)
 try:
 await _run_gen()
 except Exception as e:
-logger.error(f”Gen loop error: {e}”)
+logger.error(“Gen loop error: %s”, e)
 gen_cache[“error”] = str(e)
 
 async def mtpasa_loop():
-await asyncio.sleep(10)  # let fast/gen start first
+await asyncio.sleep(10)
 while True:
 try:
 loop = asyncio.get_running_loop()
@@ -164,31 +163,29 @@ timeout=120
 mtpasa_cache[“data”] = data
 mtpasa_cache[“last_updated”] = datetime.now(timezone.utc).isoformat()
 mtpasa_cache[“error”] = None
-logger.info(f”MTPASA scrape done: {len(data)} units”)
+logger.info(“MTPASA scrape done: %d units”, len(data))
 except asyncio.TimeoutError:
 logger.warning(“MTPASA scrape timed out”)
 mtpasa_cache[“error”] = “timeout”
 except Exception as e:
-logger.warning(f”MTPASA scrape error: {e}”)
+logger.warning(“MTPASA scrape error: %s”, e)
 mtpasa_cache[“error”] = str(e)
-await asyncio.sleep(1800)  # refresh every 30 min
+await asyncio.sleep(1800)
 
 async def slow_loop():
-await asyncio.sleep(15)  # let fast run first
-# First run immediately, then every SLOW_INTERVAL
+await asyncio.sleep(15)
 await _run_slow()
 while True:
 await asyncio.sleep(SLOW_INTERVAL)
 try:
 await _run_slow()
 except Exception as e:
-logger.error(f”Slow scrape error: {e}\n{traceback.format_exc()}”)
+logger.error(“Slow loop error: %s”, e)
 slow_cache[“error”] = str(e)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-# Yield immediately so health check passes right away.
-# All scraping runs as background tasks - /api/data returns 202 until ready.
+# Yield immediately - health check passes at once, scraping runs in background
 fast_task   = asyncio.create_task(fast_loop())
 gen_task    = asyncio.create_task(gen_loop())
 slow_task   = asyncio.create_task(slow_loop())
@@ -210,7 +207,7 @@ app.mount(”/static”, StaticFiles(directory=str(static_dir)), name=“static�
 async def get_data():
 if fast_cache[“data”] is None:
 return JSONResponse(
-content={“error”: fast_cache.get(“error”, “Data not yet available”), “loading”: True},
+content={“error”: fast_cache.get(“error”, “Loading…”), “loading”: True},
 status_code=202,
 )
 return JSONResponse(content={
@@ -249,55 +246,35 @@ return JSONResponse(content={
 @app.get(”/api/health”)
 async def health():
 return {
-“status”:           “ok”,
-“fast_updated”:     fast_cache[“last_updated”],
-“slow_updated”:     slow_cache[“last_updated”],
-“fast_has_data”:    fast_cache[“data”] is not None,
-“slow_has_data”:    slow_cache[“data”] is not None,
-“fast_error”:       fast_cache.get(“error”),
-“slow_error”:       slow_cache.get(“error”),
+“status”:        “ok”,
+“fast_updated”:  fast_cache[“last_updated”],
+“slow_updated”:  slow_cache[“last_updated”],
+“fast_has_data”: fast_cache[“data”] is not None,
+“slow_has_data”: slow_cache[“data”] is not None,
+“fast_error”:    fast_cache.get(“error”),
+“slow_error”:    slow_cache.get(“error”),
 }
 
 @app.get(”/api/debug”)
 async def debug():
-import csv, io
-from scraper import _list_hrefs, _read_zip, _parse_aemo, DISPATCH_IS_URL, PREDISPATCH_URL, TRADING_CURRENT, ST_PASA_URL
+from scraper import _list_hrefs, _read_zip, _parse_aemo
 from zoneinfo import ZoneInfo
-
-```
 result = {}
-aest = ZoneInfo("Australia/Brisbane")
-now = datetime.now(aest)
-today_str = now.strftime("%Y%m%d")
-result["now_aest"] = now.isoformat()
-
-try:
-    from scraper import scrape_trading_history
-    th = scrape_trading_history()
-    result["trading_history_test"] = {
-        "price_regions": list(th["prices"].keys()),
-        "price_counts": {r: len(v) for r, v in th["prices"].items()},
-        "fetch_stats": th.get("fetch_stats", {}),
-    }
-except Exception:
-    result["trading_history_error"] = traceback.format_exc()
-
-if fast_cache["data"]:
-    d = fast_cache["data"]
-    result["fast_cache"] = {
-        "prices":        d.get("prices", {}),
-        "demand":        d.get("demand", {}),
-        "hist_prices":   {r: len(v) for r, v in d.get("historical_prices", {}).items()},
-        "pd_prices":     {r: len(v) for r, v in d.get("predispatch_prices", {}).items()},
-    }
-if slow_cache["data"]:
-    d = slow_cache["data"]
-    result["slow_cache"] = {
-        "stpasa_pts": {r: len(v) for r, v in d.get("stpasa_demand", {}).items()},
-    }
-
+aest = ZoneInfo(“Australia/Brisbane”)
+result[“now_aest”] = datetime.now(aest).isoformat()
+if fast_cache[“data”]:
+d = fast_cache[“data”]
+result[“fast_cache”] = {
+“prices”:      d.get(“prices”, {}),
+“hist_prices”: {r: len(v) for r, v in d.get(“historical_prices”, {}).items()},
+“pd_prices”:   {r: len(v) for r, v in d.get(“predispatch_prices”, {}).items()},
+}
+if slow_cache[“data”]:
+d = slow_cache[“data”]
+result[“slow_cache”] = {
+“stpasa_pts”: {r: len(v) for r, v in d.get(“stpasa_demand”, {}).items()},
+}
 return JSONResponse(content=result)
-```
 
 @app.get(”/api/reg-test”)
 async def reg_test():
@@ -348,8 +325,8 @@ unmatched = {
 duid: {“mw”: mw, “inferred_fuel”: _infer_fuel_from_duid(duid)}
 for duid, mw in scada.items() if not NEM_UNITS.get(duid.upper())
 }
-top_unmatched = dict(sorted(unmatched.items(), key=lambda x: abs(x[1][“mw”] or 0), reverse=True)[:30])
-return JSONResponse(content={“other_by_region”: other_by_region, “top_unmatched_scada_duids”: top_unmatched})
+top = dict(sorted(unmatched.items(), key=lambda x: abs(x[1][“mw”] or 0), reverse=True)[:30])
+return JSONResponse(content={“other_by_region”: other_by_region, “top_unmatched”: top})
 
 @app.get(”/api/station/{duid}”)
 async def station_detail(duid: str):
@@ -387,7 +364,7 @@ return JSONResponse(content=result)
 @app.get(”/api/historical_prices”)
 async def historical_prices(date: str):
 import re
-if not re.match(r’^\d{8}$’, date):
+if not re.match(r”^\d{8}$”, date):
 return JSONResponse(status_code=400, content={“error”: “date must be YYYYMMDD”})
 from scraper import scrape_historical_prices
 loop = asyncio.get_running_loop()
@@ -413,18 +390,17 @@ return JSONResponse(content=result)
 @app.get(”/api/station-debug”)
 async def station_debug():
 from scraper import _duid_history
-total_duids = len(_duid_history)
 sample = {}
 for duid in list(_duid_history.keys())[:10]:
 pts = len(_duid_history[duid])
 last = sorted(_duid_history[duid].keys())[-1] if _duid_history[duid] else None
 sample[duid] = {“pts”: pts, “last”: last}
-return JSONResponse(content={“total_duids”: total_duids, “sample”: sample})
+return JSONResponse(content={“total_duids”: len(_duid_history), “sample”: sample})
 
 @app.post(”/api/views”)
 async def record_view(request: Request):
 import json, hashlib, os
-from datetime import datetime, timezone, timedelta
+from datetime import timedelta
 import requests as _requests
 
 ```
@@ -445,8 +421,9 @@ if GIST_TOKEN and GIST_ID:
     try:
         loop = asyncio.get_running_loop()
         r = await loop.run_in_executor(None, lambda: _requests.get(
-            f"https://api.github.com/gists/{GIST_ID}",
-            headers={"Authorization": f"token {GIST_TOKEN}", "Accept": "application/vnd.github.v3+json"},
+            "https://api.github.com/gists/" + GIST_ID,
+            headers={"Authorization": "token " + GIST_TOKEN,
+                     "Accept": "application/vnd.github.v3+json"},
             timeout=8
         ))
         if r.status_code == 200:
@@ -483,8 +460,9 @@ if GIST_TOKEN and GIST_ID:
     try:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, lambda: _requests.patch(
-            f"https://api.github.com/gists/{GIST_ID}",
-            headers={"Authorization": f"token {GIST_TOKEN}", "Accept": "application/vnd.github.v3+json"},
+            "https://api.github.com/gists/" + GIST_ID,
+            headers={"Authorization": "token " + GIST_TOKEN,
+                     "Accept": "application/vnd.github.v3+json"},
             json={"files": {"views.json": {"content": json.dumps(data)}}},
             timeout=8
         ))

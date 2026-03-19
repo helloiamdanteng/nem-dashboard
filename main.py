@@ -1,4 +1,4 @@
-""" 
+"""
 NEM Dashboard - FastAPI backend
 Fast cache: prices, demand, gen, IC, Origin — refreshed every 5 min
 Slow cache: all generators, ST PASA week-ahead — refreshed every 30 min
@@ -631,7 +631,7 @@ async def station_debug():
 async def record_view(request: Request):
     import json, hashlib, os
     from datetime import datetime, timezone, timedelta
-    import httpx
+    import requests as _requests
 
     AEST      = timezone(timedelta(hours=10))
     now_aest  = datetime.now(AEST)
@@ -649,16 +649,17 @@ async def record_view(request: Request):
     data: dict = {}
     if GIST_TOKEN and GIST_ID:
         try:
-            async with httpx.AsyncClient(timeout=8) as client:
-                r = await client.get(
-                    f"https://api.github.com/gists/{GIST_ID}",
-                    headers={"Authorization": f"token {GIST_TOKEN}",
-                             "Accept": "application/vnd.github.v3+json"}
-                )
-                if r.status_code == 200:
-                    files = r.json().get("files", {})
-                    raw   = next(iter(files.values()), {}).get("content", "{}")
-                    data  = json.loads(raw)
+            loop = asyncio.get_running_loop()
+            r = await loop.run_in_executor(None, lambda: _requests.get(
+                f"https://api.github.com/gists/{GIST_ID}",
+                headers={"Authorization": f"token {GIST_TOKEN}",
+                         "Accept": "application/vnd.github.v3+json"},
+                timeout=8
+            ))
+            if r.status_code == 200:
+                files = r.json().get("files", {})
+                raw   = next(iter(files.values()), {}).get("content", "{}")
+                data  = json.loads(raw)
         except Exception:
             pass
 
@@ -690,13 +691,14 @@ async def record_view(request: Request):
     # ── Persist to Gist ──────────────────────────────────────────────────────
     if GIST_TOKEN and GIST_ID:
         try:
-            async with httpx.AsyncClient(timeout=8) as client:
-                await client.patch(
-                    f"https://api.github.com/gists/{GIST_ID}",
-                    headers={"Authorization": f"token {GIST_TOKEN}",
-                             "Accept": "application/vnd.github.v3+json"},
-                    json={"files": {"views.json": {"content": json.dumps(data)}}}
-                )
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, lambda: _requests.patch(
+                f"https://api.github.com/gists/{GIST_ID}",
+                headers={"Authorization": f"token {GIST_TOKEN}",
+                         "Accept": "application/vnd.github.v3+json"},
+                json={"files": {"views.json": {"content": json.dumps(data)}}},
+                timeout=8
+            ))
         except Exception:
             pass
 

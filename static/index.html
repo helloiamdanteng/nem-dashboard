@@ -3908,47 +3908,55 @@ async function dMinusLoadPrices(dateStr) {
   }
 }
 
-function drawDMinus1PriceChart(dispatch5m) {
+function drawDMinus1PriceChart(priceData) {
   const ctx = document.getElementById('dm1PriceChart');
   if (!ctx) return;
   destroyChart('dm1Price');
-  dispatch5m = dispatch5m || window._dMinus1Dispatch5m || {};
+  priceData = priceData || window._dMinus1Dispatch5m || {};
+
+  // Auto-detect resolution: 5-min dispatch or 30-min trading
+  const allIntervals = [];
+  for (const r of REGIONS) (priceData[r] || []).forEach(p => allIntervals.push(p.interval));
+  const has5min = allIntervals.some(t => parseInt(t.split(':')[1]) % 30 !== 0);
+  const step = has5min ? 5 : 30;
 
   const slots = [];
   for (let h = 0; h < 24; h++)
-    for (let m = 0; m < 60; m += 5)
+    for (let m = 0; m < 60; m += step)
       slots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
 
   const activeRegions = dMinus1RegionFilter === 'NEM' ? REGIONS : [dMinus1RegionFilter];
   const datasets = [];
-
   for (const r of activeRegions) {
     const color = REGION_COLORS[r];
-    const dm = {};
-    (dispatch5m[r] || []).forEach(p => { dm[p.interval] = p.rrp; });
+    const pm = {};
+    (priceData[r] || []).forEach(p => { pm[p.interval] = p.rrp; });
     datasets.push({
       label: REGION_SHORT[r],
-      data: slots.map(l => dm[l] ?? null),
-      borderColor: color,
-      backgroundColor: color + '18',
+      data: slots.map(l => pm[l] ?? null),
+      borderColor: color, backgroundColor: color + '18',
       borderWidth: activeRegions.length === 1 ? 1.5 : 1,
-      pointRadius: 0, tension: 0, spanGaps: false,
-      fill: activeRegions.length === 1,
+      pointRadius: step === 30 ? 3 : 0, tension: step === 30 ? 0.2 : 0,
+      spanGaps: step === 30, fill: activeRegions.length === 1,
     });
   }
 
+  // Update title to reflect resolution
+  const titleEl = document.getElementById('dMinus-chart-title');
+  if (titleEl) {
+    const lbl = window._dMinusSel ? _dSelToLabel(window._dMinusSel) : '';
+    titleEl.textContent = `${step}-min ${step===5?'Dispatch':'Trading'} Price ($/MWh) — ${lbl}`;
+  }
+
   charts.dm1Price = new Chart(ctx, {
-    type: 'line',
-    data: { labels: slots, datasets },
-    options: {
-      ...CHART_DEFAULTS,
+    type: 'line', data: { labels: slots, datasets },
+    options: { ...CHART_DEFAULTS,
       plugins: { ...CHART_DEFAULTS.plugins,
         legend: { display: activeRegions.length > 1,
           labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 }
         },
-        tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
-          filter: i => i.raw !== null,
-          callbacks: { label: c => c.raw === null ? null : ` ${c.dataset.label}: $${c.raw.toFixed(2)}/MWh` }
+        tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw !== null,
+          callbacks: { label: c => c.raw===null ? null : ` ${c.dataset.label}: $${c.raw.toFixed(2)}/MWh` }
         }
       },
       scales: {
@@ -3961,10 +3969,6 @@ function drawDMinus1PriceChart(dispatch5m) {
     }
   });
 }
-
-
-
-
 function drawDMinus1Charts(data) {
   // Auto-load when first visiting the panel; skip if data already loaded
   if (window._dMinus1Dispatch5m) {

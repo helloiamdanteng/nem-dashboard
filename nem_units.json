@@ -1966,5 +1966,395 @@
     "fuel": "Wind",
     "region": "SA1",
     "capacity": 270
+  },
+  "CRAGB1": {
+    "station": "Cathedral Rocks",
+    "fuel": "Wind",
+    "region": "SA1",
+    "capacity": 66
+  },
+  "YATPF1": {
+    "station": "Yatpool",
+    "fuel": "Wind",
+    "region": "VIC1",
+    "capacity": 120
+  },
+  "GOLDPLA1": {
+    "station": "Golden Plains Wind",
+    "fuel": "Wind",
+    "region": "VIC1",
+    "capacity": 750
+  },
+  "BERRYBANK1": {
+    "station": "Berrybank Wind Farm",
+    "fuel": "Wind",
+    "region": "VIC1",
+    "capacity": 180
+  },
+  "BERRYBANK2": {
+    "station": "Berrybank 2",
+    "fuel": "Wind",
+    "region": "VIC1",
+    "capacity": 220
+  },
+  "BULGANA1": {
+    "station": "Bulgana Green Power",
+    "fuel": "Wind",
+    "region": "VIC1",
+    "capacity": 204
+  },
+  "DUNDONNELL2": {
+    "station": "Dundonnell 2",
+    "fuel": "Wind",
+    "region": "VIC1",
+    "capacity": 336
+  },
+  "CAPTL_WF1": {
+    "station": "Capital Wind Farm",
+    "fuel": "Wind",
+    "region": "NSW1",
+    "capacity": 140
+  },
+  "RYEPARK1": {
+    "station": "Rye Park Wind Farm",
+    "fuel": "Wind",
+    "region": "NSW1",
+    "capacity": 396
+  },
+  "SAPPHIRE1": {
+    "station": "Sapphire Wind Farm",
+    "fuel": "Wind",
+    "region": "NSW1",
+    "capacity": 270
+  },
+  "SILVERTON1": {
+    "station": "Silverton Wind Farm",
+    "fuel": "Wind",
+    "region": "NSW1",
+    "capacity": 200
+  },
+  "KENNEDY1": {
+    "station": "Kennedy Energy Park",
+    "fuel": "Wind",
+    "region": "QLD1",
+    "capacity": 60
+  },
+  "KARARA1": {
+    "station": "Karara Wind Farm",
+    "fuel": "Wind",
+    "region": "QLD1",
+    "capacity": 451
+  },
+  "WOOLNORTH1": {
+    "station": "Woolnorth Bluff Point",
+    "fuel": "Wind",
+    "region": "TAS1",
+    "capacity": 65
+  },
+  "WOOLNORTH2": {
+    "station": "Woolnorth Studland Bay",
+    "fuel": "Wind",
+    "region": "TAS1",
+    "capacity": 75
+  },
+  "MOUNT_GELL1": {
+    "station": "Mt Gellibrand Wind",
+    "fuel": "Wind",
+    "region": "VIC1",
+    "capacity": 132
+  },
+  "MOORABOOL2": {
+    "station": "Moorabool Wind S",
+    "fuel": "Wind",
+    "region": "VIC1",
+    "capacity": 214
+  },
+  "CROWLANDS1": {
+    "station": "Crowlands Wind Farm",
+    "fuel": "Wind",
+    "region": "VIC1",
+    "capacity": 80
+  },
+  "YENDON1": {
+    "station": "Yendon Wind Farm",
+    "fuel": "Wind",
+    "region": "VIC1",
+    "capacity": 228
+  },
+  "HAWKES1": {
+    "station": "Hawkesdale Wind",
+    "fuel": "Wind",
+    "region": "VIC1",
+    "capacity": 120
+  },
+  "PALEN1": {
+    "station": "Palen Creek Wind",
+    "fuel": "Wind",
+    "region": "QLD1",
+    "capacity": 180
+  },
+  "COPPABELLA1": {
+    "station": "Coppabella Wind",
+    "fuel": "Wind",
+    "region": "QLD1",
+    "capacity": 157
+  },
+  "HAUGHTON1": {
+    "station": "Haughton Solar/Wind",
+    "fuel": "Wind",
+    "region": "QLD1",
+    "capacity": 100
+  },
+  "CLARK_CRK1": {
+    "station": "Clark Creek Wind",
+    "fuel": "Wind",
+    "region": "QLD1",
+    "capacity": 300
+  },
+  "DULACCA1": {
+    "station": "Dulacca Wind Farm",
+    "fuel": "Wind",
+    "region": "QLD1",
+    "capacity": 180
+  },
+  "EMERALDWF1": {
+    "station": "Emerald Wind Farm",
+    "fuel": "Wind",
+    "region": "QLD1",
+    "capacity": 180
+  },
+  "MOUNT_EM1": {
+    "station": "Mount Emerald Wind",
+    "fuel": "Wind",
+    "region": "QLD1",
+    "capacity": 180
+  },
+  "SAPHOENIX1": {
+    "station": "SA Phoenix Solar",
+    "fuel": "Solar",
+    "region": "SA1",
+    "capacity": 150
+  },
+  "CLERMONT1": {
+    "station": "Clermont Solar Farm",
+    "fuel": "Solar",
+    "region": "QLD1",
+    "capacity": 400
+  },
+  "GANGARRI1": {
+    "station": "Gangarri Solar",
+    "fuel": "Solar",
+    "region": "QLD1",
+    "capacity": 120
+  },
+  "KIDSTON1": {
+    "station": "Kidston Solar",
+    "fuel": "Solar",
+    "region": "QLD1",
+    "capacity": 50
+  },
+  "COLUMBOOLA1": {
+    "station": "Columboola Solar",
+    "fuel": "Solar",
+    "region": "QLD1",
+    "capacity": 210
+  },
+  "DAYDREAM1": {
+    "station": "Daydream Solar Farm",
+    "fuel": "Solar",
+    "region": "QLD1",
+    "capacity": 200
+  },
+  "HAYMAN1": {
+    "station": "Hayman Solar Farm",
+    "fuel": "Solar",
+    "region": "QLD1",
+    "capacity": 50
+  },
+  "HAMILTONPV1": {
+    "station": "Hamilton Solar",
+    "fuel": "Solar",
+    "region": "QLD1",
+    "capacity": 58
+  },
+  "WOOLOOGA1": {
+    "station": "Woolooga Solar",
+    "fuel": "Solar",
+    "region": "QLD1",
+    "capacity": 110
+  },
+  "SUNRAYSIA1": {
+    "station": "Sunraysia Solar",
+    "fuel": "Solar",
+    "region": "VIC1",
+    "capacity": 255
+  },
+  "BANNERTON1": {
+    "station": "Bannerton Solar",
+    "fuel": "Solar",
+    "region": "VIC1",
+    "capacity": 110
+  },
+  "KARADOC1": {
+    "station": "Karadoc Solar",
+    "fuel": "Solar",
+    "region": "VIC1",
+    "capacity": 160
+  },
+  "WEMEN1": {
+    "station": "Wemen Solar",
+    "fuel": "Solar",
+    "region": "VIC1",
+    "capacity": 90
+  },
+  "KIAMAL1": {
+    "station": "Kiamal Solar",
+    "fuel": "Solar",
+    "region": "VIC1",
+    "capacity": 200
+  },
+  "NUMURKAH1": {
+    "station": "Numurkah Solar",
+    "fuel": "Solar",
+    "region": "VIC1",
+    "capacity": 128
+  },
+  "COHUNA1": {
+    "station": "Cohuna Solar",
+    "fuel": "Solar",
+    "region": "VIC1",
+    "capacity": 100
+  },
+  "LIMONDALE1": {
+    "station": "Limondale Solar",
+    "fuel": "Solar",
+    "region": "NSW1",
+    "capacity": 249
+  },
+  "LIMONDALE2": {
+    "station": "Limondale 2 Solar",
+    "fuel": "Solar",
+    "region": "NSW1",
+    "capacity": 275
+  },
+  "FINLEY1": {
+    "station": "Finley Solar Farm",
+    "fuel": "Solar",
+    "region": "NSW1",
+    "capacity": 226
+  },
+  "GRIFFITH1": {
+    "station": "Griffith Solar",
+    "fuel": "Solar",
+    "region": "NSW1",
+    "capacity": 128
+  },
+  "BERYL1": {
+    "station": "Beryl Solar Farm",
+    "fuel": "Solar",
+    "region": "NSW1",
+    "capacity": 135
+  },
+  "HOOKWOOD1": {
+    "station": "Hookwood Solar",
+    "fuel": "Solar",
+    "region": "NSW1",
+    "capacity": 110
+  },
+  "DAROOBALGIE1": {
+    "station": "Daroobalgie Solar",
+    "fuel": "Solar",
+    "region": "NSW1",
+    "capacity": 200
+  },
+  "NYNGAN1": {
+    "station": "Nyngan Solar",
+    "fuel": "Solar",
+    "region": "NSW1",
+    "capacity": 102
+  },
+  "MANILDRA1": {
+    "station": "Manildra Solar",
+    "fuel": "Solar",
+    "region": "NSW1",
+    "capacity": 100
+  },
+  "UUNGULA1": {
+    "station": "Uungula Wind/Solar",
+    "fuel": "Solar",
+    "region": "NSW1",
+    "capacity": 220
+  },
+  "PARKESF1": {
+    "station": "Parkes Solar Farm",
+    "fuel": "Solar",
+    "region": "NSW1",
+    "capacity": 185
+  },
+  "MERRIWA1": {
+    "station": "Merriwa Solar",
+    "fuel": "Solar",
+    "region": "NSW1",
+    "capacity": 100
+  },
+  "GOONUMBLA1": {
+    "station": "Goonumbla Solar",
+    "fuel": "Solar",
+    "region": "NSW1",
+    "capacity": 150
+  },
+  "BROKENHILLAG1": {
+    "station": "Broken Hill Solar",
+    "fuel": "Solar",
+    "region": "NSW1",
+    "capacity": 53
+  },
+  "SEBASTOPOL1": {
+    "station": "Sebastopol Solar",
+    "fuel": "Solar",
+    "region": "NSW1",
+    "capacity": 167
+  },
+  "SPRINGR1": {
+    "station": "Springridge Solar",
+    "fuel": "Solar",
+    "region": "NSW1",
+    "capacity": 115
+  },
+  "WHITEGATE1": {
+    "station": "Whitegate Solar",
+    "fuel": "Solar",
+    "region": "SA1",
+    "capacity": 160
+  },
+  "BAROOTA1": {
+    "station": "Baroota Solar",
+    "fuel": "Solar",
+    "region": "SA1",
+    "capacity": 70
+  },
+  "WALGETT1": {
+    "station": "Walgett Battery",
+    "fuel": "Battery",
+    "region": "NSW1",
+    "capacity": 50
+  },
+  "TORRENS1BAT": {
+    "station": "Torrens Island BESS",
+    "fuel": "Battery",
+    "region": "SA1",
+    "capacity": 250
+  },
+  "WARATAH1": {
+    "station": "Waratah Super Battery",
+    "fuel": "Battery",
+    "region": "NSW1",
+    "capacity": 850
+  },
+  "NEOEN_BAT1": {
+    "station": "Neoen Battery SA",
+    "fuel": "Battery",
+    "region": "SA1",
+    "capacity": 150
   }
 }

@@ -626,6 +626,17 @@ async def dispatch_debug(date: str = "20260317"):
     except Exception as e:
         result["trading_current_error"] = str(e)
 
+    # Check Feb archive to verify past-month archive structure
+    from scraper import TRADING_ARCHIVE
+    for test_ym in ['202602', '202601']:
+        try:
+            test_url = f"{TRADING_ARCHIVE}{test_ym}/"
+            test_zips = _list_hrefs(test_url)
+            result[f"trading_archive_{test_ym}_total"] = len(test_zips)
+            result[f"trading_archive_{test_ym}_sample"] = test_zips[:2]
+        except Exception as e:
+            result[f"trading_archive_{test_ym}_error"] = str(e)
+
     return result
 
 @app.get("/api/historical_dispatch_prices")

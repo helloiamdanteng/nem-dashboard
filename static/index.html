@@ -590,7 +590,7 @@ function renderGeneration(data) {
     border:1px solid ${genShowRooftop ? '#ffd700' : '#475569'};
     background:${genShowRooftop ? '#ffd70022' : 'transparent'};
     color:${genShowRooftop ? '#ffd700' : '#94a3b8'}">
-    ☀️ SS Solar
+    ☀️ RT Solar
   </button>`;
   html += '</div>';
 
@@ -2803,18 +2803,19 @@ function renderBatteries(data) {
     const color = REGION_COLORS[r];
     html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="setBatteryRegion('${r}')">${REGION_SHORT[r]}</button>`;
   }
-  html += '<div style="margin-left:auto;display:flex;gap:6px">';
-  html += `<button onclick="toggleBattWhite()" style="
-    font-family:var(--font-mono);font-size:10px;padding:5px 10px;border-radius:20px;cursor:pointer;
-    border:1px solid ${battWhitePrices ? '#ffffff' : '#475569'};
-    background:${battWhitePrices ? '#ffffff22' : 'transparent'};
-    color:${battWhitePrices ? '#ffffff' : '#475569'}">WHITE</button>`;
+  html += '</div>';
+  // PRICES left, WHITE right on a separate row below state buttons
+  html += '<div style="display:flex;justify-content:space-between;margin:4px 0 8px">';
   html += `<button onclick="toggleBattPrices()" style="
     font-family:var(--font-mono);font-size:10px;padding:5px 10px;border-radius:20px;cursor:pointer;
     border:1px solid ${battShowPrices ? '#94a3b8' : '#475569'};
     background:${battShowPrices ? '#94a3b833' : 'transparent'};
     color:${battShowPrices ? '#94a3b8' : '#475569'}">PRICES</button>`;
-  html += '</div>';
+  html += `<button onclick="toggleBattWhite()" style="
+    font-family:var(--font-mono);font-size:10px;padding:5px 10px;border-radius:20px;cursor:pointer;
+    border:1px solid ${battWhitePrices ? '#ffffff' : '#475569'};
+    background:${battWhitePrices ? '#ffffff22' : 'transparent'};
+    color:${battWhitePrices ? '#ffffff' : '#475569'}">WHITE</button>`;
   html += '</div>';
 
   // MW chart
@@ -3940,6 +3941,13 @@ function drawDMinus1PriceChart(priceData) {
 
 
 
+
+function drawDMinus1Charts(data) {
+  // D-1 chart is loaded asynchronously via dMinusLoadPrices
+  const d = window._dMinusDate || (() => { const y = new Date(); y.setDate(y.getDate()-1); return y; })();
+  const ds = d.getFullYear().toString() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+  dMinusLoadPrices(ds);
+}
 
 function renderPanel(panel, data) {
   const main = document.getElementById('mainContent');

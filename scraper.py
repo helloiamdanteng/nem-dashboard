@@ -150,14 +150,48 @@ _DUID_FUEL_PATTERNS = [
 
     # ── Wind ──────────────────────────────────────────────────────────────────
     (re.compile(r"(WF\d|_WF\d?$|WIND|SNOWYWIND)", re.I),  "Wind"),
+    # Wind farms by name pattern
+    (re.compile(r"^(ARWF|MUWF|CROOKWF|RENWF|BODWF|BUNGWF|HORWF|YAWF|"
+                r"CAPTL_WF|SAPN.*WF|MACARTHUR|YATPF|CATTLE.?HILL|"
+                r"WATERLOO|HALLETT|BLUFF|CLEMENTS.?GAP|SNOWTOWN|CLAGUNA|"
+                r"MUSSELROE|STUDLAND|WOOLNORTH|BLAYNEY|CULLERIN|CAPITAL|"
+                r"GUNNING|WOODLAWN|BILOELA|COOKARDINIA|CROOKWELL|"
+                r"LKBONNY|MOUNT.?MERCER|WAUBRA|MORTONS.?LANE|"
+                r"STARFISH|BALD.?HILLS|MACARTHUR|MOORABOOL|OAKLANDS|"
+                r"BULGANA|MT.?GELLIBRAND|DUNDONNELL|STOCKYARD|"
+                r"CRAGB|NEOEN|YENDON|HAWKESDALE|BERRYBANK|CROWLANDS|"
+                r"SILVERTON|SAPPHIRE|TILT|COOPERS.?GAP|KENNEDY|"
+                r"DULACCA|KARARA|MOUNT.?EMERALD|HAUGHTON|CLARK.?CREEK|"
+                r"GOLDEN.?PLAINS|GOLDPLA|RYE.?PARK|PALEN.?CREEK|COPPABELLA|"
+                r"STOCKYD|COOPERS.?GAP|COOPERSGAP|COOPERS1)", re.I), "Wind"),
 
     # ── Solar ─────────────────────────────────────────────────────────────────
     (re.compile(r"(SOLAR|_SF\d|SF\d$|_PV|PV\d|BUNGALA|TAILEM|DARLINGTON.?PT"
                 r"|DARLPNT|FINNSF|BOMEN)", re.I), "Solar"),
+    # Solar farms by name pattern
+    (re.compile(r"^(BNGSF|LILYSF|HPRG|SAPN.*SF|MOREE|NYNGAN|BROKEN.?HILL|"
+                r"SUNRAYSIA|BANNERTON|KARADOC|WEMEN|LIMONDALE|WHITEGATE|"
+                r"WOOLOOGA|DAYDREAM|HAMILTON|CLARE.?SOLAR|GANNAWARRA.?SOLAR|"
+                r"NUMURKAH|MITRE.?SOLAR|YATPOOL|COHUNA|IRAAK|MURRA.?WARRA|"
+                r"CLELND|SEBASTOPOL|GENERATION.*SF|CLERMONT|ROSS.?SOLAR|"
+                r"SPRINGRIDGE|MILDURA|WEMEN|SUNRAYSIA|BAROOTA|"
+                r"YATPOOL|KIAMAL|WINTON|BERYL|GOONUMBLA|PARKES|"
+                r"FINLEY|GRIFFITH|COLEAMBALLY|FRASERSF|SAPHOENIX|"
+                r"HOOKWOOD|DAROOBALGIE|MANILDRA|MERRIWA|UUNGULA|"
+                r"GANGARRI|CONDONG|EMERALD|HAYMAN|KIDSTON|"
+                r"LAKELAND|WHITSUNDAY|NORMANTON|MOUNT.?PLEASANT|"
+                r"COLUMBOOLA|BLUEGRASS|MIDDLEMOUNT|WANDOAN.?SOLAR|"
+                r"NARROMINE|DUBBO|ORANGE|ARMIDALE|TAMWORTH|"
+                r"LONGREACH|CLONCURRY|CHARLEVILLE)", re.I), "Solar"),
 
     # ── Battery ───────────────────────────────────────────────────────────────
     (re.compile(r"(BATT|BATTERY|_BAT\d?|BAT_|HPR\d|HORNSDALE.?P|BYP|"
                 r"BESS|_BESS|BARCABAT|GANNAWARRA|LAKELANDS|WANDOAN)", re.I), "Battery"),
+    # Batteries by name
+    (re.compile(r"^(VBESS|TBESS|NBESS|SBESS|CBESS|DBESS|FBESS|GBESS|"
+                r"SNB|ERB|WALGETT|GELONG|TORRENS.*BAT|LDES|"
+                r"NEOEN.*BAT|AGL.*BAT|ORIGIN.*BAT|EDF.*BAT|"
+                r"WARATAH|GRID.*BAT|BIG.*BAT|VIRTUAL.*BAT)", re.I), "Battery"),
 
     # ── Liquid (diesel/oil) ───────────────────────────────────────────────────
     (re.compile(r"(DIESEL|DISTILLATE|LIQUID|FUEL.?OIL)", re.I), "Liquid"),

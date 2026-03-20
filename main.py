@@ -637,6 +637,30 @@ async def dispatch_debug(date: str = "20260317"):
         except Exception as e:
             result[f"trading_archive_{test_ym}_error"] = str(e)
 
+    # Show first and last dates in TradingIS CURRENT  
+    from scraper import TRADING_CURRENT, TRADING_ARCHIVE
+    try:
+        tc = _list_hrefs(TRADING_CURRENT)
+        result['trading_current_first3'] = tc[:3]
+        result['trading_current_last3'] = tc[-3:]
+    except Exception as e:
+        result['trading_current_sample_error'] = str(e)
+
+    # Try different archive URL patterns for Feb
+    import requests as _req
+    for test_url in [
+        'https://www.nemweb.com.au/REPORTS/ARCHIVE/TradingIS_Reports/PUBLIC_TRADINGIS_202602010000_0000000500000000.zip',
+        'https://www.nemweb.com.au/REPORTS/ARCHIVE/TradingIS_Reports/',
+        'https://www.nemweb.com.au/REPORTS/ARCHIVE/TradingIS_Reports/2026/',
+        'https://www.nemweb.com.au/REPORTS/ARCHIVE/TradingIS_Reports/202602/',
+        'https://www.nemweb.com.au/REPORTS/ARCHIVE/TradingIS_Reports/2026/TradingIS_202602/',
+    ]:
+        try:
+            r = _req.head(test_url, timeout=8, headers={'User-Agent':'Mozilla/5.0'}, allow_redirects=True)
+            result[f'probe_{test_url[-40:]}'] = r.status_code
+        except Exception as e:
+            result[f'probe_{test_url[-40:]}'] = str(e)
+
     return result
 
 @app.get("/api/historical_dispatch_prices")

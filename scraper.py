@@ -2485,7 +2485,7 @@ def scrape_mtpasa_outages() -> list:
 
         change_mw = avail_today - capacity
 
-        # Find return date: first future day where avail recovers to >= capacity
+        # Find return date: first future day where availability increases from today's level
         return_date = None
         change_date = None
         past_today  = False
@@ -2498,13 +2498,20 @@ def scrape_mtpasa_outages() -> list:
                 past_today = True
                 continue
             entry_avail = days[d]["avail"]
-            # Return: availability increases significantly (>= capacity)
+            # Return to full capacity
             if return_date is None and entry_avail >= capacity and prev_avail < capacity:
                 return_date = d
-            # Change date: first day availability changes from today
-            if change_date is None and abs(entry_avail - avail_today) > 10:
+            # Any significant increase from today's level (even partial recovery)
+            if change_date is None and entry_avail > avail_today + 10:
                 change_date = d
             prev_avail = entry_avail
+
+        # If no full return date but there is a partial recovery, use that
+        if return_date is None and change_date is not None:
+            # Check if change_date represents a meaningful increase
+            change_entry_avail = days.get(change_date, {}).get("avail", avail_today)
+            if change_entry_avail > avail_today + 50:
+                return_date = change_date  # treat significant partial recovery as return
 
         # Determine label
         if avail_today == 0 and state_today in ("Forced", "Unknown"):

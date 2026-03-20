@@ -2228,7 +2228,7 @@ def scrape_gen() -> dict:
         capacity = info.get("capacity")
 
         if region not in NEM_REGIONS:
-            continue
+            region = "Unknown"
 
         mw_val = mw if mw is not None else 0
         # fuel_mix is for the generation chart — always positive (generation only)

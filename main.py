@@ -558,6 +558,39 @@ async def historical_prices(date: str):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+@app.get("/api/dispatch-debug")
+async def dispatch_debug(date: str = "20260317"):
+    """Debug what files are available for a given date."""
+    from scraper import _list_hrefs, _read_zip, DISPATCH_IS_URL, MMSDM_ARCHIVE, NEMWEB_BASE
+    result = {}
+    
+    # Check CURRENT listing
+    try:
+        all_zips = _list_hrefs(DISPATCH_IS_URL)
+        result["current_total"] = len(all_zips)
+        result["current_sample_first3"] = all_zips[:3]
+        result["current_sample_last3"] = all_zips[-3:]
+        date_zips = [u for u in all_zips if date in u and "PUBLIC_DISPATCHIS" in u.upper()]
+        result["current_date_matches"] = len(date_zips)
+        result["current_date_sample"] = date_zips[:2]
+    except Exception as e:
+        result["current_error"] = str(e)
+    
+    # Check MMSDM URL
+    ym = date[:6]
+    yyyy = date[:4]
+    mmsdm_file = f"{MMSDM_ARCHIVE}/{yyyy}/MMSDM_{ym}/MMSDM_Historical_Data_SQLLoader/DATA/PUBLIC_DVD_DISPATCHPRICE_{ym}010000.zip"
+    result["mmsdm_url"] = mmsdm_file
+    try:
+        import requests
+        r = requests.head(mmsdm_file, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        result["mmsdm_status"] = r.status_code
+        result["mmsdm_size"] = r.headers.get("Content-Length")
+    except Exception as e:
+        result["mmsdm_head_error"] = str(e)
+    
+    return result
+
 @app.get("/api/historical_dispatch_prices")
 async def historical_dispatch_prices(date: str):
     """Fetch 5-min dispatch prices for a given date (YYYYMMDD)."""

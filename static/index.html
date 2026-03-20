@@ -235,9 +235,9 @@ tr:last-child td { border-bottom:none; }
 
 <script>
 const REGIONS = ['QLD1','NSW1','VIC1','SA1','TAS1'];
-const REGION_SHORT = {QLD1:'QLD',NSW1:'NSW',VIC1:'VIC',SA1:'SA',TAS1:'TAS'};
+const REGION_SHORT = {QLD1:'QLD',NSW1:'NSW',VIC1:'VIC',SA1:'SA',TAS1:'TAS',Unknown:'???'};
 const REGION_CLASS = {QLD1:'qld',NSW1:'nsw',VIC1:'vic',SA1:'sa',TAS1:'tas'};
-const REGION_COLORS = {QLD1:'#f39c12',NSW1:'#3498db',VIC1:'#2ed573',SA1:'#e74c3c',TAS1:'#9b59b6'};
+const REGION_COLORS = {QLD1:'#f39c12',NSW1:'#3498db',Unknown:'#64748b',VIC1:'#2ed573',SA1:'#e74c3c',TAS1:'#9b59b6'};
 const FUEL_ICONS = {"Black Coal":"⬛","Brown Coal":"🟫","Gas":"🔥","Hydro":"💧","Wind":"🌀","Solar":"☀️","Battery":"🔋","Liquid":"🛢️","Other":"⚙️"};
 
 let currentPanel = 'prices';

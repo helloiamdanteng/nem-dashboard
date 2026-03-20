@@ -603,6 +603,29 @@ async def dispatch_debug(date: str = "20260317"):
     except Exception as e:
         result["archive_error"] = str(e)
 
+    # Check TradingIS archive for same date
+    from scraper import TRADING_ARCHIVE, TRADING_CURRENT
+    trading_ym = date[:6]
+    trading_archive_url = f"{TRADING_ARCHIVE}{trading_ym}/"
+    result["trading_archive_url"] = trading_archive_url
+    try:
+        trading_zips = _list_hrefs(trading_archive_url)
+        result["trading_archive_total"] = len(trading_zips)
+        trading_date = [u for u in trading_zips if date in u and "PUBLIC_TRADINGIS" in u.upper()]
+        result["trading_archive_date_matches"] = len(trading_date)
+        result["trading_archive_sample"] = trading_date[:2]
+    except Exception as e:
+        result["trading_archive_error"] = str(e)
+
+    # Also check TradingIS CURRENT
+    try:
+        trading_current_zips = _list_hrefs(TRADING_CURRENT)
+        result["trading_current_total"] = len(trading_current_zips)
+        trading_current_date = [u for u in trading_current_zips if date in u and "PUBLIC_TRADINGIS" in u.upper()]
+        result["trading_current_date_matches"] = len(trading_current_date)
+    except Exception as e:
+        result["trading_current_error"] = str(e)
+
     return result
 
 @app.get("/api/historical_dispatch_prices")

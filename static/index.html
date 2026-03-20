@@ -4034,8 +4034,12 @@ function renderOutages(data) {
 
   let html = '<div class="section-title">Capacity Reductions — MT PASA</div>';
 
-  if (!slowData || outages.length === 0) {
+  if (!slowData) {
     html += '<div class="state-msg"><div class="icon">⏳</div><div>Loading outage data…</div></div>';
+    return html;
+  }
+  if (outages.length === 0) {
+    html += '<div class="state-msg"><div class="icon">✅</div><div>No units currently below nameplate capacity</div></div>';
     return html;
   }
 

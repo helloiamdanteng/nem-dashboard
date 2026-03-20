@@ -4043,34 +4043,22 @@ function renderOutages(data) {
     return html;
   }
 
-  // ── Summary strip ──────────────────────────────────────────────────────────
-  const totalLostMw = outages.reduce((s,r) => s + Math.abs(r.change_mw), 0);
-  const returning   = outages.filter(r => r.return_date);
-  html += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:14px">
-    <div style="background:#111827;border:1px solid #1e2d45;border-radius:8px;padding:8px 10px;text-align:center">
-      <div style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:#ef4444">${outages.length}</div>
-      <div style="font-family:var(--font-mono);font-size:8px;color:#475569;margin-top:2px">UNITS AFFECTED</div>
-    </div>
-    <div style="background:#111827;border:1px solid #1e2d45;border-radius:8px;padding:8px 10px;text-align:center">
-      <div style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:#ef4444">${Math.round(totalLostMw).toLocaleString()}</div>
-      <div style="font-family:var(--font-mono);font-size:8px;color:#475569;margin-top:2px">MW BELOW NAMEPLATE</div>
-    </div>
-    <div style="background:#111827;border:1px solid #1e2d45;border-radius:8px;padding:8px 10px;text-align:center">
-      <div style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:#22c55e">${returning.length}</div>
-      <div style="font-family:var(--font-mono);font-size:8px;color:#475569;margin-top:2px">WITH RETURN DATE</div>
-    </div>
-  </div>`;
-
   // ── Filter pills ───────────────────────────────────────────────────────────
   const filterState = window._outageFilter || 'all';
   const offline  = outages.filter(r => r.avail_today === 0);
   const derated  = outages.filter(r => r.avail_today > 0);
-  html += '<div class="region-pills" style="margin-bottom:12px">';
+  const withReturn = outages.filter(r => r.return_date);
+
+  // PASA state filter — let user show/hide by UNITSTATE category
+  const pasaStateFilter = window._outageStateFilter || new Set(['all']);
+  const allPasaStates = [...new Set(outages.map(r => r.pasa_state || 'Unknown'))].sort();
+
+  html += '<div class="region-pills" style="margin-bottom:6px">';
   for (const [key, label, count] of [
-    ['all',     'All',     outages.length],
-    ['offline', 'Offline', offline.length],
-    ['derated', 'Derated', derated.length],
-    ['return',  'Has Return Date', returning.length],
+    ['all',     'All',          outages.length],
+    ['offline', 'Offline',      offline.length],
+    ['derated', 'Derated',      derated.length],
+    ['return',  'Has Return',   withReturn.length],
   ]) {
     const active = filterState === key ? 'active' : '';
     html += `<button class="region-pill ${active}" style="color:#94a3b8;border-color:#94a3b8"
@@ -4078,11 +4066,38 @@ function renderOutages(data) {
   }
   html += '</div>';
 
-  // ── Apply filter ───────────────────────────────────────────────────────────
+  // PASA state pills — show/hide by UNITSTATE
+  html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px">';
+  const pasaColors = {
+    'Planned':'#f59e0b', 'Forced':'#ef4444', 'Seasonal':'#3b82f6',
+    'LowWater':'#06b6d4', 'HiTemp':'#f97316', 'NoDeratings':'#475569',
+    'Unknown':'#475569'
+  };
+  for (const ps of allPasaStates) {
+    const col = pasaColors[ps] || '#475569';
+    const isOn = pasaStateFilter.has('all') || pasaStateFilter.has(ps);
+    html += `<button onclick="toggleOutageState('${ps}')"
+      style="font-family:var(--font-mono);font-size:9px;padding:3px 8px;border-radius:20px;cursor:pointer;
+      border:1px solid ${col};background:${isOn ? col+'33' : 'transparent'};
+      color:${isOn ? col : '#475569'}">${ps}</button>`;
+  }
+  html += '</div>';
+
+  // ── Apply filters ──────────────────────────────────────────────────────────
   let visible = outages;
   if (filterState === 'offline')  visible = offline;
   if (filterState === 'derated')  visible = derated;
-  if (filterState === 'return')   visible = returning;
+  if (filterState === 'return')   visible = withReturn;
+
+  // Apply PASA state filter
+  if (!pasaStateFilter.has('all')) {
+    visible = visible.filter(r => pasaStateFilter.has(r.pasa_state || 'Unknown'));
+  }
+
+  if (!visible.length) {
+    html += '<div style="font-family:var(--font-mono);font-size:11px;color:#475569;padding:16px 0">No units match current filters</div>';
+    return html;
+  }
 
   // ── Group by fuel ──────────────────────────────────────────────────────────
   const FUEL_COLORS_MAP = {
@@ -4104,28 +4119,25 @@ function renderOutages(data) {
     html += `<div style="font-family:var(--font-mono);font-size:9px;font-weight:700;
       color:${fuelColor};padding:8px 0 4px;letter-spacing:0.08em;
       border-bottom:1px solid ${fuelColor}33;margin-bottom:6px">
-      ${fuel.toUpperCase()}
+      ${fuel.toUpperCase()} <span style="opacity:0.5">${byFuel[fuel].length}</span>
     </div>`;
 
     for (const u of byFuel[fuel]) {
       const pct      = u.capacity > 0 ? Math.round(u.avail_today / u.capacity * 100) : 0;
       const isZero   = u.avail_today === 0;
       const ret      = u.return_date ? fmtDate(u.return_date) : null;
-
       const rc       = REGION_COLORS[u.region] || '#64748b';
-
-      // Bar fill colour: red=offline, orange=derated
       const barColor = isZero ? '#ef4444' : '#f97316';
       const availColor = isZero ? '#ef4444' : '#f97316';
+      const psCol    = pasaColors[u.pasa_state] || '#475569';
 
-      // Return date badge
       let retBadge = '';
       if (ret) {
         const urgency = ret.days <= 3 ? '#22c55e' : ret.days <= 7 ? '#86efac' : '#475569';
         retBadge = `<span style="font-family:var(--font-mono);font-size:9px;
-          color:${urgency};margin-left:6px">↩ ${ret.label}${ret.days >= 0 ? ` (+${ret.days}d)` : ''}</span>`;
+          color:${urgency};margin-left:6px">↩ ${ret.label} (+${ret.days}d)</span>`;
       } else {
-        retBadge = `<span style="font-family:var(--font-mono);font-size:9px;color:#334155;margin-left:6px">no return within 35 days</span>`;
+        retBadge = `<span style="font-family:var(--font-mono);font-size:9px;color:#334155;margin-left:6px">no return date found</span>`;
       }
 
       html += `<div style="background:var(--surface);border:1px solid var(--border);
@@ -4143,13 +4155,16 @@ function renderOutages(data) {
           </div>
         </div>
         <div style="height:4px;background:var(--bg);border-radius:2px;overflow:hidden;margin-bottom:4px">
-          <div style="height:100%;width:${pct}%;background:${barColor};border-radius:2px;
-            ${pct === 0 ? '' : 'min-width:2px'}"></div>
+          <div style="height:100%;width:${pct}%;background:${barColor};border-radius:2px;min-width:${pct>0?'2px':'0'}"></div>
         </div>
-        <div style="display:flex;align-items:center">
-          <span style="font-family:var(--font-mono);font-size:9px;color:#475569">
-            ${isZero ? 'OFFLINE' : Math.abs(u.change_mw).toLocaleString() + ' MW below nameplate'}
-          </span>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-family:var(--font-mono);font-size:9px;padding:1px 6px;border-radius:9px;
+              background:${psCol}22;color:${psCol};border:1px solid ${psCol}55">${u.pasa_state || 'Unknown'}</span>
+            <span style="font-family:var(--font-mono);font-size:9px;color:#475569">
+              ${isZero ? 'offline' : Math.abs(u.change_mw).toLocaleString() + ' MW below nameplate'}
+            </span>
+          </div>
           ${retBadge}
         </div>
       </div>`;
@@ -4159,7 +4174,7 @@ function renderOutages(data) {
   const ts = slowData && slowData.timestamp
     ? new Date(slowData.timestamp).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane'})
     : '—';
-  html += `<div style="font-family:var(--font-mono);font-size:9px;color:#334155;margin-top:8px">Source: AEMO MT PASA DUID Availability · ${ts} AEST</div>`;
+  html += `<div style="font-family:var(--font-mono);font-size:9px;color:#334155;margin-top:8px">Source: AEMO MT PASA · ${ts} AEST</div>`;
 
   return html;
 }
@@ -4167,6 +4182,22 @@ function renderOutages(data) {
 
 function setOutageFilter(f) {
   window._outageFilter = f;
+  if (latestData) renderPanel('outages', latestData);
+}
+
+function toggleOutageState(ps) {
+  if (!window._outageStateFilter) window._outageStateFilter = new Set(['all']);
+  const f = window._outageStateFilter;
+  if (f.has('all')) {
+    // Switch from "all" to single selection
+    f.delete('all');
+    f.add(ps);
+  } else if (f.has(ps)) {
+    f.delete(ps);
+    if (f.size === 0) f.add('all'); // back to all if nothing selected
+  } else {
+    f.add(ps);
+  }
   if (latestData) renderPanel('outages', latestData);
 }
 

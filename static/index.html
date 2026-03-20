@@ -3706,7 +3706,17 @@ let dMinus1RegionFilter = 'NEM';
 
 function setDMinus1Region(r) {
   dMinus1RegionFilter = r;
-  if (latestData) renderPanel('dminus1', latestData);
+  // Update active pill
+  document.querySelectorAll('.region-pill').forEach(b => b.classList.remove('active'));
+  event && event.target && event.target.classList.add('active');
+  // Redraw from cached data if available, else re-fetch
+  if (window._dMinus1PriceData) {
+    drawDMinus1PriceChart(window._dMinus1PriceData);
+  } else if (window._dMinusDate) {
+    const d = window._dMinusDate;
+    const ds = d.getFullYear().toString() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+    dMinusLoadPrices(ds);
+  }
 }
 
 function renderDMinus1(data) {
@@ -3862,16 +3872,25 @@ function dMinusNavMonth(dir) {
 function dMinusSelectDate(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   window._dMinusDate = new Date(y, m - 1, d);
-  document.getElementById('dMinus-calendar').style.display = 'none';
-  // Re-render the panel
-  if (latestData) renderPanel('dminus1', latestData);
-  // Load price data for selected date
+  const cal = document.getElementById('dMinus-calendar');
+  if (cal) cal.style.display = 'none';
+  // Update date button label without full re-render
+  const btn = document.getElementById('dMinus-date-btn');
+  if (btn) {
+    const selDate = window._dMinusDate;
+    const lbl = selDate.toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short', year:'numeric', timeZone:'Australia/Brisbane'});
+    btn.innerHTML = '📅 ' + lbl;
+    const title = document.getElementById('dMinus-chart-title');
+    if (title) title.textContent = 'Spot Price ($/MWh) — ' + lbl;
+  }
+  // Clear cache and load new price data
+  window._dMinus1PriceData = null;
   dMinusLoadPrices(dateStr.replace(/-/g,''));
 }
 
 async function dMinusLoadPrices(dateStr) {
   const status = document.getElementById('dMinus-status');
-  if (status) status.textContent = 'Loading price data…';
+  if (status) status.textContent = 'Loading…';
 
   destroyChart('dm1Price');
   const ctx = document.getElementById('dm1PriceChart');
@@ -3880,13 +3899,14 @@ async function dMinusLoadPrices(dateStr) {
   try {
     const data = await fetch(`/api/historical_prices?date=${dateStr}`).then(r => r.json());
     if (!data || !Object.keys(data).length) {
-      if (status) status.textContent = `No price data found for ${dateStr} — data may not be available yet`;
+      if (status) status.textContent = `No price data for ${dateStr}`;
       return;
     }
     if (status) status.textContent = '';
+    window._dMinus1PriceData = data;  // cache so region changes can redraw
     drawDMinus1PriceChart(data);
   } catch(e) {
-    if (status) status.textContent = `Error loading data: ${e.message}`;
+    if (status) status.textContent = `Error: ${e.message}`;
   }
 }
 

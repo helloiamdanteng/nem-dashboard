@@ -2587,45 +2587,25 @@ def scrape_historical_prices(date_str: str) -> dict:
 
 def scrape_historical_dispatch_prices(date_str: str) -> dict:
     """
-    Fetch 5-min dispatch prices for a given date (YYYYMMDD format).
-    - Today: use CURRENT (files appear at top of listing)
-    - Any other date: use ARCHIVE/YYYYMM/ directly (avoids pagination issues
-      with CURRENT which has 4000+ files and only returns the first page)
-    Returns { region: [ {interval: "HH:MM", rrp: float} ] }
+    Fetch 5-min dispatch prices for any date (YYYYMMDD).
+    Uses the same CURRENT DispatchIS directory that scrape_dispatch_history uses,
+    but filters for the requested date instead of today.
     """
-    from datetime import datetime as _dt, timedelta as _td
     from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
 
     try:
-        req_dt = _dt.strptime(date_str, "%Y%m%d")
+        req_date = datetime.strptime(date_str, "%Y%m%d").date()
     except ValueError:
         return {}
 
-    now_aest = datetime.now(AEST)
-    current_ym = now_aest.strftime("%Y%m")  # e.g. "202603"
+    all_zips = _list_hrefs(DISPATCH_IS_URL)
+    date_zips = sorted([u for u in all_zips if date_str in u and "PUBLIC_DISPATCHIS" in u.upper()])
 
-    if date_str[:6] == current_ym:
-        # Current month: files are still in CURRENT directory (not yet archived)
-        # AEMO CURRENT holds all files for the rolling ~84 days in one listing
-        base_url = DISPATCH_IS_URL
-    else:
-        # Past month: use ARCHIVE which has a per-month subdirectory
-        ym = date_str[:6]
-        base_url = f"{DISPATCH_IS_ARCHIVE}{ym}/"
-
-    try:
-        all_files = _list_hrefs(base_url)
-    except Exception as e:
-        logger.warning(f"scrape_historical_dispatch_prices: listing failed for {date_str}: {e}")
+    if not date_zips:
+        logger.warning(f"scrape_historical_dispatch_prices: no files found for {date_str} in CURRENT ({len(all_zips)} total zips)")
         return {}
 
-    date_files = sorted([u for u in all_files
-                         if date_str in u and "PUBLIC_DISPATCHIS" in u.upper()])
-    if not date_files:
-        logger.warning(f"scrape_historical_dispatch_prices: no files found for {date_str} in {base_url}")
-        return {}
-
-    logger.info(f"scrape_historical_dispatch_prices: fetching {len(date_files)} files for {date_str}")
+    logger.info(f"scrape_historical_dispatch_prices: {len(date_zips)} files for {date_str}")
     prices: dict = {r: {} for r in NEM_REGIONS}
 
     def fetch_one(url):
@@ -2640,74 +2620,34 @@ def scrape_historical_dispatch_prices(date_str: str) -> dict:
                 region = row.get("REGIONID", "").strip()
                 if region not in NEM_REGIONS:
                     continue
+                dt_str = row.get("SETTLEMENTDATE", "")
+                rrp_str = row.get("RRP", "")
+                if not dt_str or not rrp_str:
+                    continue
                 try:
-                    rrp    = round(float(row["RRP"]), 2)
-                    dt_str = row["SETTLEMENTDATE"]
-                    dt     = datetime.strptime(dt_str, "%Y/%m/%d %H:%M:%S") - timedelta(minutes=5)
-                    label  = dt.strftime("%H:%M")
+                    dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=5)
+                    if dt.date() != req_date:
+                        continue
+                    label = dt.strftime("%H:%M")
                     if region not in result:
                         result[region] = {}
-                    result[region][label] = rrp
-                except (KeyError, ValueError):
+                    result[region][label] = round(float(rrp_str), 2)
+                except (ValueError, TypeError):
                     pass
             return result
         except Exception as e:
-            logger.debug(f"scrape_historical_dispatch_prices: file error {url}: {e}")
+            logger.debug(f"scrape_historical_dispatch_prices file error {url}: {e}")
             return {}
 
     with ThreadPoolExecutor(max_workers=10) as ex:
-        futures = {ex.submit(fetch_one, u): u for u in date_files}
-        for fut in _as_completed(futures):
-            result = fut.result()
-            for region, slots in result.items():
-                prices[region].update(slots)
-
-    return {r: sorted([{"interval": k, "rrp": v} for k, v in prices[r].items()],
-                       key=lambda x: x["interval"])
-            for r in NEM_REGIONS if prices[r]}
-
-    prices: dict = {r: {} for r in NEM_REGIONS}
-
-    def fetch_one(url):
-        try:
-            text = _read_zip(url)
-            if not text:
-                return {}
-            result = {}
-            for row in _parse_aemo(text, "DISPATCH_PRICE"):
-                if row.get("INTERVENTION", "0") not in ("0", ""):
-                    continue
-                region = row.get("REGIONID", "").strip()
-                if region not in NEM_REGIONS:
-                    continue
-                try:
-                    rrp    = round(float(row["RRP"]), 2)
-                    dt_str = row["SETTLEMENTDATE"]
-                    dt     = datetime.strptime(dt_str, "%Y/%m/%d %H:%M:%S") - timedelta(minutes=5)
-                    label  = dt.strftime("%H:%M")
-                    if region not in result:
-                        result[region] = {}
-                    result[region][label] = rrp
-                except (KeyError, ValueError):
-                    pass
-            return result
-        except Exception as e:
-            logger.debug(f"scrape_historical_dispatch_prices: file error {url}: {e}")
-            return {}
-
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    with ThreadPoolExecutor(max_workers=10) as ex:
-        futures = {ex.submit(fetch_one, u): u for u in date_files}
-        for fut in as_completed(futures):
-            result = fut.result()
-            for region, slots in result.items():
+        for result in _as_completed({ex.submit(fetch_one, u): u for u in date_zips}):
+            r = result.result()
+            for region, slots in r.items():
                 prices[region].update(slots)
 
     return {r: sorted([{"interval": k, "rrp": v} for k, v in prices[r].items()],
                       key=lambda x: x["interval"])
             for r in NEM_REGIONS if prices[r]}
-
-
 def scrape_yesterday() -> dict:
     """
     Fetch yesterday's full-day data from CURRENT directory files.

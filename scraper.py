@@ -2602,14 +2602,15 @@ def scrape_historical_dispatch_prices(date_str: str) -> dict:
         return {}
 
     now_aest = datetime.now(AEST)
-    today_str = now_aest.strftime("%Y%m%d")
+    current_ym = now_aest.strftime("%Y%m")  # e.g. "202603"
 
-    if date_str == today_str:
-        # Today: CURRENT listing returns newest files first, today's are at top
+    if date_str[:6] == current_ym:
+        # Current month: files are still in CURRENT directory (not yet archived)
+        # AEMO CURRENT holds all files for the rolling ~84 days in one listing
         base_url = DISPATCH_IS_URL
     else:
-        # Any past date: go directly to monthly archive directory
-        ym = date_str[:6]  # YYYYMM
+        # Past month: use ARCHIVE which has a per-month subdirectory
+        ym = date_str[:6]
         base_url = f"{DISPATCH_IS_ARCHIVE}{ym}/"
 
     try:

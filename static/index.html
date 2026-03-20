@@ -3752,7 +3752,7 @@ function renderDMinus1(data) {
   // Calendar popover (hidden by default)
   html += `<div id="dMinus-calendar" style="display:none;background:#1e293b;border:1px solid #334155;
     border-radius:10px;padding:12px;margin-bottom:12px;max-width:320px">
-    ${dMinusBuildCalendar(selDate)}
+    ${dMinusBuildCalendar()}
   </div>`;
 
   // Region pills
@@ -3979,13 +3979,8 @@ function drawDMinus1PriceChart(dispatch5m) {
 
 
 function drawDMinus1Charts(data) {
-  // Canvas is now in DOM — use setTimeout 0 to let browser paint first
-  const sel = window._dMinusSel;
-  const ds = sel ? _dSelToStr(sel) : (() => {
-    const y = new Date(); y.setDate(y.getDate()-1);
-    return y.getFullYear().toString() + String(y.getMonth()+1).padStart(2,'0') + String(y.getDate()).padStart(2,'0');
-  })();
-  setTimeout(() => dMinusLoadPrices(ds), 0);
+  // Chart is only loaded when the user presses the Load button (dMinusTriggerLoad)
+  // Nothing auto-loads on panel switch
 }
 
 function renderPanel(panel, data) {

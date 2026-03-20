@@ -558,6 +558,27 @@ async def historical_prices(date: str):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+@app.get("/api/historical_dispatch_prices")
+async def historical_dispatch_prices(date: str):
+    """Fetch 5-min dispatch prices for a given date (YYYYMMDD)."""
+    import re
+    if not re.match(r'^\d{8}$', date):
+        return JSONResponse(status_code=400, content={"error": "date must be YYYYMMDD"})
+    from scraper import scrape_historical_dispatch_prices
+    loop = asyncio.get_running_loop()
+    try:
+        data = await asyncio.wait_for(
+            loop.run_in_executor(None, scrape_historical_dispatch_prices, date),
+            timeout=60.0
+        )
+        return JSONResponse(content=data)
+    except asyncio.TimeoutError:
+        return JSONResponse(status_code=504, content={"error": "timeout fetching dispatch prices"})
+    except Exception as e:
+        logger.error(f"historical_dispatch_prices error: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @app.get("/api/origin")
 async def origin_history():
     """Return Origin asset history — separate from fast cache to keep /api/data lean."""

@@ -2227,7 +2227,8 @@ def scrape_gen() -> dict:
         station  = info.get("station", duid)
         capacity = info.get("capacity")
 
-        if region not in NEM_REGIONS:
+        in_nem = region in NEM_REGIONS
+        if not in_nem:
             region = "Unknown"
 
         mw_val = mw if mw is not None else 0
@@ -2241,10 +2242,12 @@ def scrape_gen() -> dict:
         if fuel == "Other" and abs(mw_val) > 50:
             logger.warning(f"OTHER_DUID: {duid} region={region} mw={mw_pos:.0f} raw_fuel={raw_fuel!r} station={station!r}")
 
-        fuel_mix[region][fuel] = round(fuel_mix[region].get(fuel, 0) + mw_for_chart, 1)
-        nem_totals[fuel]       = round(nem_totals.get(fuel, 0) + mw_for_chart, 1)
+        if in_nem:
+            fuel_mix[region][fuel] = round(fuel_mix[region].get(fuel, 0) + mw_for_chart, 1)
+        if in_nem:
+            nem_totals[fuel]       = round(nem_totals.get(fuel, 0) + mw_for_chart, 1)
         # Track pump hydro load (negative mw on Hydro DUIDs) for gen chart
-        if fuel == "Hydro" and mw_val < -1:
+        if in_nem and fuel == "Hydro" and mw_val < -1:
             pump_load[region] = round(pump_load.get(region, 0) + mw_val, 1)
 
         pct = round(mw_val / capacity * 100, 1) if (mw_val and capacity and capacity > 0) else None

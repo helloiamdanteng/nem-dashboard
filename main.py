@@ -661,6 +661,23 @@ async def dispatch_debug(date: str = "20260317"):
         except Exception as e:
             result[f'probe_{test_url[-40:]}'] = str(e)
 
+    # The archive root returns 200 - list its contents to find the right structure
+    from scraper import TRADING_ARCHIVE
+    try:
+        archive_root_files = _list_hrefs(TRADING_ARCHIVE)
+        result['archive_root_total'] = len(archive_root_files)
+        result['archive_root_sample'] = archive_root_files[:10]
+    except Exception as e:
+        result['archive_root_error'] = str(e)
+
+    # Also try getting the raw HTML of the archive root to see directory structure
+    import requests as _req
+    try:
+        r = _req.get(TRADING_ARCHIVE, timeout=10, headers={'User-Agent':'Mozilla/5.0'})
+        result['archive_root_html_snippet'] = r.text[:2000]
+    except Exception as e:
+        result['archive_root_html_error'] = str(e)
+
     return result
 
 @app.get("/api/historical_dispatch_prices")

@@ -3731,20 +3731,24 @@ function renderDMinus1(data) {
   }
 
   const selDate = window._dMinusDate;
-  const selStr  = selDate.toISOString().slice(0,10).replace(/-/g,''); // YYYYMMDD
+  const selStr  = _localDateStr(selDate).replace(/-/g,''); // YYYYMMDD
   const selLabel = fmtDate(selDate);
 
   let html = `<div class="section-title">D− Historical Prices</div>`;
 
   // ── Date picker ───────────────────────────────────────────────────────────
-  html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+  html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
     <button onclick="dMinusShowCalendar()" id="dMinus-date-btn"
       style="font-family:var(--font-mono);font-size:11px;padding:6px 14px;border-radius:8px;
       border:1px solid #334155;background:#1e293b;color:#e2e8f0;cursor:pointer;
       display:flex;align-items:center;gap:6px">
       📅 ${selLabel}
     </button>
-    <span style="font-family:var(--font-mono);font-size:9px;color:#475569">tap to change date</span>
+    <button onclick="dMinusTriggerLoad()" id="dMinus-load-btn"
+      style="font-family:var(--font-mono);font-size:11px;padding:6px 14px;border-radius:8px;
+      border:1px solid #3b82f6;background:#3b82f622;color:#60a5fa;cursor:pointer;">
+      ↻ Load
+    </button>
   </div>`;
 
   // Calendar popover (hidden by default)
@@ -3773,6 +3777,13 @@ function renderDMinus1(data) {
   html += `<div id="dMinus-status" style="font-family:var(--font-mono);font-size:10px;color:#475569;margin-top:6px;min-height:16px"></div>`;
 
   return html;
+}
+
+function _localDateStr(d) {
+  // Format as YYYY-MM-DD using local time (not UTC) to avoid timezone shift
+  return d.getFullYear() + '-' +
+    String(d.getMonth()+1).padStart(2,'0') + '-' +
+    String(d.getDate()).padStart(2,'0');
 }
 
 function dMinusBuildCalendar(selDate) {
@@ -3812,14 +3823,14 @@ function dMinusBuildCalendar(selDate) {
   // Empty cells before first day
   for (let i = 0; i < startDow; i++) cal += `<div></div>`;
 
-  const selDateStr = selDate.toISOString().slice(0,10);
+  const selDateStr = _localDateStr(selDate);
 
   for (let d = 1; d <= lastDay.getDate(); d++) {
     const cellDate = new Date(year, month, d);
-    const cellStr  = cellDate.toISOString().slice(0,10);
+    const cellStr  = _localDateStr(cellDate);
     const isSel    = cellStr === selDateStr;
     const isFuture = cellDate > today;
-    const isToday  = cellStr === today.toISOString().slice(0,10);
+    const isToday  = cellStr === _localDateStr(today);
     const color    = isSel ? '#3b82f6' : isToday ? '#475569' : 'transparent';
     const textCol  = isSel ? '#fff' : isFuture ? '#1e2d45' : '#e2e8f0';
 
@@ -3867,6 +3878,13 @@ function dMinusNavMonth(dir) {
     : window._dMinusDate;
   const calEl = document.getElementById('dMinus-calendar');
   if (calEl) calEl.innerHTML = dMinusBuildCalendar(new Date(base.getFullYear(), base.getMonth(), 1));
+}
+
+function dMinusTriggerLoad() {
+  const d = window._dMinusDate || (() => { const y = new Date(); y.setDate(y.getDate()-1); return y; })();
+  const ds = _localDateStr(d).replace(/-/g,'');
+  window._dMinus1PriceData = null;
+  dMinusLoadPrices(ds);
 }
 
 function dMinusSelectDate(dateStr) {

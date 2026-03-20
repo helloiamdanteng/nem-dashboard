@@ -29,6 +29,7 @@ PREDISPATCH_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/PredispatchIS_Reports/"
 SCADA_URL         = f"{NEMWEB_BASE}/REPORTS/CURRENT/Dispatch_SCADA/"
 TRADING_CURRENT   = f"{NEMWEB_BASE}/REPORTS/CURRENT/TradingIS_Reports/"
 DISPATCH_IS_ARCHIVE = f"{NEMWEB_BASE}/REPORTS/ARCHIVE/DispatchIS_Reports/"
+MMSDM_ARCHIVE      = f"{NEMWEB_BASE}/Data_Archive/Wholesale_Electricity/MMSDM"
 TRADING_ARCHIVE   = f"{NEMWEB_BASE}/REPORTS/ARCHIVE/TradingIS_Reports/"
 MTPASA_DUID_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/MTPASA_DUIDAvailability/"
 ST_PASA_URL       = f"{NEMWEB_BASE}/REPORTS/CURRENT/Short_Term_PASA_Reports/"
@@ -2588,8 +2589,12 @@ def scrape_historical_prices(date_str: str) -> dict:
 def scrape_historical_dispatch_prices(date_str: str) -> dict:
     """
     Fetch 5-min dispatch prices for any date (YYYYMMDD).
-    Uses the same CURRENT DispatchIS directory that scrape_dispatch_history uses,
-    but filters for the requested date instead of today.
+    - Current month dates in CURRENT DispatchIS (today and recent days)
+    - Any date: MMSDM bulk archive has full-month files with all dispatch prices
+    
+    MMSDM URL: /Data_Archive/Wholesale_Electricity/MMSDM/YYYY/MMSDM_YYYYMM/
+               MMSDM_Historical_Data_SQLLoader/DATA/
+               PUBLIC_DVD_DISPATCHPRICE_YYYYMM010000.zip
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
 
@@ -2598,14 +2603,51 @@ def scrape_historical_dispatch_prices(date_str: str) -> dict:
     except ValueError:
         return {}
 
+    # ── Try CURRENT first (works for today and recent days still in listing) ──
     all_zips = _list_hrefs(DISPATCH_IS_URL)
     date_zips = sorted([u for u in all_zips if date_str in u and "PUBLIC_DISPATCHIS" in u.upper()])
 
-    if not date_zips:
-        logger.warning(f"scrape_historical_dispatch_prices: no files found for {date_str} in CURRENT ({len(all_zips)} total zips)")
-        return {}
+    if date_zips:
+        logger.info(f"scrape_historical_dispatch_prices: {len(date_zips)} CURRENT files for {date_str}")
+    else:
+        # ── Fall back to MMSDM monthly bulk archive ───────────────────────────
+        ym   = date_str[:6]   # YYYYMM
+        yyyy = date_str[:4]   # YYYY
+        mmsdm_dir = f"{MMSDM_ARCHIVE}/{yyyy}/MMSDM_{ym}/MMSDM_Historical_Data_SQLLoader/DATA/"
+        mmsdm_file = f"{mmsdm_dir}PUBLIC_DVD_DISPATCHPRICE_{ym}010000.zip"
+        logger.info(f"scrape_historical_dispatch_prices: trying MMSDM {mmsdm_file}")
+        # Fetch the single bulk file directly (no directory listing needed)
+        text = _read_zip(mmsdm_file)
+        if not text:
+            logger.warning(f"scrape_historical_dispatch_prices: MMSDM file not available for {ym}")
+            return {}
+        # Parse the full-month file, filter to req_date
+        prices: dict = {r: {} for r in NEM_REGIONS}
+        for row in _parse_aemo(text, "DISPATCH_PRICE"):
+            if row.get("INTERVENTION", "0") not in ("0", ""):
+                continue
+            region = row.get("REGIONID", "").strip()
+            if region not in NEM_REGIONS:
+                continue
+            dt_str2 = row.get("SETTLEMENTDATE", "")
+            rrp_str = row.get("RRP", "")
+            if not dt_str2 or not rrp_str:
+                continue
+            try:
+                dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - timedelta(minutes=5)
+                if dt.date() != req_date:
+                    continue
+                label = dt.strftime("%H:%M")
+                prices[region][label] = round(float(rrp_str), 2)
+            except (ValueError, TypeError):
+                pass
+        result = {r: sorted([{"interval": k, "rrp": v} for k, v in prices[r].items()],
+                             key=lambda x: x["interval"])
+                  for r in NEM_REGIONS if prices[r]}
+        logger.info(f"scrape_historical_dispatch_prices: MMSDM returned {sum(len(v) for v in result.values())} pts")
+        return result
 
-    logger.info(f"scrape_historical_dispatch_prices: {len(date_zips)} files for {date_str}")
+    # ── Parse per-file CURRENT zips ───────────────────────────────────────────
     prices: dict = {r: {} for r in NEM_REGIONS}
 
     def fetch_one(url):
@@ -2620,12 +2662,12 @@ def scrape_historical_dispatch_prices(date_str: str) -> dict:
                 region = row.get("REGIONID", "").strip()
                 if region not in NEM_REGIONS:
                     continue
-                dt_str = row.get("SETTLEMENTDATE", "")
+                dt_str2 = row.get("SETTLEMENTDATE", "")
                 rrp_str = row.get("RRP", "")
-                if not dt_str or not rrp_str:
+                if not dt_str2 or not rrp_str:
                     continue
                 try:
-                    dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=5)
+                    dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - timedelta(minutes=5)
                     if dt.date() != req_date:
                         continue
                     label = dt.strftime("%H:%M")
@@ -2640,9 +2682,8 @@ def scrape_historical_dispatch_prices(date_str: str) -> dict:
             return {}
 
     with ThreadPoolExecutor(max_workers=10) as ex:
-        for result in _as_completed({ex.submit(fetch_one, u): u for u in date_zips}):
-            r = result.result()
-            for region, slots in r.items():
+        for fut in _as_completed({ex.submit(fetch_one, u): u for u in date_zips}):
+            for region, slots in fut.result().items():
                 prices[region].update(slots)
 
     return {r: sorted([{"interval": k, "rrp": v} for k, v in prices[r].items()],

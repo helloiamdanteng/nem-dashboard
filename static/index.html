@@ -459,22 +459,21 @@ function drawPriceSensitivityChart(data) {
   if (!ctx) return;
   destroyChart('pdSens');
 
+  // Build 30-min spine: today 00:00 → tomorrow ~18:00 (48 slots today + pd horizon)
   const allSlots = [];
-  for (let h = 0; h < 48; h++)  // 48 hours for predispatch horizon
+  for (let h = 0; h < 48; h++)
     for (let m = 0; m < 60; m += 30)
       allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
 
-  // Actual historical prices (5-min, mapped to 30-min slots)
+  // Actual historical prices (5-min, averaged into 30-min slots using HH:MM labels)
   const histPrices = data.historical_prices || {};
   const histMap = {};
   (histPrices[region] || []).forEach(p => {
-    // Snap 5-min to 30-min slot
     const [hh, mm] = p.interval.split(':').map(Number);
     const slot = (hh<10?'0':'')+hh+':'+(mm < 30 ? '00' : '30');
     if (!histMap[slot]) histMap[slot] = [];
     histMap[slot].push(p.rrp);
   });
-  // Average within each 30-min slot
   const histAvg = {};
   for (const [slot, vals] of Object.entries(histMap))
     histAvg[slot] = Math.round(vals.reduce((a,b)=>a+b,0)/vals.length * 100)/100;
@@ -497,7 +496,7 @@ function drawPriceSensitivityChart(data) {
   const nowIdx  = allSlots.findIndex(l => l >= nowSlot);
 
   // Build today's slots (00:00–23:30)
-  const todaySlots = allSlots.slice(0, 48);
+  const todaySlots = allSlots;  // full spine including overnight PD
   const color = REGION_COLORS[region];
 
   // Sensitivity scenario labels (RRP1-8 = demand scenarios)

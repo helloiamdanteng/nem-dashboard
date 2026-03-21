@@ -626,6 +626,42 @@ async def pd_sens_debug():
     sens_rows = list(_parse_aemo(text, 'PREDISPATCH_PRICESENSITIVITIES'))[:2]
     return {"tables": sorted(tables), "sens_sample": sens_rows}
 
+@app.get("/api/sens-debug")
+async def sens_debug():
+    from scraper import _list_hrefs, _read_zip, _parse_aemo, PREDISPATCH_SENS_URL, get_latest_file_url
+    import csv, io
+    result = {}
+    try:
+        files = _list_hrefs(PREDISPATCH_SENS_URL)
+        result['total_files'] = len(files)
+        result['sample_files'] = files[-3:] if files else []
+    except Exception as e:
+        result['list_error'] = str(e)
+        return result
+    if not files:
+        return result
+    url = files[-1]
+    result['fetching'] = url
+    text = _read_zip(url)
+    result['text_len'] = len(text)
+    # List tables
+    tables = {}
+    reader = csv.reader(io.StringIO(text))
+    for row in reader:
+        if row and row[0].strip().upper() == 'I' and len(row) >= 3:
+            tbl = row[2].strip().upper()
+            cols = [c.strip() for c in row[4:] if c.strip()]
+            tables[tbl] = cols[:20]
+    result['tables'] = tables
+    # Sample first NSW1 row from any sensitivity table
+    for tbl_key in tables:
+        rows = list(_parse_aemo(text, tbl_key))
+        nsw = [r for r in rows if r.get('REGIONID','').strip() == 'NSW1'][:1]
+        if nsw:
+            result['nsw_sample_' + tbl_key] = nsw[0]
+            break
+    return result
+
 @app.get("/api/historical_dispatch_prices")
 async def historical_dispatch_prices(date: str):
     """Fetch 5-min dispatch prices for a given date (YYYYMMDD)."""

@@ -1018,9 +1018,18 @@ def scrape_predispatch_prices(text: str) -> dict:
                 rrp = round(float(rrp_str), 2)
                 # DATETIME is end-of-interval; shift back 30min for display
                 dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                # Only keep today's future intervals (AEST) — keep anything within last 30min too
-                if dt.date() == today and dt >= now_aest - timedelta(minutes=30):
-                    region_series[region][dt.strftime("%H:%M")] = rrp
+                # Keep anything from 30min ago onwards, up to 40hrs ahead
+                if dt >= now_aest - timedelta(minutes=30) and dt <= now_aest + timedelta(hours=40):
+                    # Use HH:MM label — for overnight intervals use 24hr+ notation
+                    total_mins = int((dt - dt.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds() // 60)
+                    if dt.date() == today:
+                        label = dt.strftime("%H:%M")
+                    else:
+                        # Next day: offset by 1440 mins so 00:30 tomorrow = "24:30"
+                        days_ahead = (dt.date() - today).days
+                        h = dt.hour + days_ahead * 24
+                        label = f"{h:02d}:{dt.minute:02d}"
+                    region_series[region][label] = rrp
             except (ValueError, TypeError):
                 pass
         break

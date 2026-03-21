@@ -772,13 +772,10 @@ def scrape_dispatch_history() -> dict:
     """
     now_aest   = datetime.now(AEST)
     today_str  = now_aest.strftime("%Y%m%d")
-    yest_str2  = (now_aest - timedelta(days=1)).strftime("%Y%m%d")
     today_date = now_aest.date()
 
     all_zips = _list_hrefs(DISPATCH_IS_URL)
-    # Include yesterday + today for a full 24hr window regardless of restart time
-    today_zips = [u for u in all_zips
-                  if (today_str in u or yest_str2 in u) and "PUBLIC_DISPATCHIS" in u.upper()]
+    today_zips = [u for u in all_zips if today_str in u and "PUBLIC_DISPATCHIS" in u.upper()]
     if not today_zips:
         today_zips = all_zips[-288:]
     today_zips = sorted(today_zips)[-300:]
@@ -819,9 +816,7 @@ def scrape_dispatch_history() -> dict:
                     continue
                 try:
                     dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=5)
-                    if dt.date() not in (today_date, today_date - timedelta(days=1)):
-                        continue
-                    if dt.date() == today_date and dt.strftime("%H:%M") > now_label:
+                    if dt.date() != today_date or dt.strftime("%H:%M") > now_label:
                         continue
                     label = dt.strftime("%H:%M")
                     pts.append(("demand", region, label, round(float(demand_str), 1)))
@@ -881,9 +876,7 @@ def scrape_dispatch_history() -> dict:
                     continue
                 try:
                     dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=5)
-                    if dt.date() not in (today_date, today_date - timedelta(days=1)):
-                        continue
-                    if dt.date() == today_date and dt.strftime("%H:%M") > now_label:
+                    if dt.date() != today_date or dt.strftime("%H:%M") > now_label:
                         continue
                     pts.append(("price", region, dt.strftime("%H:%M"), round(float(rrp_str), 2)))
                 except (ValueError, TypeError):
@@ -901,9 +894,7 @@ def scrape_dispatch_history() -> dict:
                     continue
                 try:
                     dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=5)
-                    if dt.date() not in (today_date, today_date - timedelta(days=1)):
-                        continue
-                    if dt.date() == today_date and dt.strftime("%H:%M") > now_label:
+                    if dt.date() != today_date or dt.strftime("%H:%M") > now_label:
                         continue
                     pts.append(("ic", ic_id, dt.strftime("%H:%M"), round(float(flow_str), 1)))
                 except (ValueError, TypeError):
@@ -2145,20 +2136,12 @@ def scrape_scada_history() -> None:
     today_date = now_aest.date()
     now_label  = now_aest.strftime("%H:%M")
 
-    yest_date  = (now_aest - timedelta(days=1)).date()
-    yest_str   = yest_date.strftime("%Y%m%d")
-
     all_urls = _list_hrefs(SCADA_URL)
-    # Include both yesterday and today to guarantee a full 24hr window
-    # regardless of when the process started
-    today_urls = sorted([u for u in all_urls
-                         if (today_str in u or yest_str in u)
-                         and "PUBLIC_DISPATCHSCADA" in u.upper()])
-    # Limit to 300 files (~25hrs worth at 5-min cadence)
+    today_urls = sorted([u for u in all_urls if today_str in u and "PUBLIC_DISPATCHSCADA" in u.upper()])
     today_urls = today_urls[-300:]
 
     if not today_urls:
-        logger.warning("scrape_scada_history: no SCADA files found for today/yesterday")
+        logger.warning("scrape_scada_history: no SCADA files found for today")
         return
 
     logger.info(f"scrape_scada_history: fetching {len(today_urls)} SCADA files…")

@@ -626,6 +626,32 @@ async def pd_sens_debug():
     sens_rows = list(_parse_aemo(text, 'PREDISPATCH_PRICESENSITIVITIES'))[:2]
     return {"tables": sorted(tables), "sens_sample": sens_rows}
 
+@app.get("/api/sens-debug2")
+async def sens_debug2():
+    """Read scenario definitions from the sensitivities file."""
+    from scraper import _list_hrefs, _read_zip, _parse_aemo, PREDISPATCH_SENS_URL
+    import csv, io
+    files = _list_hrefs(PREDISPATCH_SENS_URL)
+    if not files: return {"error": "no files"}
+    text = _read_zip(files[-1])
+    
+    # Dump ALL I-rows (table headers) to see every table and its columns
+    result = {"file": files[-1], "all_tables": {}}
+    reader = csv.reader(io.StringIO(text))
+    for row in reader:
+        if row and row[0].strip().upper() == 'I' and len(row) >= 3:
+            tbl = row[2].strip().upper()
+            cols = [c.strip() for c in row[4:] if c.strip()]
+            result["all_tables"][tbl] = cols
+    
+    # Sample first 3 D-rows from every table
+    result["samples"] = {}
+    for tbl in result["all_tables"]:
+        rows = list(_parse_aemo(text, tbl))
+        result["samples"][tbl] = rows[:3]
+    
+    return result
+
 @app.get("/api/sens-debug")
 async def sens_debug():
     from scraper import _list_hrefs, _read_zip, _parse_aemo, PREDISPATCH_SENS_URL, get_latest_file_url

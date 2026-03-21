@@ -335,11 +335,10 @@ function nowLinePlugin(nowIndex) {
 
 async function triggerRescrape() {
   const btn = document.getElementById('rescrapeBtn');
-  if (btn) { btn.textContent = '⟳ Running…'; btn.disabled = true; }
+  if (btn) { btn.textContent = '⟳ Running'; btn.disabled = true; }
   try {
     const r = await fetch('/api/rescrape');
-    const d = await r.json();
-    if (btn) btn.textContent = '⟳ Started';
+    await r.json();
     // Refresh data after 60s
     setTimeout(() => {
       fetchData();
@@ -4069,7 +4068,7 @@ function renderOutages(data) {
   // Two independent filters:
   // 1. Status radio: All / Offline / Derated
   // 2. Has Return toggle: can combine with status radio
-  const filterState   = window._outageFilter    || 'all';
+  const filterState   = window._outageFilter    || 'offline';
   const returnFilter  = window._outageReturnFilter || false;
   const offline    = outages.filter(r => r.avail_today === 0);
   const derated    = outages.filter(r => r.avail_today > 0);
@@ -4153,7 +4152,7 @@ function renderOutages(data) {
     'Hydro':'#36a2eb','Wind':'#4bc0c0','Solar':'#ffd700',
     'Battery':'#9b59b6','Liquid':'#e74c3c','Other':'#475569'
   };
-  const FUEL_ORDER = ['Black Coal','Brown Coal','Gas','Hydro','Wind','Solar','Battery','Liquid','Other'];
+  const FUEL_ORDER = ['Brown Coal','Black Coal','Gas','Hydro','Wind','Solar','Battery','Liquid','Other'];
   const byFuel = {};
   for (const u of visible) {
     const f = u.fuel || 'Other';

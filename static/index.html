@@ -988,8 +988,17 @@ function drawGenChart(data) {
           }
         },
         scales: {
-          x: { stacked: true, grid: { display: false },
-               ticks: { color: '#64748b', font: { family: 'Space Mono', size: 9 } } },
+          x: { stacked: true,
+               ticks: { color: '#64748b', font: { family: 'Space Mono', size: 9 }, maxRotation: 0,
+               autoSkip: false, maxTicksLimit: 1000,
+            callback: function(val) {
+              const l = this.getLabelForValue(val);
+              if (!l) return null;
+              const h = parseInt(l.split(':')[0]);
+              return (l.endsWith(':00') && h % 2 === 0) ? l : null;
+            }
+               },
+               grid: { color: '#1e293b', drawOnChartArea: true, drawTicks: false } },
           y: { stacked: true,
                ticks: { color:'#64748b', font:{family:'Space Mono',size:9} },
                grid: { color:'#1e293b' },
@@ -2273,9 +2282,15 @@ function _drawOriginPortfolioChart(stationMap, fc) {
       scales:{
         x:{
           ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:0,
-            callback(v,i){ const l=this.getLabelForValue(i); return l&&l.endsWith(':00')?l:null; }
+            autoSkip: false, maxTicksLimit: 1000,
+            callback: function(val) {
+              const l = this.getLabelForValue(val);
+              if (!l) return null;
+              const h = parseInt(l.split(':')[0]);
+              return (l.endsWith(':00') && h % 2 === 0) ? l : null;
+            }
           },
-          grid:{color:'#1e2d4522'}
+          grid:{color:'#1e293b', drawOnChartArea:true, drawTicks:false}
         },
         y:{ stacked:true, ticks:{color:'#64748b',font:{family:'Space Mono',size:9}}, grid:{color:'#1e293b'}, title:{display:true,text:'MW',color:'#64748b',font:{family:'Space Mono',size:9}} },
         yPrice: hasPrices ? {

@@ -612,6 +612,20 @@ async def rescrape():
     asyncio.create_task(_run())
     return {"status": "rescrape triggered — history backfill + fast + gen running in background"}
 
+@app.get("/api/pd-sens-debug")
+async def pd_sens_debug():
+    from scraper import _fetch_predispatch, _parse_aemo
+    text = _fetch_predispatch()
+    tables = set()
+    import csv, io
+    reader = csv.reader(io.StringIO(text))
+    for row in reader:
+        if row and row[0].strip().upper() == 'I' and len(row) >= 3:
+            tables.add(row[2].strip().upper())
+    # Check PRICESENSITIVITIES columns
+    sens_rows = list(_parse_aemo(text, 'PREDISPATCH_PRICESENSITIVITIES'))[:2]
+    return {"tables": sorted(tables), "sens_sample": sens_rows}
+
 @app.get("/api/historical_dispatch_prices")
 async def historical_dispatch_prices(date: str):
     """Fetch 5-min dispatch prices for a given date (YYYYMMDD)."""

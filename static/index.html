@@ -459,25 +459,32 @@ function drawPriceSensitivityChart(data) {
   if (!ctx) return;
   destroyChart('pdSens');
 
-  // 30-min spine: today 00:00 through 48hrs
-  const allSlots = [];
-  for (let h = 0; h < 48; h++)
+  // 5-min spine for historical period, then 30-min for PD horizon
+  const hist5Slots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      hist5Slots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  // 30-min PD slots (24:00 onwards for tomorrow)
+  const pd30Slots = [];
+  for (let h = 24; h < 48; h++)
     for (let m = 0; m < 60; m += 30)
-      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+      pd30Slots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
 
-  // Historical actual prices (5-min averaged to 30-min slots)
+  // Today's 30-min PD slots
+  const pdTodaySlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 30)
+      pdTodaySlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  // Combined spine: 5-min today + 30-min tomorrow
+  const allSlots = [...hist5Slots, ...pd30Slots];
+
+  // Historical 5-min prices (direct, no averaging)
   const histMap = {};
-  ((data.historical_prices || {})[region] || []).forEach(p => {
-    const [hh, mm] = p.interval.split(':').map(Number);
-    const slot = (hh<10?'0':'')+hh+':'+(mm < 30 ? '00' : '30');
-    if (!histMap[slot]) histMap[slot] = [];
-    histMap[slot].push(p.rrp);
-  });
-  const histAvg = {};
-  for (const [slot, vals] of Object.entries(histMap))
-    histAvg[slot] = Math.round(vals.reduce((a,b)=>a+b,0)/vals.length * 100) / 100;
+  ((data.historical_prices || {})[region] || []).forEach(p => { histMap[p.interval] = p.rrp; });
 
-  // Predispatch base forecast
+  // Predispatch base forecast (30-min, uses 00:00-23:30 + 24:00+ labels)
   const pdMap = {};
   ((data.predispatch_prices || {})[region] || []).forEach(p => { pdMap[p.interval] = p.rrp; });
 
@@ -487,26 +494,27 @@ function drawPriceSensitivityChart(data) {
 
   // Find now index
   const nowStr = nowAEST();
+  // nowIdx on the 5-min spine
   const nowIdx = allSlots.findIndex(l => l >= nowStr);
 
   const color = REGION_COLORS[region];
   const datasets = [];
 
-  // 1. Actual prices (solid line up to now)
+  // 1. Actual 5-min prices (solid line up to now)
   datasets.push({
     label: 'Actual',
-    data: allSlots.map((l,i) => i <= nowIdx ? (histAvg[l] ?? null) : null),
+    data: allSlots.map((l,i) => i <= nowIdx ? (histMap[l] ?? null) : null),
     borderColor: color, backgroundColor: color + '22',
     borderWidth: 2, pointRadius: 0, tension: 0.2,
     fill: false, spanGaps: true,
   });
 
-  // 2. PD base forecast (dashed from now)
+  // 2. PD base forecast (dashed from now, 30-min slots)
   datasets.push({
     label: 'PD Forecast',
     data: allSlots.map((l,i) => {
       if (i < nowIdx) return null;
-      if (i === nowIdx) return histAvg[l] ?? pdMap[l] ?? null;
+      if (i === nowIdx) return histMap[l] ?? pdMap[l] ?? null;
       return pdMap[l] ?? null;
     }),
     borderColor: color + 'aa', backgroundColor: 'transparent',
@@ -530,7 +538,7 @@ function drawPriceSensitivityChart(data) {
       label: scen,
       data: allSlots.map((l,i) => {
         if (i < nowIdx) return null;
-        if (i === nowIdx) return histAvg[l] ?? sensMap[l]?.[scen] ?? null;
+        if (i === nowIdx) return histMap[l] ?? sensMap[l]?.[scen] ?? null;
         return sensMap[l]?.[scen] ?? null;
       }),
       borderColor: col, backgroundColor: 'transparent',
@@ -703,7 +711,7 @@ function drawPriceChart(data) {
             font: { family: 'Space Mono', size: 9 },
             maxRotation: 0,
             callback: function(val, idx) {
-              const l = labels[idx];
+              const l = this.getLabelForValue(val);
               if (!l) return '';
               const h = parseInt(l.split(':')[0]);
               return (l.endsWith(':00') && h % 2 === 0) ? l : '';
@@ -1448,7 +1456,7 @@ function drawDemandChart(data) {
             font: { family: 'Space Mono', size: 9 },
             maxRotation: 0,
             callback: function(val, idx) {
-              const l = labels[idx];
+              const l = this.getLabelForValue(val);
               if (!l) return '';
               const h = parseInt(l.split(':')[0]);
               return (l.endsWith(':00') && h % 2 === 0) ? l : '';
@@ -1632,7 +1640,7 @@ function drawRenewablesChart(data) {
       scales: {
         x: { stacked: true,
           ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
-            callback(v,i){ const l=this.getLabelForValue(i); if(!l) return ''; const h=parseInt(l.split(':')[0]); return (l.endsWith(':00')&&h%2===0)?l:null; }
+            callback: function(val) { const l=this.getLabelForValue(val); if(!l) return ''; const h=parseInt(l.split(':')[0]); return (l.endsWith(':00')&&h%2===0)?l:''; }
           },
           grid: { color:'#1e293b' }
         },

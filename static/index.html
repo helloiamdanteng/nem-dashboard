@@ -202,7 +202,6 @@ tr:last-child td { border-bottom:none; }
   <div style="display:flex;gap:6px;align-items:center">
     <div style="display:flex;gap:6px;align-items:center">
     <button class="refresh-btn" onclick="fetchData()" title="Refresh prices">↻</button>
-    <button class="refresh-btn" onclick="triggerRescrape()" id="rescrape-btn" title="Force full rescrape including history backfill">⟳ Full</button>
   </div>
     <button class="refresh-btn" id="rescrapeBtn" onclick="triggerRescrape()" title="Force full history rescrape">⟳ Rescrape</button>
   </div>
@@ -4398,7 +4397,7 @@ async function fetchSlowData() {
 }
 
 async function triggerRescrape() {
-  const btn = document.getElementById('rescrape-btn');
+  const btn = document.getElementById('rescrapeBtn');
   if (btn) { btn.textContent = '⟳ …'; btn.disabled = true; }
   try {
     const r = await fetch('/api/rescrape');

@@ -706,6 +706,7 @@ def _build_mtpasa_calendar() -> dict:
     if not text:
         return {}
 
+    COAL_FUELS = {"Black Coal", "Brown Coal"}
     duid_days: dict = {}
     for row in _parse_aemo(text, "MTPASA_DUIDAVAILABILITY"):
         duid = row.get("DUID", "").strip()
@@ -713,6 +714,8 @@ def _build_mtpasa_calendar() -> dict:
             continue
         unit = NEM_UNITS.get(duid, {})
         if not unit or not unit.get("capacity"):
+            continue
+        if unit.get("fuel") not in COAL_FUELS:
             continue
         day   = row.get("DAY", "").strip()[:10]
         try:

@@ -357,7 +357,9 @@ function showPanel(name) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   const btn = document.getElementById('nav-' + name);
   if (btn) btn.classList.add('active');
-  if (latestData) renderPanel(name, latestData);
+  // coalcal doesn't need latestData - it fetches its own data
+  if (name === 'coalcal') renderPanel(name, latestData || {});
+  else if (latestData) renderPanel(name, latestData);
 }
 
 // ── Prices ────────────────────────────────────────────────────────────────────

@@ -78,8 +78,6 @@ async def _run_slow():
         )
         slow_cache["data"] = data
         slow_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
-        # Refresh MTPASA calendar cache in background
-        asyncio.create_task(_refresh_mtpasa_cal())
         slow_cache["error"] = None
         logger.info(f"Slow scrape done in {time.time()-t0:.1f}s")
     except asyncio.TimeoutError:
@@ -695,14 +693,31 @@ _mtpasa_cal_cache: dict = {"data": None, "last_updated": None}
 
 def _build_mtpasa_calendar() -> dict:
     """Blocking function — run in executor. Fetches and parses MTPASA data."""
-    from scraper import _list_hrefs, _read_zip, _parse_aemo, NEM_UNITS, MTPASA_DUID_URL, AEST
+    import requests, zipfile, io
+    from scraper import _list_hrefs, _parse_aemo, NEM_UNITS, MTPASA_DUID_URL, AEST
     from datetime import datetime
+
+    # Use a fresh session — the global SESSION is not thread-safe under concurrent load
+    def _get_zip(url):
+        try:
+            s = requests.Session()
+            s.headers.update({"User-Agent": "NEM-Dashboard/1.0"})
+            r = s.get(url, timeout=30)
+            r.raise_for_status()
+            with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+                csvs = [n for n in z.namelist() if n.lower().endswith(".csv")]
+                if not csvs: return ""
+                with z.open(csvs[0]) as f:
+                    return f.read().decode("utf-8", errors="replace")
+        except Exception as e:
+            logger.warning(f"_build_mtpasa_calendar: fetch failed {url}: {e}")
+            return ""
 
     files = _list_hrefs(MTPASA_DUID_URL)
     if not files:
         return {}
     latest = sorted(files)[-1]
-    text   = _read_zip(latest)
+    text   = _get_zip(latest)
     if not text:
         return {}
 
@@ -741,15 +756,6 @@ def _build_mtpasa_calendar() -> dict:
     return {"source": latest, "as_of": datetime.now(AEST).isoformat(), "duids": result}
 
 @app.get("/api/mtpasa-calendar")
-async def _refresh_mtpasa_cal():
-    """Refresh MTPASA calendar cache in background (called from slow scrape)."""
-    import asyncio
-    loop = asyncio.get_running_loop()
-    data = await loop.run_in_executor(None, _build_mtpasa_calendar)
-    if data:
-        _mtpasa_cal_cache["data"] = data
-        logger.info("MTPASA calendar cache refreshed")
-
 async def mtpasa_calendar():
     """Return cached MTPASA calendar data. Fetches in background if stale."""
     import asyncio

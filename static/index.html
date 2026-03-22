@@ -4711,212 +4711,145 @@ function drawCoalCalendar() {
   if (!container || !_coalCalData) return;
 
   const allDuids = _coalCalData.duids || {};
+  const COAL_COLORS = {'Brown Coal':'#92400e','Black Coal':'#374151'};
 
-  const FUEL_ORDER = ['Brown Coal','Black Coal','Gas','Hydro','Battery','Wind','Solar','Liquid','Other'];
-  const FUEL_COLORS_CAL = {
-    'Brown Coal':'#92400e','Black Coal':'#374151','Gas':'#c2410c',
-    'Hydro':'#1d4ed8','Battery':'#6d28d9','Wind':'#065f46',
-    'Solar':'#854d0e','Liquid':'#4b5563','Other':'#374151',
-  };
-  const FUEL_CELL_FULL = {
-    'Brown Coal':'#78350f','Black Coal':'#1f2937','Gas':'#431407',
-    'Hydro':'#1e3a5f','Battery':'#2e1065','Wind':'#064e3b',
-    'Solar':'#713f12','Liquid':'#1f2937','Other':'#1f2937',
-  };
-
+  // Filter by region (coal DUIDs only - already filtered server-side)
   const filtered = Object.entries(allDuids)
     .filter(([,u]) => _coalCalRegion === 'ALL' || u.region === _coalCalRegion + '1')
     .sort(([,a],[,b]) => {
-      const fa = FUEL_ORDER.indexOf(a.fuel), fb = FUEL_ORDER.indexOf(b.fuel);
-      const fd = (fa<0?99:fa)-(fb<0?99:fb);
+      const fo = {'Brown Coal':0,'Black Coal':1};
+      const fd = (fo[a.fuel]??2)-(fo[b.fuel]??2);
       if (fd) return fd;
       return a.station !== b.station ? a.station.localeCompare(b.station) : 0;
     });
 
   if (!filtered.length) {
-    container.innerHTML = '<div style="padding:20px;font-family:var(--font-mono);font-size:10px;color:#475569">No units for this region</div>';
+    container.innerHTML = '<div style="padding:20px;font-family:var(--font-mono);font-size:10px;color:#475569">No coal DUIDs for this region</div>';
     return;
   }
 
-  // Date spine: today → +2 years, weekly columns
+  // Date spine: today → +2 years, one column per week
   const today = new Date(); today.setHours(0,0,0,0);
   const end2  = new Date(today); end2.setFullYear(end2.getFullYear()+2);
   const weeks = [];
   const ws = new Date(today); ws.setDate(ws.getDate()-ws.getDay());
   while (ws <= end2) { weeks.push(new Date(ws)); ws.setDate(ws.getDate()+7); }
 
-  const CELL_W  = 7;
-  const ROW_H   = 14;
-  const LABEL_W = 130;
-  const HEADER_H = 20;
-  const totalW  = LABEL_W + weeks.length * CELL_W;
-  const totalH  = HEADER_H + filtered.length * ROW_H;
+  const CELL_W = 7, ROW_H = 16, LABEL_W = 130, headerH = 20;
+  const totalW = LABEL_W + weeks.length * CELL_W;
+  const totalH = headerH + filtered.length * ROW_H + 4;
 
   function parseDay(s) {
     if (!s) return null;
     const [y,m,d] = s.split('/').map(Number);
-    return new Date(y, m-1, d);
+    return new Date(y,m-1,d);
   }
   function getAvail(days, date) {
     let cur = null;
     for (const pt of days) { if (pt.dateObj <= date) cur = pt; else break; }
     return cur;
   }
-  function hexToRgb(hex) {
-    const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
-    return [r,g,b];
-  }
 
-  const parsedDuids = filtered.map(([duid, u]) => {
-    const days = (u.days||[]).map(d => ({...d, dateObj: parseDay(d.day)}))
+  const parsedDuids = filtered.map(([duid,u]) => {
+    const days = (u.days||[]).map(d=>({...d,dateObj:parseDay(d.day)}))
                               .filter(d=>d.dateObj).sort((a,b)=>a.dateObj-b.dateObj);
-    return [duid, u, days];
+    return [duid,u,days];
   });
 
-  // Build canvas
-  container.innerHTML = `<div style="position:relative;overflow:auto;max-height:calc(100vh - 180px)">
-    <canvas id="coal-cal-canvas" width="${totalW}" height="${totalH}" style="display:block"></canvas>
-    <div id="coal-tip" style="display:none;position:fixed;z-index:100;background:#0f172a;border:1px solid #1e293b;
-      border-radius:6px;padding:6px 10px;font-family:var(--font-mono);font-size:9px;color:#e2e8f0;
-      box-shadow:0 4px 20px rgba(0,0,0,0.5);pointer-events:none;line-height:1.6"></div>
-  </div>`;
-
-  const canvas = document.getElementById('coal-cal-canvas');
-  const ctx2   = canvas.getContext('2d');
-  ctx2.imageSmoothingEnabled = false;
-
-  // Background
-  ctx2.fillStyle = '#080c14';
-  ctx2.fillRect(0, 0, totalW, totalH);
-
-  // Month labels and grid lines
+  // Month labels
+  const monthLabels = [];
   let lastM2 = -1;
-  weeks.forEach((w, i) => {
-    const x = LABEL_W + i * CELL_W;
-    if (w.getMonth() !== lastM2) {
-      ctx2.fillStyle = '#1a2540';
-      ctx2.fillRect(x, HEADER_H, 1, totalH - HEADER_H);
-      ctx2.fillStyle = '#4a5568';
-      ctx2.font = '8px Space Mono, monospace';
-      ctx2.fillText(w.toLocaleDateString('en-AU',{month:'short',year:'2-digit'}), x+2, HEADER_H-6);
-      lastM2 = w.getMonth();
+  weeks.forEach((w,i) => {
+    if (w.getMonth()!==lastM2) {
+      monthLabels.push({i, label:w.toLocaleDateString('en-AU',{month:'short',year:'2-digit'})});
+      lastM2=w.getMonth();
     }
   });
 
-  // Today line
-  const todayIdx = weeks.findIndex(w => { const we=new Date(w); we.setDate(we.getDate()+7); return today>=w&&today<we; });
-  if (todayIdx >= 0) {
-    const tx = LABEL_W + todayIdx * CELL_W;
-    ctx2.fillStyle = 'rgba(59,130,246,0.7)';
-    ctx2.fillRect(tx, 0, 1, totalH);
-    ctx2.fillStyle = '#3b82f6';
-    ctx2.font = '7px Space Mono, monospace';
-    ctx2.fillText('NOW', tx+2, 9);
+  const todayIdx = weeks.findIndex(w=>{ const we=new Date(w); we.setDate(we.getDate()+7); return today>=w&&today<we; });
+
+  // Build SVG (54 coal DUIDs × 104 weeks = ~5600 cells - fine)
+  let svg = `<svg width="${totalW}" height="${totalH}" xmlns="http://www.w3.org/2000/svg" style="display:block;font-family:'Space Mono',monospace">`;
+  svg += `<rect width="${totalW}" height="${totalH}" fill="#080c14"/>`;
+
+  monthLabels.forEach(({i,label}) => {
+    const x = LABEL_W + i*CELL_W;
+    svg += `<line x1="${x}" y1="${headerH}" x2="${x}" y2="${totalH}" stroke="#1a2540" stroke-width="1"/>`;
+    svg += `<text x="${x+2}" y="${headerH-5}" fill="#4a5568" font-size="8">${label}</text>`;
+  });
+
+  if (todayIdx>=0) {
+    const tx = LABEL_W+todayIdx*CELL_W;
+    svg += `<line x1="${tx}" y1="0" x2="${tx}" y2="${totalH}" stroke="#3b82f6" stroke-width="1" opacity="0.7"/>`;
+    svg += `<text x="${tx+2}" y="10" fill="#3b82f6" font-size="7">NOW</text>`;
   }
+  svg += `<line x1="0" y1="${headerH}" x2="${totalW}" y2="${headerH}" stroke="#1a2540" stroke-width="1"/>`;
 
-  // Header separator
-  ctx2.fillStyle = '#1a2540';
-  ctx2.fillRect(0, HEADER_H, totalW, 1);
+  let lastFuel2=null, lastStation2=null;
+  parsedDuids.forEach(([duid,u,days],rowIdx) => {
+    const y = headerH+rowIdx*ROW_H;
+    const regColor = REGION_COLORS[u.region]||'#64748b';
+    const fuelColor = COAL_COLORS[u.fuel]||'#374151';
 
-  // Draw rows
-  let lastFuel2 = null;
-  parsedDuids.forEach(([duid, u, days], rowIdx) => {
-    const y = HEADER_H + rowIdx * ROW_H;
-    const regColor  = REGION_COLORS[u.region] || '#64748b';
-    const fuelColor = FUEL_COLORS_CAL[u.fuel] || '#374151';
-    const fullColor = FUEL_CELL_FULL[u.fuel] || '#1f2937';
-
-    // Fuel separator
-    if (u.fuel !== lastFuel2) {
-      ctx2.fillStyle = fuelColor;
-      ctx2.globalAlpha = 0.5;
-      ctx2.fillRect(0, y, totalW, 2);
-      ctx2.globalAlpha = 1;
-      lastFuel2 = u.fuel;
+    if (u.fuel!==lastFuel2) {
+      svg += `<rect x="0" y="${y}" width="${totalW}" height="2" fill="${fuelColor}" opacity="0.5"/>`;
+      lastFuel2=u.fuel; lastStation2=null;
+    } else if (u.station!==lastStation2) {
+      svg += `<line x1="0" y1="${y}" x2="${totalW}" y2="${y}" stroke="${fuelColor}" stroke-width="0.5" opacity="0.3"/>`;
     }
 
-    // Label background
-    ctx2.fillStyle = '#0d1420';
-    ctx2.fillRect(0, y, LABEL_W, ROW_H);
+    svg += `<rect x="0" y="${y}" width="${LABEL_W}" height="${ROW_H}" fill="#0d1420"/>`;
+    svg += `<circle cx="8" cy="${y+ROW_H/2}" r="2.5" fill="${regColor}"/>`;
+    svg += `<text x="15" y="${y+ROW_H/2+3}" fill="#94a3b8" font-size="8.5">${duid}</text>`;
+    svg += `<text x="${LABEL_W-3}" y="${y+ROW_H/2+3}" fill="#374151" font-size="7" text-anchor="end">${u.capacity}MW</text>`;
+    svg += `<line x1="${LABEL_W}" y1="${y}" x2="${LABEL_W}" y2="${y+ROW_H}" stroke="#1a2540" stroke-width="1"/>`;
 
-    // Region dot
-    ctx2.fillStyle = regColor;
-    ctx2.beginPath();
-    ctx2.arc(8, y + ROW_H/2, 2.5, 0, Math.PI*2);
-    ctx2.fill();
-
-    // DUID text
-    ctx2.fillStyle = '#94a3b8';
-    ctx2.font = '8.5px Space Mono, monospace';
-    ctx2.fillText(duid, 15, y + ROW_H/2 + 3);
-
-    // Capacity text
-    ctx2.fillStyle = '#374151';
-    ctx2.font = '7px Space Mono, monospace';
-    ctx2.textAlign = 'right';
-    ctx2.fillText(u.capacity+'MW', LABEL_W-3, y + ROW_H/2 + 3);
-    ctx2.textAlign = 'left';
-
-    // Label divider
-    ctx2.fillStyle = '#1a2540';
-    ctx2.fillRect(LABEL_W, y, 1, ROW_H);
-
-    // Row separator
-    ctx2.fillStyle = '#0d1117';
-    ctx2.fillRect(LABEL_W, y+ROW_H-1, weeks.length*CELL_W, 1);
-
-    // Week cells — batch by colour for performance
-    const colorGroups = {};
-    weeks.forEach((w, wi) => {
-      const mid = new Date(w); mid.setDate(mid.getDate()+3);
-      const pt  = getAvail(days, mid);
-      let fill  = '#0d1420';
-      if (pt && u.capacity > 0) {
-        const pct = pt.avail / u.capacity;
-        if (pct >= 0.98)      fill = fullColor;
-        else if (pct <= 0.02) fill = '#7f1d1d';
-        else                  fill = `hsl(${Math.round(pct*35+5)},60%,22%)`;
+    weeks.forEach((w,wi) => {
+      const mid=new Date(w); mid.setDate(mid.getDate()+3);
+      const pt=getAvail(days,mid);
+      const cx=LABEL_W+wi*CELL_W;
+      let fill='#0d1420';
+      if (pt&&u.capacity>0) {
+        const pct=pt.avail/u.capacity;
+        if (pct>=0.98) fill='#14532d';
+        else if (pct<=0.02) fill='#7f1d1d';
+        else fill=`hsl(${Math.round(pct*35+5)},70%,25%)`;
       }
-      if (!colorGroups[fill]) colorGroups[fill] = [];
-      colorGroups[fill].push(wi);
+      svg += `<rect x="${cx}" y="${y+1}" width="${CELL_W-1}" height="${ROW_H-2}" fill="${fill}" rx="1"/>`;
     });
 
-    for (const [fill, wis] of Object.entries(colorGroups)) {
-      ctx2.fillStyle = fill;
-      wis.forEach(wi => {
-        ctx2.fillRect(LABEL_W + wi*CELL_W, y+1, CELL_W-1, ROW_H-2);
-      });
-    }
+    svg += `<line x1="${LABEL_W}" y1="${y+ROW_H}" x2="${totalW}" y2="${y+ROW_H}" stroke="#111827" stroke-width="0.5"/>`;
+    lastStation2=u.station;
   });
+  svg += `</svg>`;
 
-  // Tooltip via mousemove on canvas
-  canvas.addEventListener('mousemove', e => {
-    const rect = canvas.getBoundingClientRect();
-    const mx   = e.clientX - rect.left;
-    const my   = e.clientY - rect.top;
-    const tip  = document.getElementById('coal-tip');
-    const rowIdx = Math.floor((my - HEADER_H) / ROW_H);
-    const colIdx = Math.floor((mx - LABEL_W) / CELL_W);
-    if (rowIdx < 0 || rowIdx >= parsedDuids.length || colIdx < 0 || colIdx >= weeks.length) {
-      tip.style.display = 'none'; return;
-    }
-    const [duid, u, days] = parsedDuids[rowIdx];
-    const w   = weeks[colIdx];
-    const mid = new Date(w); mid.setDate(mid.getDate()+3);
-    const pt  = getAvail(days, mid);
-    const wLabel = w.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'2-digit'});
-    let content = `<b>${duid}</b> — ${u.station}<br><span style="color:#64748b">${u.fuel} · ${(u.region||'').replace('1','')}</span><br>Week of ${wLabel}<br>`;
+  container.innerHTML = `<div id="coal-cal-svg-wrap" style="position:relative">${svg}</div>
+    <div id="coal-tip" style="display:none;position:fixed;z-index:100;background:#0f172a;border:1px solid #1e293b;
+      border-radius:6px;padding:6px 10px;font-family:var(--font-mono);font-size:9px;color:#e2e8f0;
+      box-shadow:0 4px 20px rgba(0,0,0,0.5);pointer-events:none;line-height:1.6"></div>`;
+
+  container.addEventListener('mousemove', e => {
+    const svgEl=container.querySelector('svg');
+    const tip=document.getElementById('coal-tip');
+    if (!svgEl) return;
+    const rect=svgEl.getBoundingClientRect();
+    const rowIdx=Math.floor((e.clientY-rect.top-headerH)/ROW_H);
+    const colIdx=Math.floor((e.clientX-rect.left-LABEL_W)/CELL_W);
+    if (rowIdx<0||rowIdx>=parsedDuids.length||colIdx<0||colIdx>=weeks.length) { tip.style.display='none'; return; }
+    const [duid,u,days]=parsedDuids[rowIdx];
+    const w=weeks[colIdx];
+    const mid=new Date(w); mid.setDate(mid.getDate()+3);
+    const pt=getAvail(days,mid);
+    const wLabel=w.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'2-digit'});
+    let content=`<b>${duid}</b> — ${u.station}<br><span style="color:#64748b">${u.fuel} · ${(u.region||'').replace('1','')}</span><br>Week of ${wLabel}<br>`;
     if (pt) {
-      const pct = u.capacity>0 ? Math.round(pt.avail/u.capacity*100) : 0;
-      content += `${pt.avail.toLocaleString()} / ${u.capacity.toLocaleString()} MW (${pct}%)<br><span style="color:#64748b">${pt.state}</span>`;
-    } else { content += 'No MTPASA data'; }
-    tip.innerHTML = content;
-    tip.style.display = 'block';
-    tip.style.left = (e.clientX+12)+'px';
-    tip.style.top  = (e.clientY-10)+'px';
+      const pct=u.capacity>0?Math.round(pt.avail/u.capacity*100):0;
+      content+=`${pt.avail.toLocaleString()} / ${u.capacity.toLocaleString()} MW (${pct}%)<br><span style="color:#64748b">${pt.state}</span>`;
+    } else { content+='No MTPASA data'; }
+    tip.innerHTML=content;
+    tip.style.display='block';
+    tip.style.left=(e.clientX+12)+'px';
+    tip.style.top=(e.clientY-10)+'px';
   });
-  canvas.addEventListener('mouseleave', () => {
-    const tip = document.getElementById('coal-tip');
-    if (tip) tip.style.display = 'none';
-  });
+  container.addEventListener('mouseleave',()=>{ const t=document.getElementById('coal-tip'); if(t) t.style.display='none'; });
 }

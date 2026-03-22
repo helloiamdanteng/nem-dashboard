@@ -236,6 +236,9 @@ tr:last-child td { border-bottom:none; }
   <button class="nav-btn" onclick="showPanel('outages')" id="nav-outages">
     <span class="icon">⚠️</span><span class="label">Outages</span>
   </button>
+  <button class="nav-btn" onclick="showPanel('coalcal')" id="nav-coalcal">
+    <span class="icon">📊</span><span class="label">Coal Cal</span>
+  </button>
 </nav>
 
 <script>
@@ -4219,6 +4222,7 @@ function renderPanel(panel, data) {
     else if (panel === 'dayahead')   html = renderDayAhead(data);
     else if (panel === 'about') html = renderAbout(data);
     else if (panel === 'outages') html = renderOutages(data);
+    else if (panel === 'coalcal') html = renderCoalCalendar(data);
   } catch(e) {
     console.error(`Render error [${panel}]:`, e);
     html = `<div class="state-msg"><div class="icon">⚠️</div><div>Error in ${panel}: ${e.message}</div></div>`;
@@ -4645,6 +4649,263 @@ setInterval(fetchData, 300000);
 // Start slow data fetch 3s after fast data — doesn't block initial render
 setTimeout(fetchGenData,  2000);  // gen: fuel mix + stations (15 min refresh)
 setTimeout(fetchSlowData, 3000); // slow: PASA week-ahead (30 min refresh)
+
+// ── Coal Outage Calendar ──────────────────────────────────────────────────────
+let _coalCalData = null;
+let _coalCalLoading = false;
+let _coalCalRegion = 'ALL';
+
+function renderCoalCalendar(data) {
+  let html = '<div class="section-title">Coal Outage Calendar — MT PASA 2yr Horizon</div>';
+
+  // Region filter pills
+  const regions = ['ALL','QLD','NSW','VIC','SA','TAS'];
+  html += '<div class="region-pills" style="margin-bottom:12px">';
+  for (const r of regions) {
+    const col = r === 'ALL' ? '#94a3b8' : (REGION_COLORS[r+'1'] || '#94a3b8');
+    const active = _coalCalRegion === r ? 'active' : '';
+    html += `<button class="region-pill ${active}" style="color:${col};border-color:${col}"
+      onclick="setCoalCalRegion('${r}')">${r}</button>`;
+  }
+  html += '</div>';
+
+  if (_coalCalLoading) {
+    html += '<div class="state-msg"><div class="icon">⏳</div><div>Loading MT PASA calendar data…</div></div>';
+    return html;
+  }
+  if (!_coalCalData) {
+    // Trigger load
+    loadCoalCalData();
+    html += '<div class="state-msg"><div class="icon">⏳</div><div>Fetching MT PASA data…</div></div>';
+    return html;
+  }
+
+  html += '<div id="coal-cal-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 180px)"></div>';
+  // Draw after DOM update
+  setTimeout(() => drawCoalCalendar(), 30);
+  return html;
+}
+
+async function loadCoalCalData() {
+  if (_coalCalLoading) return;
+  _coalCalLoading = true;
+  try {
+    const r = await fetch('/api/mtpasa-calendar');
+    const d = await r.json();
+    if (!d.error) _coalCalData = d;
+  } catch(e) { console.warn('Coal cal load failed:', e); }
+  _coalCalLoading = false;
+  if (currentPanel === 'coalcal' && latestData) renderPanel('coalcal', latestData);
+}
+
+function setCoalCalRegion(r) {
+  _coalCalRegion = r;
+  if (latestData) renderPanel('coalcal', latestData);
+}
+
+function drawCoalCalendar() {
+  const container = document.getElementById('coal-cal-container');
+  if (!container || !_coalCalData) return;
+
+  const allDuids = _coalCalData.duids || {};
+  const COAL_COLORS = {'Brown Coal':'#92400e','Black Coal':'#374151'};
+
+  // Filter by region
+  const filtered = Object.entries(allDuids)
+    .filter(([,u]) => _coalCalRegion === 'ALL' || u.region === _coalCalRegion + '1')
+    .sort(([,a],[,b]) => {
+      const fo = {'Brown Coal':0,'Black Coal':1};
+      const fd = (fo[a.fuel]??2) - (fo[b.fuel]??2);
+      if (fd) return fd;
+      return a.station !== b.station ? a.station.localeCompare(b.station) : 0;
+    });
+
+  if (!filtered.length) {
+    container.innerHTML = '<div style="padding:20px;font-family:var(--font-mono);font-size:10px;color:#475569">No coal DUIDs for this region</div>';
+    return;
+  }
+
+  // Date spine: today → +2 years, one column per week (7 days)
+  const today = new Date(); today.setHours(0,0,0,0);
+  const end   = new Date(today); end.setFullYear(end.getFullYear()+2);
+  const weeks = [];
+  const ws = new Date(today); ws.setDate(ws.getDate() - ws.getDay()); // back to Sunday
+  while (ws <= end) { weeks.push(new Date(ws)); ws.setDate(ws.getDate()+7); }
+
+  const CELL_W = 7; // px per week
+  const ROW_H  = 16; // px per DUID row
+  const LABEL_W = 130;
+  const totalW  = LABEL_W + weeks.length * CELL_W;
+
+  // Parse MTPASA day string
+  function parseDay(s) {
+    if (!s) return null;
+    const [y,m,d] = s.split('/').map(Number);
+    return new Date(y, m-1, d);
+  }
+
+  // Get availability at a date via interpolation from change-points
+  function getAvail(days, date) {
+    let cur = null;
+    for (const pt of days) {
+      if (pt.dateObj <= date) cur = pt;
+      else break;
+    }
+    return cur;
+  }
+
+  // Pre-parse all day arrays
+  const parsedDuids = filtered.map(([duid, u]) => {
+    const days = (u.days||[]).map(d => ({...d, dateObj: parseDay(d.day)}))
+                              .filter(d => d.dateObj)
+                              .sort((a,b) => a.dateObj - b.dateObj);
+    return [duid, u, days];
+  });
+
+  // Month label positions
+  const monthLabels = [];
+  let lastM = -1;
+  weeks.forEach((w,i) => {
+    if (w.getMonth() !== lastM) {
+      monthLabels.push({i, label: w.toLocaleDateString('en-AU',{month:'short',year:'2-digit'})});
+      lastM = w.getMonth();
+    }
+  });
+
+  // Today col
+  const todayColIdx = weeks.findIndex(w => {
+    const we = new Date(w); we.setDate(we.getDate()+7);
+    return today >= w && today < we;
+  });
+
+  // Build SVG
+  const headerH = 20;
+  const totalH  = headerH + filtered.length * ROW_H + 20;
+
+  let svg = `<svg width="${totalW}" height="${totalH}" xmlns="http://www.w3.org/2000/svg" style="display:block;font-family:'Space Mono',monospace">`;
+
+  // Background
+  svg += `<rect width="${totalW}" height="${totalH}" fill="#080c14"/>`;
+
+  // Month labels and grid lines
+  monthLabels.forEach(({i, label}) => {
+    const x = LABEL_W + i * CELL_W;
+    svg += `<line x1="${x}" y1="${headerH}" x2="${x}" y2="${totalH}" stroke="#1a2540" stroke-width="1"/>`;
+    svg += `<text x="${x+2}" y="${headerH-5}" fill="#4a5568" font-size="8">${label}</text>`;
+  });
+
+  // Today line
+  if (todayColIdx >= 0) {
+    const tx = LABEL_W + todayColIdx * CELL_W;
+    svg += `<line x1="${tx}" y1="0" x2="${tx}" y2="${totalH}" stroke="#3b82f6" stroke-width="1" opacity="0.6"/>`;
+    svg += `<text x="${tx+2}" y="10" fill="#3b82f6" font-size="7">NOW</text>`;
+  }
+
+  // Header separator
+  svg += `<line x1="0" y1="${headerH}" x2="${totalW}" y2="${headerH}" stroke="#1a2540" stroke-width="1"/>`;
+
+  // Track station group changes for separators
+  let lastStation = null;
+
+  parsedDuids.forEach(([duid, u, days], rowIdx) => {
+    const y = headerH + rowIdx * ROW_H;
+    const regColor = REGION_COLORS[u.region] || '#64748b';
+    const fuelColor = COAL_COLORS[u.fuel] || '#374151';
+
+    // Station separator
+    if (u.station !== lastStation) {
+      svg += `<rect x="0" y="${y}" width="${totalW}" height="1" fill="${fuelColor}" opacity="0.4"/>`;
+      lastStation = u.station;
+    }
+
+    // Label background
+    svg += `<rect x="0" y="${y}" width="${LABEL_W}" height="${ROW_H}" fill="#0d1420"/>`;
+
+    // Region dot
+    svg += `<circle cx="8" cy="${y + ROW_H/2}" r="3" fill="${regColor}"/>`;
+
+    // DUID text
+    svg += `<text x="16" y="${y + ROW_H/2 + 3}" fill="#94a3b8" font-size="9">${duid}</text>`;
+
+    // Capacity
+    svg += `<text x="${LABEL_W-4}" y="${y + ROW_H/2 + 3}" fill="#374151" font-size="7.5" text-anchor="end">${u.capacity}MW</text>`;
+
+    // Label divider
+    svg += `<line x1="${LABEL_W}" y1="${y}" x2="${LABEL_W}" y2="${y+ROW_H}" stroke="#1a2540" stroke-width="1"/>`;
+
+    // Week cells
+    weeks.forEach((w, wi) => {
+      const mid = new Date(w); mid.setDate(mid.getDate()+3);
+      const pt  = getAvail(days, mid);
+      const cx  = LABEL_W + wi * CELL_W;
+
+      let fill = '#111827'; // no data
+      if (pt && u.capacity > 0) {
+        const pct = pt.avail / u.capacity;
+        if (pct >= 0.98)      fill = '#14532d'; // full - dark green
+        else if (pct <= 0.02) fill = '#7f1d1d'; // offline - dark red
+        else                  fill = `hsl(${Math.round(pct*35+5)},70%,25%)`; // derated
+      }
+      svg += `<rect x="${cx}" y="${y+1}" width="${CELL_W-1}" height="${ROW_H-2}" fill="${fill}" rx="1"/>`;
+    });
+
+    // Row separator
+    svg += `<line x1="${LABEL_W}" y1="${y+ROW_H}" x2="${totalW}" y2="${y+ROW_H}" stroke="#111827" stroke-width="1"/>`;
+  });
+
+  svg += `</svg>`;
+
+  // Wrap with tooltip handling
+  container.innerHTML = `<div id="coal-cal-svg-wrap" style="position:relative">${svg}</div>
+    <div id="coal-tip" style="display:none;position:fixed;z-index:100;background:#0f172a;border:1px solid #1e293b;
+      border-radius:6px;padding:6px 10px;font-family:var(--font-mono);font-size:9px;color:#e2e8f0;
+      box-shadow:0 4px 20px rgba(0,0,0,0.5);pointer-events:none;line-height:1.6"></div>`;
+
+  // Tooltip logic via SVG rect data
+  // Re-build lookup for tooltip
+  const duidLookup = {};
+  parsedDuids.forEach(([duid, u, days]) => { duidLookup[duid] = {u, days}; });
+
+  container.addEventListener('mousemove', e => {
+    const svgEl = container.querySelector('svg');
+    const tip   = document.getElementById('coal-tip');
+    if (!svgEl) return;
+    const rect  = svgEl.getBoundingClientRect();
+    const mx    = e.clientX - rect.left;
+    const my    = e.clientY - rect.top;
+
+    // Determine which row and which week
+    const rowIdx = Math.floor((my - headerH) / ROW_H);
+    const colIdx = Math.floor((mx - LABEL_W) / CELL_W);
+
+    if (rowIdx < 0 || rowIdx >= parsedDuids.length || colIdx < 0 || colIdx >= weeks.length) {
+      tip.style.display = 'none'; return;
+    }
+
+    const [duid, u, days] = parsedDuids[rowIdx];
+    const w   = weeks[colIdx];
+    const mid = new Date(w); mid.setDate(mid.getDate()+3);
+    const pt  = getAvail(days, mid);
+    const wLabel = w.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'2-digit'});
+
+    let content = `<b>${duid}</b> — ${u.station}<br>Week of ${wLabel}<br>`;
+    if (pt) {
+      const pct = u.capacity > 0 ? Math.round(pt.avail/u.capacity*100) : 0;
+      content += `${pt.avail.toLocaleString()} / ${u.capacity.toLocaleString()} MW (${pct}%)<br>${pt.state}`;
+    } else {
+      content += 'No MTPASA data';
+    }
+    tip.innerHTML = content;
+    tip.style.display = 'block';
+    tip.style.left = (e.clientX + 12) + 'px';
+    tip.style.top  = (e.clientY - 10) + 'px';
+  });
+  container.addEventListener('mouseleave', () => {
+    const tip = document.getElementById('coal-tip');
+    if (tip) tip.style.display = 'none';
+  });
+}
+
 </script>
 </body>
 </html>

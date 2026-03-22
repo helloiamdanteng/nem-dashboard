@@ -4675,9 +4675,10 @@ function renderCoalCalendar(data) {
     html += '<div class="state-msg"><div class="icon">⏳</div><div>Loading MT PASA calendar data…</div></div>';
     return html;
   }
-  if (!_coalCalData) {
-    // Trigger load
+  if (!_coalCalData && !_coalCalLoading) {
     loadCoalCalData();
+  }
+  if (!_coalCalData) {
     html += '<div class="state-msg"><div class="icon">⏳</div><div>Fetching MT PASA data…</div></div>';
     return html;
   }

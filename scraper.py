@@ -35,6 +35,12 @@ STPASA_DUID_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/STPASA_DUIDAvailability/"
 ST_PASA_URL       = f"{NEMWEB_BASE}/REPORTS/CURRENT/Short_Term_PASA_Reports/"
 OPENNEM_API       = "https://api.opennem.org.au"
 AEMO_REG_LIST_URL = "https://www.aemo.com.au/-/media/Files/Electricity/NEM/Participant_Information/Current-Participants/NEM-Registration-and-Exemption-List.xls"
+# Additional registration list URL variants to try
+AEMO_REG_LIST_URLS = [
+    "https://aemo.com.au/-/media/files/electricity/nem/participant_information/current-participants/nem-registration-and-exemption-list.xls",
+    "https://www.aemo.com.au/-/media/Files/Electricity/NEM/Participant_Information/Current-Participants/NEM-Registration-and-Exemption-List.xls",
+    "https://aemo.com.au/-/media/Files/Electricity/NEM/Participant_Information/Current-Participants/Generators-and-Scheduled-Loads.xls",
+]
 
 NEM_REGIONS = ["QLD1", "NSW1", "VIC1", "SA1", "TAS1"]
 
@@ -164,6 +170,24 @@ _DUID_FUEL_PATTERNS = [
     # ── Liquid (diesel/oil) ───────────────────────────────────────────────────
     (re.compile(r"(DIESEL|DISTILLATE|LIQUID|FUEL.?OIL)", re.I), "Liquid"),
 ]
+
+def _infer_region_from_duid(duid: str) -> str:
+    """Last-resort region inference from DUID name prefix."""
+    d = duid.upper()
+    # Common patterns: Q=QLD, N=NSW, V=VIC, S=SA, T=TAS prefix in many DUIDs
+    _PREFIX = {
+        "QLD": "QLD1", "NSW": "NSW1", "VIC": "VIC1", "SA1": "SA1",
+        "TAS": "TAS1", "SNO": "NSW1",  # Snowy
+    }
+    for prefix, region in _PREFIX.items():
+        if d.startswith(prefix):
+            return region
+    # Single-letter prefix used in some DUIDs
+    _SINGLE = {"Q": "QLD1", "N": "NSW1", "V": "VIC1", "S": "SA1", "T": "TAS1"}
+    if d[0] in _SINGLE:
+        return _SINGLE[d[0]]
+    return ""
+
 
 def _infer_fuel_from_duid(duid: str) -> str:
     """Last-resort fuel type inference from DUID name patterns."""
@@ -1777,8 +1801,15 @@ def _try_load_aemo_xls() -> dict:
         "Referer": "https://aemo.com.au/",
     }
     try:
-        r = SESSION.get(AEMO_REG_LIST_URL, timeout=20,
-                        headers=headers_to_try, allow_redirects=True)
+        r = None
+        for _url in AEMO_REG_LIST_URLS:
+            try:
+                r = SESSION.get(_url, timeout=20, headers=headers_to_try, allow_redirects=True)
+                if r and r.status_code == 200 and len(r.content) > 10000:
+                    logger.info(f"Registration XLS loaded from {_url}")
+                    break
+            except Exception:
+                continue
         if not r or r.status_code != 200 or len(r.content) < 10000:
             logger.warning(f"AEMO XLS fetch failed: status={getattr(r,'status_code','?')} size={len(getattr(r,'content',b''))}")
             return {}
@@ -2157,6 +2188,8 @@ def scrape_scada_history() -> None:
                     _duid_history[duid] = {}
                 _duid_history[duid][label] = round(mw, 1)
             if region not in NEM_REGIONS:
+                region = _infer_region_from_duid(duid)
+            if region not in NEM_REGIONS:
                 continue
             mw_val_signed = mw if mw is not None else 0
             mw_pos = max(mw_val_signed, 0)
@@ -2208,6 +2241,20 @@ def scrape_gen() -> dict:
     reg = {**NEM_UNITS, **live_reg} if live_reg else NEM_UNITS
     logger.info(f"scrape_gen: using {len(live_reg)} live reg entries + {len(NEM_UNITS)} static")
 
+    # If we got live reg data, persist any new DUIDs back into nem_units.json
+    # so the static file grows over time and covers more DUIDs on future restarts
+    if live_reg:
+        try:
+            new_entries = {k: v for k, v in live_reg.items() if k not in NEM_UNITS and v.get("fuel") and v.get("fuel") != "Other"}
+            if new_entries:
+                merged = {**NEM_UNITS, **new_entries}
+                _json_path = _Path(__file__).parent / "nem_units.json"
+                _json_path.write_text(_json.dumps(merged, indent=2, sort_keys=True))
+                NEM_UNITS.update(new_entries)
+                logger.info(f"scrape_gen: added {len(new_entries)} new DUIDs to nem_units.json (total now {len(merged)})")
+        except Exception as _e:
+            logger.debug(f"scrape_gen: nem_units.json update failed: {_e}")
+
     # Build DUID->region from CONNECTIONPOINTID in DISPATCH_UNIT_SOLUTION
     _CPID_REGION = {"N": "NSW1", "Q": "QLD1", "V": "VIC1", "S": "SA1", "T": "TAS1"}
     cpid_map: dict = {}
@@ -2233,8 +2280,11 @@ def scrape_gen() -> dict:
         station  = info.get("station", duid)
         capacity = info.get("capacity")
 
+        # Last resort: infer region from DUID prefix if still unknown
         if region not in NEM_REGIONS:
-            continue
+            region = _infer_region_from_duid(duid)
+        if region not in NEM_REGIONS:
+            continue  # truly unknown region — skip
 
         mw_val = mw if mw is not None else 0
         # fuel_mix is for the generation chart - always positive (generation only)

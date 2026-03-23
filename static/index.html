@@ -4903,9 +4903,9 @@ function drawCoalCalendar() {
         let fill='#0d1420';
         if (pt&&u.capacity>0) {
           const pct=pt.avail/u.capacity;
-          if (pct>=0.98)      fill='#0d1117';  // full — near black
-          else if (pct<=0.02) fill='#7f1d1d';  // full outage — red
-          else                fill='#78350f';   // derated — brown
+          if (pct>=0.98)      fill=fullColor;
+          else if (pct<=0.02) fill='#7f1d1d';
+          else                fill=`hsl(${Math.round(pct*35+5)},60%,22%)`;
         }
         if (!groups[fill]) groups[fill]=[];
         groups[fill].push(wi);

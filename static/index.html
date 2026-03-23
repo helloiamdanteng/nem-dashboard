@@ -1138,7 +1138,7 @@ function drawGenChart(data) {
         for (const r of activeRegions) total += histLookup[r]?.[l]?.[fuel] || 0;
         return Math.round(total);
       }),
-      backgroundColor: color + '88', borderColor: color,
+      backgroundColor: color + 'cc', borderColor: color,
       borderWidth: 0.5, fill: true, pointRadius: 0,
       tension: 0.2, stack: 'actual', spanGaps: false, yAxisID: 'y', order: 1,
     };

@@ -4265,7 +4265,7 @@ function renderOutages(data) {
     return { label, days };
   }
 
-  let html = '<div class="section-title">Capacity Reductions — MT PASA</div>';
+  let html = '<div class="section-title">Capacity Reductions — MTPASA + STPASA</div>';
 
   if (!slowData) {
     html += '<div class="state-msg"><div class="icon">⏳</div><div>Loading outage data…</div></div>';
@@ -4409,6 +4409,7 @@ function renderOutages(data) {
             <span style="font-family:var(--font-mono);font-size:8px;color:#475569;margin-left:6px">${u.duid}</span>
             <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${rc};margin-left:5px;vertical-align:middle"></span>
             <span style="font-family:var(--font-mono);font-size:8px;color:${rc}">${(u.region||'').replace('1','')}</span>
+            ${u.avail_source && u.avail_source !== 'MTPASA' ? `<span style="font-family:var(--font-mono);font-size:7px;color:#475569;margin-left:4px;padding:1px 4px;border:1px solid #1e293b;border-radius:4px">${u.avail_source}</span>` : ''}
           </div>
           <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:${availColor}">
             ${u.avail_today.toLocaleString()} <span style="font-size:8px;color:#475569">/ ${u.capacity.toLocaleString()} MW</span>
@@ -4434,7 +4435,7 @@ function renderOutages(data) {
   const ts = slowData && slowData.timestamp
     ? new Date(slowData.timestamp).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane'})
     : '—';
-  html += `<div style="font-family:var(--font-mono);font-size:9px;color:#334155;margin-top:8px">Source: AEMO MT PASA · ${ts} AEST</div>`;
+  html += `<div style="font-family:var(--font-mono);font-size:9px;color:#334155;margin-top:8px">Source: MTPASA + STPASA + PDPASA blend · ${ts} AEST</div>`;
 
   return html;
 }

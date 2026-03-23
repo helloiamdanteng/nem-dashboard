@@ -576,6 +576,39 @@ async def historical_prices(date: str):
 
 
 
+@app.get("/api/pasa-probe-debug")
+async def pasa_probe_debug():
+    """Probe known PDPASA and STPASA DUID availability paths on NEMWeb."""
+    import asyncio
+    from scraper import _get, _list_hrefs, NEMWEB_BASE
+
+    loop = asyncio.get_running_loop()
+
+    def _fetch():
+        # Try known paths for DUID-level availability data
+        candidates = [
+            f"{NEMWEB_BASE}/REPORTS/CURRENT/PDPASA_DUIDAvailability/",
+            f"{NEMWEB_BASE}/REPORTS/CURRENT/PDPASA_DUID/",
+            f"{NEMWEB_BASE}/REPORTS/CURRENT/Short_Term_PASA_DUID/",
+            f"{NEMWEB_BASE}/REPORTS/CURRENT/STPASA_DUIDAvailability/",
+            f"{NEMWEB_BASE}/REPORTS/CURRENT/PD_PASA/",
+            f"{NEMWEB_BASE}/REPORTS/CURRENT/Predispatch_PASA/",
+            f"{NEMWEB_BASE}/REPORTS/CURRENT/MTPASA_DUIDAvailability/",  # known good - control
+        ]
+        results = {}
+        for url in candidates:
+            r = _get(url, timeout=10)
+            if r:
+                import re
+                zips = re.findall(r'href="([^"]+\.zip)"', r.text, re.IGNORECASE)
+                results[url] = {"status": r.status_code, "zip_count": len(zips), "sample": zips[-1] if zips else None}
+            else:
+                results[url] = {"status": "failed"}
+        return results
+
+    result = await loop.run_in_executor(None, _fetch)
+    return result
+
 @app.get("/api/pasa-dirs-debug")
 async def pasa_dirs_debug():
     """List all PASA-related directories on NEMWeb to find DUID availability."""

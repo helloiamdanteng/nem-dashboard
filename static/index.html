@@ -139,16 +139,14 @@ body { background:var(--bg); color:var(--text); font-family:var(--font-sans); mi
   display:flex;
   overflow-x:auto; overflow-y:hidden;
   -webkit-overflow-scrolling:touch;
-  overscroll-behavior-x:contain;
   scrollbar-width:none;
-  touch-action:pan-x;
-  padding:6px 2px calc(6px + env(safe-area-inset-bottom)); z-index:100;
+  padding:8px 4px calc(8px + env(safe-area-inset-bottom)); z-index:100;
 }
 .bottom-nav::-webkit-scrollbar { display:none; }
-.nav-btn { display:flex; flex-direction:column; align-items:center; gap:2px; background:none; border:none; cursor:pointer; padding:4px 7px; color:var(--text-muted); flex-shrink:0; min-width:0; touch-action:pan-x; }
+.nav-btn { display:flex; flex-direction:column; align-items:center; gap:3px; background:none; border:none; cursor:pointer; padding:4px 10px; color:var(--text-muted); flex-shrink:0; }
 .nav-btn.active { color:var(--accent); }
-.nav-btn .icon { font-size:16px; }
-.nav-btn .label { font-size:9px; font-family:var(--font-mono); white-space:nowrap; }
+.nav-btn .icon { font-size:18px; }
+.nav-btn .label { font-size:10px; font-family:var(--font-mono); }
 
 .table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
 table { width:100%; border-collapse:collapse; font-family:var(--font-mono); font-size:11px; }
@@ -4905,9 +4903,9 @@ function drawCoalCalendar() {
         let fill='#0d1420';
         if (pt&&u.capacity>0) {
           const pct=pt.avail/u.capacity;
-          if (pct>=0.98)      fill='#0d1117';  // full — near black
-          else if (pct<=0.02) fill='#7f1d1d';  // full outage — red
-          else                fill='#78350f';   // derated — brown
+          if (pct>=0.98)      fill='#0d1117';          // full capacity — near black
+          else if (pct<=0.02) fill='#7f1d1d';          // full outage — dark red
+          else                fill='#78350f';           // derated — brown
         }
         if (!groups[fill]) groups[fill]=[];
         groups[fill].push(wi);

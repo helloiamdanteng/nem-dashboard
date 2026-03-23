@@ -4393,8 +4393,9 @@ function renderOutages(data) {
       let retBadge = '';
       if (ret) {
         const urgency = ret.days <= 3 ? '#22c55e' : ret.days <= 7 ? '#86efac' : '#475569';
+        const srcLabel = u.return_source === 'STPASA' ? '<span style="color:#64748b;font-size:8px"> ST</span>' : '';
         retBadge = `<span style="font-family:var(--font-mono);font-size:9px;
-          color:${urgency};margin-left:6px">↩ ${ret.label} (+${ret.days}d)</span>`;
+          color:${urgency};margin-left:6px">↩ ${ret.label} (+${ret.days}d)${srcLabel}</span>`;
       } else {
         retBadge = `<span style="font-family:var(--font-mono);font-size:9px;color:#334155;margin-left:6px">no return date found</span>`;
       }

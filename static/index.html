@@ -593,7 +593,7 @@ function drawPriceSensitivityChart(data) {
                  const l = this.getLabelForValue(val);
                  if (!l) return null;
                  const h = parseInt(l.split(':')[0]);
-                 if (!l.endsWith(':00') || h % 2 !== 0) return null;
+                 if (!l.endsWith(':00') || h % 3 !== 0) return null;
                  return h >= 24 ? String(h-24).padStart(2,'0')+':00' : l;
                }
              },
@@ -735,7 +735,7 @@ function drawPriceChart(data) {
               const l = this.getLabelForValue(val);
               if (!l) return null;
               const h = parseInt(l.split(':')[0]);
-              return (l.endsWith(':00') && h % 2 === 0) ? l : null;
+              return (l.endsWith(':00') && h % 3 === 0) ? l : null;
             }
           },
           grid: { color: '#1e293b',
@@ -1530,7 +1530,7 @@ function drawDemandChart(data) {
               const l = this.getLabelForValue(val);
               if (!l) return null;
               const h = parseInt(l.split(':')[0]);
-              return (l.endsWith(':00') && h % 2 === 0) ? l : null;
+              return (l.endsWith(':00') && h % 3 === 0) ? l : null;
             }
           },
           grid: { color: '#1e293b',
@@ -1715,7 +1715,7 @@ function drawRenewablesChart(data) {
         x: { stacked: true,
           ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
             autoSkip: false, maxTicksLimit: 1000,
-            callback: function(val) { const l=this.getLabelForValue(val); if(!l) return null; const h=parseInt(l.split(':')[0]); return (l.endsWith(':00')&&h%2===0)?l:null; }
+            callback: function(val) { const l=this.getLabelForValue(val); if(!l) return null; const h=parseInt(l.split(':')[0]); return (l.endsWith(':00')&&h%3===0)?l:null; }
           },
           grid: { color:'#1e293b', drawOnChartArea:true, drawTicks:false }
         },
@@ -2373,7 +2373,7 @@ function _drawOriginPortfolioChart(stationMap, fc) {
               const l = this.getLabelForValue(val);
               if (!l) return null;
               const h = parseInt(l.split(':')[0]);
-              return (l.endsWith(':00') && h % 2 === 0) ? l : null;
+              return (l.endsWith(':00') && h % 3 === 0) ? l : null;
             }
           },
           grid:{color:'#1e293b', drawOnChartArea:true, drawTicks:false}

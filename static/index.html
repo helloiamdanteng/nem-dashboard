@@ -241,7 +241,7 @@ tr:last-child td { border-bottom:none; }
     <span class="icon">⚠️</span><span class="label">Outages</span>
   </button>
   <button class="nav-btn" onclick="showPanel('coalcal')" id="nav-coalcal">
-    <span class="icon">📊</span><span class="label">Out Cal</span>
+    <span class="icon">📊</span><span class="label">MTPASA</span>
   </button>
 </nav>
 
@@ -4675,7 +4675,7 @@ const ORIGIN_DUIDS_CAL = new Set([
 ]);
 
 function renderCoalCalendar(data) {
-  let html = '<div class="section-title">Outage Calendar — MT PASA 2yr Horizon</div>';
+  let html = '<div class="section-title">MTPASA Outage Calendar — 2yr Horizon</div>';
 
   // Region filter pills
   const regions = ['ALL','QLD','NSW','VIC','SA','TAS'];
@@ -4903,9 +4903,9 @@ function drawCoalCalendar() {
         let fill='#0d1420';
         if (pt&&u.capacity>0) {
           const pct=pt.avail/u.capacity;
-          if (pct>=0.98)      fill=fullColor;
-          else if (pct<=0.02) fill='#7f1d1d';
-          else                fill=`hsl(${Math.round(pct*35+5)},60%,22%)`;
+          if (pct>=0.98)      fill='#0d1117';  // full capacity — black
+          else if (pct<=0.02) fill='#7f1d1d';  // full outage — red
+          else                fill='#78350f';   // derated — brown
         }
         if (!groups[fill]) groups[fill]=[];
         groups[fill].push(wi);

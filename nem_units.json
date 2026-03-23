@@ -23,17 +23,53 @@
     "region": "VIC1",
     "station": "Ararat Wind"
   },
+  "ARWF1": {
+    "capacity": 240,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Ararat"
+  },
   "AVLSF1": {
     "capacity": 228,
     "fuel": "Solar",
     "region": "NSW1",
     "station": "Avonlie"
   },
+  "BALDHWF1": {
+    "capacity": 107,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Bald Hills"
+  },
+  "BANGOWF1": {
+    "capacity": 244,
+    "fuel": "Wind",
+    "region": "NSW1",
+    "station": "Bango"
+  },
+  "BANGOWF2": {
+    "capacity": 244,
+    "fuel": "Wind",
+    "region": "NSW1",
+    "station": "Bango 2"
+  },
+  "BANN1": {
+    "capacity": 108,
+    "fuel": "Gas",
+    "region": "WA",
+    "station": "Bannister"
+  },
   "BARCABAT1": {
     "capacity": 20,
     "fuel": "Battery",
     "region": "QLD1",
     "station": "Barcaldine Battery"
+  },
+  "BARCSF1": {
+    "capacity": 57,
+    "fuel": "Solar",
+    "region": "QLD1",
+    "station": "Barcaldine"
   },
   "BARKIPS1": {
     "capacity": 25,
@@ -76,6 +112,12 @@
     "fuel": "Hydro",
     "region": "TAS1",
     "station": "Bastyan"
+  },
+  "BBATTERY1": {
+    "capacity": 50,
+    "fuel": "Battery",
+    "region": "NSW1",
+    "station": "Broken Hill BESS"
   },
   "BELL_BAY3": {
     "capacity": 121,
@@ -215,6 +257,42 @@
     "region": "TAS1",
     "station": "Brinbeal Wind"
   },
+  "BRNDBES1": {
+    "capacity": 50,
+    "fuel": "Battery",
+    "region": "QLD1",
+    "station": "Brendale Battery"
+  },
+  "BROKENH1": {
+    "capacity": 53,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Broken Hill"
+  },
+  "BRYB1WF1": {
+    "capacity": 20,
+    "fuel": "Wind",
+    "region": "SA1",
+    "station": "Bryan Bryan"
+  },
+  "BULGANA1": {
+    "capacity": 204,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Bulgana"
+  },
+  "BUSF1": {
+    "capacity": 55,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Bulli"
+  },
+  "BUTLERSG": {
+    "capacity": 12,
+    "fuel": "Gas",
+    "region": "SA1",
+    "station": "Butler"
+  },
   "BW01": {
     "capacity": 660,
     "fuel": "Black Coal",
@@ -317,11 +395,29 @@
     "region": "TAS1",
     "station": "Cethana"
   },
+  "CGBESS01": {
+    "capacity": 50,
+    "fuel": "Battery",
+    "region": "QLD1",
+    "station": "Coopers Gap BESS"
+  },
   "CHALLHWF": {
     "capacity": 52,
     "fuel": "Wind",
     "region": "VIC1",
     "station": "Challicum Hills"
+  },
+  "CHILDSF1": {
+    "capacity": 58,
+    "fuel": "Solar",
+    "region": "QLD1",
+    "station": "Childers"
+  },
+  "CHYTWF1": {
+    "capacity": 58,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Cherry Tree"
   },
   "CLARESF1": {
     "capacity": 100,
@@ -346,6 +442,18 @@
     "fuel": "Wind",
     "region": "QLD1",
     "station": "Clarke Creek"
+  },
+  "CLRKCWF2": {
+    "capacity": 400,
+    "fuel": "Wind",
+    "region": "QLD1",
+    "station": "Clarke Creek 2"
+  },
+  "CLUNY": {
+    "capacity": 18,
+    "fuel": "Hydro",
+    "region": "TAS1",
+    "station": "Cluny"
   },
   "CNUNDAWF": {
     "capacity": 46,
@@ -401,6 +509,12 @@
     "region": "QLD1",
     "station": "Condamine"
   },
+  "CONDONG1": {
+    "capacity": 30,
+    "fuel": "Gas",
+    "region": "NSW1",
+    "station": "Condong"
+  },
   "COOPERS1": {
     "capacity": 453,
     "fuel": "Wind",
@@ -425,6 +539,18 @@
     "region": "NSW1",
     "station": "Eraring"
   },
+  "CROOKWF2": {
+    "capacity": 92,
+    "fuel": "Wind",
+    "region": "NSW1",
+    "station": "Crookwell 2"
+  },
+  "CROOKWF3": {
+    "capacity": 110,
+    "fuel": "Wind",
+    "region": "NSW1",
+    "station": "Crookwell 3"
+  },
   "CROWLWF1": {
     "capacity": 80,
     "fuel": "Wind",
@@ -436,6 +562,24 @@
     "fuel": "Wind",
     "region": "NSW1",
     "station": "Crudine Ridge"
+  },
+  "CRURWF1": {
+    "capacity": 25,
+    "fuel": "Wind",
+    "region": "NSW1",
+    "station": "Crookwell"
+  },
+  "CRWASF1": {
+    "capacity": 300,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Crawney"
+  },
+  "CULLRGWF": {
+    "capacity": 30,
+    "fuel": "Wind",
+    "region": "NSW1",
+    "station": "Cullerin Range"
   },
   "CULLRGWF1": {
     "capacity": 30,
@@ -521,6 +665,12 @@
     "region": "TAS1",
     "station": "Devils Gate"
   },
+  "DIAPURWF1": {
+    "capacity": 180,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Diapur"
+  },
   "DRYCGT1": {
     "capacity": 156,
     "fuel": "Gas",
@@ -562,6 +712,12 @@
     "fuel": "Wind",
     "region": "VIC1",
     "station": "Dundonnell"
+  },
+  "DUNDWF2": {
+    "capacity": 336,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Dundonnell 2"
   },
   "DUNDWF3": {
     "capacity": 336,
@@ -659,6 +815,12 @@
     "region": "NSW1",
     "station": "Eraring"
   },
+  "FINLYSF1": {
+    "capacity": 133,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Finley"
+  },
   "FINNSF1": {
     "capacity": 100,
     "fuel": "Solar",
@@ -701,6 +863,18 @@
     "region": "VIC1",
     "station": "Gannawarra Batt"
   },
+  "GERMCRK": {
+    "capacity": 22,
+    "fuel": "Hydro",
+    "region": "TAS1",
+    "station": "German Creek"
+  },
+  "GIRGSF": {
+    "capacity": 50,
+    "fuel": "Solar",
+    "region": "VIC1",
+    "station": "Girgarre"
+  },
   "GLAD1": {
     "capacity": 280,
     "fuel": "Black Coal",
@@ -737,11 +911,29 @@
     "region": "QLD1",
     "station": "Gladstone"
   },
+  "GLENSF1": {
+    "capacity": 100,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Glen Innes"
+  },
+  "GLRWNSF1": {
+    "capacity": 90,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Glen Willow"
+  },
   "GNNDHSF1": {
     "capacity": 50,
     "fuel": "Solar",
     "region": "VIC1",
     "station": "Gannawarra"
+  },
+  "GOESF1": {
+    "capacity": 50,
+    "fuel": "Solar",
+    "region": "VIC1",
+    "station": "Goorambat"
   },
   "GOONSF1": {
     "capacity": 100,
@@ -797,11 +989,23 @@
     "region": "VIC1",
     "station": "Golden Plains"
   },
+  "GPWFWST1": {
+    "capacity": 400,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Golden Plains West"
+  },
   "GRANVILLE1": {
     "capacity": 112,
     "fuel": "Wind",
     "region": "TAS1",
     "station": "Granville Harbour"
+  },
+  "GRIFSF1": {
+    "capacity": 130,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Griffith"
   },
   "GSTONE1": {
     "capacity": 280,
@@ -857,6 +1061,18 @@
     "region": "SA1",
     "station": "Goyder South"
   },
+  "GULLRWF1": {
+    "capacity": 166,
+    "fuel": "Wind",
+    "region": "NSW1",
+    "station": "Gullen Range"
+  },
+  "GULLRWF2": {
+    "capacity": 166,
+    "fuel": "Wind",
+    "region": "NSW1",
+    "station": "Gullen Range 2"
+  },
   "GUNNING1": {
     "capacity": 46,
     "fuel": "Wind",
@@ -875,17 +1091,47 @@
     "region": "NSW1",
     "station": "Guthega"
   },
+  "HALLWF1": {
+    "capacity": 95,
+    "fuel": "Wind",
+    "region": "SA1",
+    "station": "Hallett"
+  },
+  "HALLWF2": {
+    "capacity": 72,
+    "fuel": "Wind",
+    "region": "SA1",
+    "station": "Hallett 2"
+  },
   "HALWF1": {
     "capacity": 100,
     "fuel": "Wind",
     "region": "SA1",
     "station": "Hallett Wind"
   },
+  "HAMISF1": {
+    "capacity": 50,
+    "fuel": "Solar",
+    "region": "VIC1",
+    "station": "Hamilton"
+  },
   "HAUGHT11": {
     "capacity": 102,
     "fuel": "Solar",
     "region": "QLD1",
     "station": "Haughton Solar"
+  },
+  "HAYMSF1": {
+    "capacity": 145,
+    "fuel": "Solar",
+    "region": "QLD1",
+    "station": "Hayman"
+  },
+  "HD1WF1": {
+    "capacity": 6,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Hepburn"
   },
   "HDWF1": {
     "capacity": 102,
@@ -905,6 +1151,12 @@
     "region": "SA1",
     "station": "Hornsdale Wind"
   },
+  "HILLSTN1": {
+    "capacity": 150,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Hillston"
+  },
   "HPRL1": {
     "capacity": 150,
     "fuel": "Battery",
@@ -919,6 +1171,12 @@
   },
   "HUME2": {
     "capacity": 29,
+    "fuel": "Hydro",
+    "region": "NSW1",
+    "station": "Hume"
+  },
+  "HUMENSW": {
+    "capacity": 58,
     "fuel": "Hydro",
     "region": "NSW1",
     "station": "Hume"
@@ -971,6 +1229,12 @@
     "region": "VIC1",
     "station": "Jeeralang A"
   },
+  "JEMALNG1": {
+    "capacity": 75,
+    "fuel": "Gas",
+    "region": "NSW1",
+    "station": "Jemalong"
+  },
   "JLBGT1": {
     "capacity": 228,
     "fuel": "Gas",
@@ -988,6 +1252,18 @@
     "fuel": "Gas",
     "region": "VIC1",
     "station": "Jeeralang B"
+  },
+  "JUNEESF1": {
+    "capacity": 55,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Junee"
+  },
+  "KABANWF1": {
+    "capacity": 157,
+    "fuel": "Wind",
+    "region": "QLD1",
+    "station": "Kaban"
   },
   "KANGAROO1": {
     "capacity": 160,
@@ -1031,11 +1307,23 @@
     "region": "QLD1",
     "station": "Kareeya"
   },
+  "KEPWF1": {
+    "capacity": 140,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Kepco"
+  },
   "KIAMSF1": {
     "capacity": 30,
     "fuel": "Solar",
     "region": "NSW1",
     "station": "Kiama"
+  },
+  "KIATAWF1": {
+    "capacity": 31,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Kiata"
   },
   "KING1": {
     "capacity": 60,
@@ -1049,6 +1337,12 @@
     "region": "TAS1",
     "station": "King River"
   },
+  "KINGASF1": {
+    "capacity": 100,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Kingsvale"
+  },
   "KPP_1": {
     "capacity": 750,
     "fuel": "Black Coal",
@@ -1060,6 +1354,12 @@
     "fuel": "Black Coal",
     "region": "QLD1",
     "station": "Kogan Creek"
+  },
+  "KSP1": {
+    "capacity": 88,
+    "fuel": "Hydro",
+    "region": "QLD1",
+    "station": "Kareeya"
   },
   "LADBROK1": {
     "capacity": 80,
@@ -1133,6 +1433,12 @@
     "region": "TAS1",
     "station": "Lemonthyme"
   },
+  "LGAPWF1": {
+    "capacity": 140,
+    "fuel": "Wind",
+    "region": "NSW1",
+    "station": "Lake George"
+  },
   "LGAPWF2": {
     "capacity": 140,
     "fuel": "Wind",
@@ -1162,6 +1468,12 @@
     "fuel": "Solar",
     "region": "NSW1",
     "station": "Limondale Solar"
+  },
+  "LIMOSF21": {
+    "capacity": 249,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Limondale"
   },
   "LI_WY_CA": {
     "capacity": 50,
@@ -1193,6 +1505,12 @@
     "region": "SA1",
     "station": "Lake Bonney 4"
   },
+  "LK_ECHO": {
+    "capacity": 27,
+    "fuel": "Hydro",
+    "region": "TAS1",
+    "station": "Lake Echo"
+  },
   "LLEWWF1": {
     "capacity": 80,
     "fuel": "Wind",
@@ -1216,6 +1534,12 @@
     "fuel": "Brown Coal",
     "region": "VIC1",
     "station": "Loy Yang B"
+  },
+  "LRSF1": {
+    "capacity": 75,
+    "fuel": "Solar",
+    "region": "VIC1",
+    "station": "Lake Rowan"
   },
   "LYA1": {
     "capacity": 560,
@@ -1253,6 +1577,12 @@
     "region": "QLD1",
     "station": "Mackay GT"
   },
+  "MACKNTSH": {
+    "capacity": 80,
+    "fuel": "Hydro",
+    "region": "TAS1",
+    "station": "Mackintosh"
+  },
   "MACKNTSH1": {
     "capacity": 80,
     "fuel": "Hydro",
@@ -1270,6 +1600,30 @@
     "fuel": "Solar",
     "region": "SA1",
     "station": "Mancala Solar"
+  },
+  "MANNSF2": {
+    "capacity": 55,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Manildra 2"
+  },
+  "MANSLR1": {
+    "capacity": 50,
+    "fuel": "Gas",
+    "region": "VIC1",
+    "station": "Mansfield"
+  },
+  "MARYRSF1": {
+    "capacity": 100,
+    "fuel": "Solar",
+    "region": "VIC1",
+    "station": "Maryvale"
+  },
+  "MBAHNTH": {
+    "capacity": 45,
+    "fuel": "Hydro",
+    "region": "TAS1",
+    "station": "Mbalah North"
   },
   "MCINTYR1": {
     "capacity": 440,
@@ -1289,6 +1643,12 @@
     "region": "VIC1",
     "station": "McKay Creek"
   },
+  "MEADOWBK": {
+    "capacity": 40,
+    "fuel": "Hydro",
+    "region": "TAS1",
+    "station": "Meadowbank"
+  },
   "MERCER01": {
     "capacity": 200,
     "fuel": "Solar",
@@ -1300,6 +1660,12 @@
     "fuel": "Wind",
     "region": "QLD1",
     "station": "Mount Emerald Wind"
+  },
+  "MIDDLSF1": {
+    "capacity": 58,
+    "fuel": "Solar",
+    "region": "QLD1",
+    "station": "Middlemount"
   },
   "MILLMERRAN1": {
     "capacity": 432,
@@ -1324,6 +1690,24 @@
     "fuel": "Gas",
     "region": "SA1",
     "station": "Mintaro"
+  },
+  "MLWF1": {
+    "capacity": 420,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Macarthur"
+  },
+  "MOKOSF1": {
+    "capacity": 100,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Mokoreta"
+  },
+  "MOLNGSF1": {
+    "capacity": 70,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Molong"
   },
   "MOORABOOL1": {
     "capacity": 227,
@@ -1360,6 +1744,12 @@
     "fuel": "Gas",
     "region": "VIC1",
     "station": "Mortlake"
+  },
+  "MOUSF1": {
+    "capacity": 57,
+    "fuel": "Solar",
+    "region": "QLD1",
+    "station": "Moura"
   },
   "MP1": {
     "capacity": 700,
@@ -1457,6 +1847,12 @@
     "region": "NSW1",
     "station": "Murray"
   },
+  "MUSSELR1": {
+    "capacity": 168,
+    "fuel": "Wind",
+    "region": "TAS1",
+    "station": "Musselroe"
+  },
   "MUSSELROE1": {
     "capacity": 168,
     "fuel": "Wind",
@@ -1480,6 +1876,12 @@
     "fuel": "Wind",
     "region": "VIC1",
     "station": "Murra Warra 2"
+  },
+  "NBHWF1": {
+    "capacity": 180,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Nhill"
   },
   "NEOEN_SA": {
     "capacity": 150,
@@ -1505,6 +1907,18 @@
     "region": "NSW1",
     "station": "Nevertire Solar"
   },
+  "NEWENSF1": {
+    "capacity": 720,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "New England"
+  },
+  "NEWENSF2": {
+    "capacity": 720,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "New England 2"
+  },
   "NEWPORT": {
     "capacity": 500,
     "fuel": "Gas",
@@ -1517,17 +1931,41 @@
     "region": "VIC1",
     "station": "Numurkah Solar"
   },
+  "NUMURSF1": {
+    "capacity": 128,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Numeralla"
+  },
+  "NYNGAN1": {
+    "capacity": 102,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Nyngan"
+  },
   "OAKEY1": {
     "capacity": 282,
     "fuel": "Gas",
     "region": "QLD1",
     "station": "Oakey"
   },
+  "OAKEY1SF": {
+    "capacity": 25,
+    "fuel": "Solar",
+    "region": "QLD1",
+    "station": "Oakey 1"
+  },
   "OAKEY2": {
     "capacity": 282,
     "fuel": "Gas",
     "region": "QLD1",
     "station": "Oakey"
+  },
+  "OAKEY2SF": {
+    "capacity": 100,
+    "fuel": "Solar",
+    "region": "QLD1",
+    "station": "Oakey 2"
   },
   "OAKHNWF1": {
     "capacity": 67,
@@ -1552,6 +1990,18 @@
     "fuel": "Gas",
     "region": "SA1",
     "station": "Osborne"
+  },
+  "PAREPS1": {
+    "capacity": 30,
+    "fuel": "Solar",
+    "region": "TAS1",
+    "station": "Paretana"
+  },
+  "PAREPW1": {
+    "capacity": 30,
+    "fuel": "Hydro",
+    "region": "TAS1",
+    "station": "Paretana"
   },
   "PELICAN1": {
     "capacity": 480,
@@ -1600,6 +2050,12 @@
     "fuel": "Hydro",
     "region": "TAS1",
     "station": "Poatina"
+  },
+  "PORTWF": {
+    "capacity": 22,
+    "fuel": "Wind",
+    "region": "SA1",
+    "station": "Port Augusta"
   },
   "PPCCGT": {
     "capacity": 478,
@@ -1655,6 +2111,12 @@
     "region": "TAS1",
     "station": "Reece"
   },
+  "REPULSE": {
+    "capacity": 22,
+    "fuel": "Hydro",
+    "region": "TAS1",
+    "station": "Repulse"
+  },
   "REPULSE1": {
     "capacity": 33,
     "fuel": "Hydro",
@@ -1703,6 +2165,18 @@
     "region": "VIC1",
     "station": "Rooftop Solar VIC"
   },
+  "ROWALLAN": {
+    "capacity": 40,
+    "fuel": "Hydro",
+    "region": "TAS1",
+    "station": "Rowallan"
+  },
+  "RPCG": {
+    "capacity": 45,
+    "fuel": "Gas",
+    "region": "QLD1",
+    "station": "Roma"
+  },
   "RRSF1": {
     "capacity": 153,
     "fuel": "Solar",
@@ -1720,6 +2194,18 @@
     "fuel": "Wind",
     "region": "VIC1",
     "station": "Ryan Corner"
+  },
+  "RYEPARK1": {
+    "capacity": 396,
+    "fuel": "Wind",
+    "region": "NSW1",
+    "station": "Rye Park"
+  },
+  "SALTCRK1": {
+    "capacity": 55,
+    "fuel": "Wind",
+    "region": "SA1",
+    "station": "Salt Creek"
   },
   "SAPHIRE1": {
     "capacity": 270,
@@ -1751,11 +2237,29 @@
     "region": "NSW1",
     "station": "Shoalhaven"
   },
+  "SHOAL1": {
+    "capacity": 240,
+    "fuel": "Hydro",
+    "region": "NSW1",
+    "station": "Shoalhaven"
+  },
   "SHPUMP": {
     "capacity": 240,
     "fuel": "Hydro",
     "region": "NSW1",
     "station": "Shoalhaven Pump"
+  },
+  "SMCSF1": {
+    "capacity": 58,
+    "fuel": "Solar",
+    "region": "QLD1",
+    "station": "Smithfield"
+  },
+  "SMTHBES1": {
+    "capacity": 50,
+    "fuel": "Battery",
+    "region": "QLD1",
+    "station": "Smithfield BESS"
   },
   "SNAPPER1": {
     "capacity": 319,
@@ -1781,6 +2285,12 @@
     "region": "SA1",
     "station": "Snowtown 2"
   },
+  "SNOWTWN1": {
+    "capacity": 99,
+    "fuel": "Wind",
+    "region": "SA1",
+    "station": "Snowtown"
+  },
   "SNUGGERY1": {
     "capacity": 72,
     "fuel": "Liquid",
@@ -1792,6 +2302,12 @@
     "fuel": "Gas",
     "region": "VIC1",
     "station": "Somerton"
+  },
+  "SRSF1": {
+    "capacity": 255,
+    "fuel": "Solar",
+    "region": "VIC1",
+    "station": "Sunraysia"
   },
   "STAN-1": {
     "capacity": 365,
@@ -1973,11 +2489,29 @@
     "region": "QLD1",
     "station": "Tarong"
   },
+  "TARRALEA": {
+    "capacity": 104,
+    "fuel": "Hydro",
+    "region": "TAS1",
+    "station": "Tarraleah"
+  },
   "TAS1BES1": {
     "capacity": 150,
     "fuel": "Battery",
     "region": "TAS1",
     "station": "TAS Battery"
+  },
+  "TB2SF1": {
+    "capacity": 12,
+    "fuel": "Solar",
+    "region": "TAS1",
+    "station": "Turners Beach"
+  },
+  "TIB1": {
+    "capacity": 50,
+    "fuel": "Battery",
+    "region": "NSW1",
+    "station": "Tibooburra"
   },
   "TNPS1": {
     "capacity": 443,
@@ -2087,6 +2621,12 @@
     "region": "QLD1",
     "station": "Townsville"
   },
+  "TREVALLN": {
+    "capacity": 93,
+    "fuel": "Hydro",
+    "region": "TAS1",
+    "station": "Trevallyn"
+  },
   "TREVALLYN1": {
     "capacity": 23,
     "fuel": "Hydro",
@@ -2194,6 +2734,12 @@
     "fuel": "Hydro",
     "region": "TAS1",
     "station": "Tyndall"
+  },
+  "ULPBESS1": {
+    "capacity": 50,
+    "fuel": "Battery",
+    "region": "NSW1",
+    "station": "Ultimo"
   },
   "UPPTUMUT": {
     "capacity": 616,
@@ -2345,6 +2891,12 @@
     "region": "QLD1",
     "station": "Wivenhoe"
   },
+  "WAGGNSF1": {
+    "capacity": 100,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Wagga North"
+  },
   "WAMBOWF1": {
     "capacity": 243,
     "fuel": "Wind",
@@ -2363,6 +2915,18 @@
     "region": "QLD1",
     "station": "Wandoan"
   },
+  "WARWSF1": {
+    "capacity": 80,
+    "fuel": "Solar",
+    "region": "QLD1",
+    "station": "Warwick"
+  },
+  "WARWSF2": {
+    "capacity": 80,
+    "fuel": "Solar",
+    "region": "QLD1",
+    "station": "Warwick 2"
+  },
   "WATERLWF": {
     "capacity": 111,
     "fuel": "Wind",
@@ -2380,6 +2944,12 @@
     "fuel": "Wind",
     "region": "VIC1",
     "station": "Waubra"
+  },
+  "WDBESS1": {
+    "capacity": 50,
+    "fuel": "Battery",
+    "region": "QLD1",
+    "station": "Wandoan BESS"
   },
   "WDGPH1": {
     "capacity": 320,
@@ -2417,11 +2987,23 @@
     "region": "QLD1",
     "station": "Windy Hill"
   },
+  "WHITSF1": {
+    "capacity": 58,
+    "fuel": "Solar",
+    "region": "QLD1",
+    "station": "Whitsunday"
+  },
   "WILLOGWF1": {
     "capacity": 119,
     "fuel": "Wind",
     "region": "SA1",
     "station": "Willogoleche Wind"
+  },
+  "WINTSF1": {
+    "capacity": 55,
+    "fuel": "Solar",
+    "region": "QLD1",
+    "station": "Winton"
   },
   "WIVENHOE1": {
     "capacity": 275,
@@ -2464,6 +3046,12 @@
     "fuel": "Solar",
     "region": "NSW1",
     "station": "Wollongong"
+  },
+  "WNSF1": {
+    "capacity": 100,
+    "fuel": "Solar",
+    "region": "QLD1",
+    "station": "Wandoan North"
   },
   "WOLARSF1": {
     "capacity": 130,
@@ -2519,6 +3107,12 @@
     "region": "QLD1",
     "station": "Westway"
   },
+  "WTAHB1": {
+    "capacity": 50,
+    "fuel": "Battery",
+    "region": "SA1",
+    "station": "Watarrka"
+  },
   "WYASF1": {
     "capacity": 200,
     "fuel": "Solar",
@@ -2554,6 +3148,12 @@
     "fuel": "Wind",
     "region": "VIC1",
     "station": "Yendon"
+  },
+  "YSWF1": {
+    "capacity": 100,
+    "fuel": "Wind",
+    "region": "NSW1",
+    "station": "Yass"
   },
   "YWPS1": {
     "capacity": 360,

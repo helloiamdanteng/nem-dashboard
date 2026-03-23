@@ -4723,6 +4723,95 @@ async function loadCoalCalData() {
   if (currentPanel === 'coalcal' && latestData) renderPanel('coalcal', latestData);
 }
 
+function showMtpasaModal(duid, u, days) {
+  // Build list of outage/derate periods from change-points
+  const capacity = u.capacity;
+  const isOrigin = ORIGIN_DUIDS_CAL.has(duid);
+
+  // Condense days into periods: consecutive days with same state/avail grouped together
+  const periods = [];
+  let current = null;
+  for (const pt of days) {
+    const pct = capacity > 0 ? pt.avail / capacity : 1;
+    const type = pct >= 0.98 ? 'full' : pct <= 0.02 ? 'offline' : 'derated';
+    if (!current || current.type !== type || current.avail !== pt.avail || current.state !== pt.state) {
+      if (current) periods.push(current);
+      current = {start: pt.day, end: pt.day, avail: pt.avail, state: pt.state, type};
+    } else {
+      current.end = pt.day;
+    }
+  }
+  if (current) periods.push(current);
+
+  // Only show non-full periods (outages + deratings) plus context
+  const outages = periods.filter(p => p.type !== 'full');
+
+  // Format date YYYY/MM/DD → D Mon YY
+  function fmtDay(s) {
+    if (!s) return '—';
+    const [y,m,d] = s.split('/').map(Number);
+    const dt = new Date(y,m-1,d);
+    return dt.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'2-digit'});
+  }
+
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  let rows = '';
+  if (!outages.length) {
+    rows = '<tr><td colspan="5" style="text-align:center;color:#475569;padding:16px">No outages or deratings in MTPASA horizon</td></tr>';
+  } else {
+    for (const p of outages) {
+      const [sy,sm,sd] = p.start.split('/').map(Number);
+      const startDt = new Date(sy,sm-1,sd);
+      const isPast = startDt < today;
+      const typeCol = p.type === 'offline' ? '#ef4444' : '#92400e';
+      const typeLabel = p.type === 'offline' ? 'Offline' : 'Derated';
+      const mwShort = p.type === 'offline' ? '0 MW' : `${p.avail.toLocaleString()} MW`;
+      const pct = capacity > 0 ? Math.round(p.avail/capacity*100) : 0;
+      rows += `<tr style="opacity:${isPast?'0.45':'1'}">
+        <td style="color:${typeCol};font-weight:700">${typeLabel}</td>
+        <td>${fmtDay(p.start)}</td>
+        <td>${fmtDay(p.end)}</td>
+        <td style="color:${typeCol}">${mwShort}${p.type!=='offline'?` (${pct}%)`:''}/${capacity}MW</td>
+        <td style="color:#64748b;font-size:8px">${p.state}</td>
+      </tr>`;
+    }
+  }
+
+  const originBadge = isOrigin ? ' <span style="color:#fb923c;font-size:9px">● Origin</span>' : '';
+  const modal = document.createElement('div');
+  modal.id = 'mtpasa-modal';
+  modal.style.cssText = `position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);padding:16px`;
+  modal.innerHTML = `
+    <div style="background:#0d1420;border:1px solid #1e293b;border-radius:10px;padding:20px;max-width:520px;width:100%;max-height:80vh;overflow-y:auto;font-family:var(--font-mono)">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#e2e8f0">${duid}${originBadge}</div>
+          <div style="font-size:10px;color:#64748b;margin-top:2px">${u.station} · ${u.fuel} · ${(u.region||'').replace('1','')} · ${capacity.toLocaleString()}MW nameplate</div>
+        </div>
+        <button onclick="document.getElementById('mtpasa-modal').remove()"
+          style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;padding:0 0 0 12px;line-height:1">×</button>
+      </div>
+      <div style="font-size:9px;color:#475569;margin-bottom:10px">${outages.length} outage/derate period${outages.length!==1?'s':''} · faded = past</div>
+      <table style="width:100%;border-collapse:collapse;font-size:9px">
+        <thead>
+          <tr style="color:#475569;border-bottom:1px solid #1e293b">
+            <th style="text-align:left;padding:4px 6px">Type</th>
+            <th style="text-align:left;padding:4px 6px">From</th>
+            <th style="text-align:left;padding:4px 6px">To</th>
+            <th style="text-align:left;padding:4px 6px">Availability</th>
+            <th style="text-align:left;padding:4px 6px">PASA State</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+
+  // Close on backdrop click
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  document.body.appendChild(modal);
+}
+
 function setCoalCalRegion(r) {
   _coalCalRegion = r;
   if (latestData) renderPanel('coalcal', latestData);
@@ -4951,6 +5040,19 @@ function drawCoalCalendar() {
     tip.style.left=(e.clientX+12)+'px'; tip.style.top=(e.clientY-10)+'px';
   });
   canvas.addEventListener('mouseleave',()=>{const t=document.getElementById('coal-tip');if(t)t.style.display='none';});
+
+  // Click on a DUID row → show outage summary modal
+  canvas.addEventListener('click', e=>{
+    const rect=canvas.getBoundingClientRect();
+    const my=e.clientY-rect.top;
+    let hitRow=null;
+    for (let i=0;i<rows.length;i++) {
+      const rh=rows[i].type==='header'?HDR_H:ROW_H;
+      if (my>=rowYs[i]&&my<rowYs[i]+rh) { hitRow=rows[i]; break; }
+    }
+    if (!hitRow||hitRow.type==='header') return;
+    showMtpasaModal(hitRow.duid, hitRow.u, hitRow.days);
+  });
 }
 
 

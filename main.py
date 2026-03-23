@@ -576,6 +576,27 @@ async def historical_prices(date: str):
 
 
 
+@app.get("/api/pasa-dirs-debug")
+async def pasa_dirs_debug():
+    """List all PASA-related directories on NEMWeb to find DUID availability."""
+    import asyncio
+    from scraper import _get, NEMWEB_BASE
+    import re
+
+    loop = asyncio.get_running_loop()
+
+    def _fetch():
+        # List the CURRENT directory to find all PASA-related folders
+        r = _get(f"{NEMWEB_BASE}/REPORTS/CURRENT/")
+        if not r:
+            return {"error": "failed to list CURRENT"}
+        folders = re.findall(r'href="([^"]+)"', r.text)
+        pasa = [f for f in folders if 'PASA' in f.upper() or 'AVAIL' in f.upper()]
+        return {"pasa_folders": pasa, "all_count": len(folders)}
+
+    result = await loop.run_in_executor(None, _fetch)
+    return result
+
 @app.get("/api/stpasa-debug")
 async def stpasa_debug():
     """Inspect STPASA file tables and columns."""

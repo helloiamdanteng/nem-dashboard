@@ -1,11 +1,11 @@
 """
-NEMWeb scraper — concurrent fetches, Origin assets, fuel mix via OpenNEM.
+NEMWeb scraper - concurrent fetches, Origin assets, fuel mix via OpenNEM.
 
 AEMO CSV format:
   C rows = comments
   I rows = headers: [I, TABLE, SUBTABLE, VERSION, col1, col2, ...]
   D rows = data:    [D, TABLE, SUBTABLE, VERSION, val1, val2, ...]
-  Trailing comma means last field is always empty — we handle by slicing from index 4.
+  Trailing comma means last field is always empty - we handle by slicing from index 4.
 """
 
 import re
@@ -22,17 +22,16 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-AEST = ZoneInfo("Australia/Brisbane")  # UTC+10 fixed — AEMO never uses daylight saving
+AEST = ZoneInfo("Australia/Brisbane")  # UTC+10 fixed - AEMO never uses daylight saving
 NEMWEB_BASE       = "https://www.nemweb.com.au"
 DISPATCH_IS_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/DispatchIS_Reports/"
 PREDISPATCH_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/PredispatchIS_Reports/"
-PREDISPATCH_SENS_URL = f"{NEMWEB_BASE}/REPORTS/CURRENT/Predispatch_Sensitivities/"
 SCADA_URL         = f"{NEMWEB_BASE}/REPORTS/CURRENT/Dispatch_SCADA/"
 TRADING_CURRENT   = f"{NEMWEB_BASE}/REPORTS/CURRENT/TradingIS_Reports/"
-DISPATCH_IS_ARCHIVE = f"{NEMWEB_BASE}/REPORTS/ARCHIVE/DispatchIS_Reports/"
-MMSDM_ARCHIVE      = f"{NEMWEB_BASE}/Data_Archive/Wholesale_Electricity/MMSDM"
 TRADING_ARCHIVE   = f"{NEMWEB_BASE}/REPORTS/ARCHIVE/TradingIS_Reports/"
 MTPASA_DUID_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/MTPASA_DUIDAvailability/"
+PDPASA_DUID_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/PDPASA_DUIDAvailability/"
+STPASA_DUID_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/STPASA_DUIDAvailability/"
 ST_PASA_URL       = f"{NEMWEB_BASE}/REPORTS/CURRENT/Short_Term_PASA_Reports/"
 OPENNEM_API       = "https://api.opennem.org.au"
 AEMO_REG_LIST_URL = "https://www.aemo.com.au/-/media/Files/Electricity/NEM/Participant_Information/Current-Participants/NEM-Registration-and-Exemption-List.xls"
@@ -40,7 +39,7 @@ AEMO_REG_LIST_URL = "https://www.aemo.com.au/-/media/Files/Electricity/NEM/Parti
 NEM_REGIONS = ["QLD1", "NSW1", "VIC1", "SA1", "TAS1"]
 
 # ---------------------------------------------------------------------------
-# Static unit registry — loaded once from nem_units.json at startup
+# Static unit registry - loaded once from nem_units.json at startup
 # ---------------------------------------------------------------------------
 import json as _json
 from pathlib import Path as _Path
@@ -84,7 +83,7 @@ _FUEL_MAP = {
     "kerosene": "Liquid",
 }
 
-# DUID prefix/pattern → fuel — used when registry has no entry for a DUID
+# DUID prefix/pattern → fuel - used when registry has no entry for a DUID
 _DUID_FUEL_PATTERNS = [
     # ── Black Coal ────────────────────────────────────────────────────────────
     (re.compile(r"^(KSG|KOGAN)", re.I),            "Black Coal"),  # Kogan Creek
@@ -153,48 +152,14 @@ _DUID_FUEL_PATTERNS = [
 
     # ── Wind ──────────────────────────────────────────────────────────────────
     (re.compile(r"(WF\d|_WF\d?$|WIND|SNOWYWIND)", re.I),  "Wind"),
-    # Wind farms by name pattern
-    (re.compile(r"^(ARWF|MUWF|CROOKWF|RENWF|BODWF|BUNGWF|HORWF|YAWF|"
-                r"CAPTL_WF|SAPN.*WF|MACARTHUR|YATPF|CATTLE.?HILL|"
-                r"WATERLOO|HALLETT|BLUFF|CLEMENTS.?GAP|SNOWTOWN|CLAGUNA|"
-                r"MUSSELROE|STUDLAND|WOOLNORTH|BLAYNEY|CULLERIN|CAPITAL|"
-                r"GUNNING|WOODLAWN|BILOELA|COOKARDINIA|CROOKWELL|"
-                r"LKBONNY|MOUNT.?MERCER|WAUBRA|MORTONS.?LANE|"
-                r"STARFISH|BALD.?HILLS|MACARTHUR|MOORABOOL|OAKLANDS|"
-                r"BULGANA|MT.?GELLIBRAND|DUNDONNELL|STOCKYARD|"
-                r"CRAGB|NEOEN|YENDON|HAWKESDALE|BERRYBANK|CROWLANDS|"
-                r"SILVERTON|SAPPHIRE|TILT|COOPERS.?GAP|KENNEDY|"
-                r"DULACCA|KARARA|MOUNT.?EMERALD|HAUGHTON|CLARK.?CREEK|"
-                r"GOLDEN.?PLAINS|GOLDPLA|RYE.?PARK|PALEN.?CREEK|COPPABELLA|"
-                r"STOCKYD|COOPERS.?GAP|COOPERSGAP|COOPERS1)", re.I), "Wind"),
 
     # ── Solar ─────────────────────────────────────────────────────────────────
     (re.compile(r"(SOLAR|_SF\d|SF\d$|_PV|PV\d|BUNGALA|TAILEM|DARLINGTON.?PT"
                 r"|DARLPNT|FINNSF|BOMEN)", re.I), "Solar"),
-    # Solar farms by name pattern
-    (re.compile(r"^(BNGSF|LILYSF|HPRG|SAPN.*SF|MOREE|NYNGAN|BROKEN.?HILL|"
-                r"SUNRAYSIA|BANNERTON|KARADOC|WEMEN|LIMONDALE|WHITEGATE|"
-                r"WOOLOOGA|DAYDREAM|HAMILTON|CLARE.?SOLAR|GANNAWARRA.?SOLAR|"
-                r"NUMURKAH|MITRE.?SOLAR|YATPOOL|COHUNA|IRAAK|MURRA.?WARRA|"
-                r"CLELND|SEBASTOPOL|GENERATION.*SF|CLERMONT|ROSS.?SOLAR|"
-                r"SPRINGRIDGE|MILDURA|WEMEN|SUNRAYSIA|BAROOTA|"
-                r"YATPOOL|KIAMAL|WINTON|BERYL|GOONUMBLA|PARKES|"
-                r"FINLEY|GRIFFITH|COLEAMBALLY|FRASERSF|SAPHOENIX|"
-                r"HOOKWOOD|DAROOBALGIE|MANILDRA|MERRIWA|UUNGULA|"
-                r"GANGARRI|CONDONG|EMERALD|HAYMAN|KIDSTON|"
-                r"LAKELAND|WHITSUNDAY|NORMANTON|MOUNT.?PLEASANT|"
-                r"COLUMBOOLA|BLUEGRASS|MIDDLEMOUNT|WANDOAN.?SOLAR|"
-                r"NARROMINE|DUBBO|ORANGE|ARMIDALE|TAMWORTH|"
-                r"LONGREACH|CLONCURRY|CHARLEVILLE)", re.I), "Solar"),
 
     # ── Battery ───────────────────────────────────────────────────────────────
     (re.compile(r"(BATT|BATTERY|_BAT\d?|BAT_|HPR\d|HORNSDALE.?P|BYP|"
                 r"BESS|_BESS|BARCABAT|GANNAWARRA|LAKELANDS|WANDOAN)", re.I), "Battery"),
-    # Batteries by name
-    (re.compile(r"^(VBESS|TBESS|NBESS|SBESS|CBESS|DBESS|FBESS|GBESS|"
-                r"SNB|ERB|WALGETT|GELONG|TORRENS.*BAT|LDES|"
-                r"NEOEN.*BAT|AGL.*BAT|ORIGIN.*BAT|EDF.*BAT|"
-                r"WARATAH|GRID.*BAT|BIG.*BAT|VIRTUAL.*BAT)", re.I), "Battery"),
 
     # ── Liquid (diesel/oil) ───────────────────────────────────────────────────
     (re.compile(r"(DIESEL|DISTILLATE|LIQUID|FUEL.?OIL)", re.I), "Liquid"),
@@ -220,7 +185,7 @@ def _fetch_aemo_registration() -> dict:
         return {}
 
     try:
-        logger.info("Fetching AEMO registration list…")
+        logger.info("Fetching AEMO registration list...")
         resp = requests.get(_AEMO_REG_URL, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
         resp.raise_for_status()
         wb = openpyxl.load_workbook(io.BytesIO(resp.content), read_only=True, data_only=True)
@@ -275,7 +240,7 @@ def _fetch_aemo_registration() -> dict:
             logger.warning("Could not find DUID column in registration list")
             return {}
 
-        logger.info(f"Registration columns found — duid:{duid_col} station:{station_col} "
+        logger.info(f"Registration columns found - duid:{duid_col} station:{station_col} "
                     f"region:{region_col} fuel:{fuel_col} tech:{tech_col} cap:{capacity_col}")
 
         result = {}
@@ -331,21 +296,8 @@ def _fetch_aemo_registration() -> dict:
 
 
 def _load_nem_units() -> dict:
-    """Load DUID registry: try live AEMO registration list first, fall back to static JSON."""
-    live = _fetch_aemo_registration()
-    if len(live) > 100:
-        # Merge static file on top to fill any gaps / override bad fuel mappings
-        p = _Path(__file__).parent / "nem_units.json"
-        try:
-            static = _json.loads(p.read_text())
-            # Static overrides live for DUIDs we have manually verified
-            merged = {**live, **static}
-            logger.info(f"NEM_UNITS: {len(live)} live + {len(static)} static = {len(merged)} total")
-            return merged
-        except Exception:
-            return live
-    # Fallback to static only
-    logger.warning("Live AEMO registration failed - using static nem_units.json")
+    """Load DUID registry from static JSON only (fast, no network).
+    The live AEMO registration list is fetched later during scrape_gen() runs."""
     p = _Path(__file__).parent / "nem_units.json"
     try:
         return _json.loads(p.read_text())
@@ -357,7 +309,7 @@ def _load_nem_units() -> dict:
 NEM_UNITS: dict = _load_nem_units()
 logger.info(f"NEM_UNITS loaded: {len(NEM_UNITS)} DUIDs")
 
-# Pump-load DUIDs: registered as scheduled LOAD in AEMO — SCADA reports positive MW
+# Pump-load DUIDs: registered as scheduled LOAD in AEMO - SCADA reports positive MW
 # when consuming (pumping). We negate so they display as negative generation.
 PUMP_LOAD_DUIDS: set = {
     "SHPUMP",       # Shoalhaven pump (NSW)
@@ -385,7 +337,7 @@ FUEL_COLORS = {
 ALL_FUELS = list(FUEL_COLORS.keys())
 
 # ---------------------------------------------------------------------------
-# Origin Energy assets — DUID -> display info
+# Origin Energy assets - DUID -> display info
 # These are Origin's registered generating units in the NEM
 # ---------------------------------------------------------------------------
 # ── Origin Energy asset registry ──────────────────────────────────────────────
@@ -417,7 +369,7 @@ ORIGIN_DUIDS: set = {
     "SNOWNTH1", "SNOWSTH1",
 }
 
-# Display name overrides — maps DUID → display station name shown on Origin page.
+# Display name overrides - maps DUID → display station name shown on Origin page.
 # Only needed where AEMO's registered name differs from what Origin calls it.
 ORIGIN_DISPLAY_NAMES: dict = {
     "SNB01":    "Supernode Battery",
@@ -438,6 +390,10 @@ ORIGIN_DISPLAY_NAMES: dict = {
 
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": "NEM-Dashboard/1.0"})
+# Cap connection pool to avoid overwhelming NEMWeb with concurrent requests
+_adapter = requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=8)
+SESSION.mount("https://", _adapter)
+SESSION.mount("http://", _adapter)
 
 def _get(url: str, timeout: int = 15, retries: int = 2) -> Optional[requests.Response]:
     import time as _time
@@ -494,26 +450,6 @@ def _read_zip(url: str) -> str:
         return ""
 
 
-def _read_zip_all(url: str) -> str:
-    """Read ALL CSVs from a ZIP concatenated — for weekly archive bundles."""
-    r = _get(url, timeout=60)
-    if not r:
-        return ""
-    try:
-        parts = []
-        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
-            csvs = sorted(n for n in z.namelist() if n.lower().endswith(".csv"))
-            if not csvs:
-                return ""
-            for name in csvs:
-                with z.open(name) as f:
-                    parts.append(f.read().decode("utf-8", errors="replace"))
-        return "\n".join(parts)
-    except Exception as e:
-        logger.warning(f"ZIP read_all failed {url}: {e}")
-        return ""
-
-
 # ---------------------------------------------------------------------------
 # AEMO CSV parser
 # ---------------------------------------------------------------------------
@@ -559,7 +495,7 @@ def get_all_file_urls(directory_url: str, prefix: str = "") -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Dispatch IS — prices, demand, generation, interconnectors (one file fetch)
+# Dispatch IS - prices, demand, generation, interconnectors (one file fetch)
 # ---------------------------------------------------------------------------
 
 def _fetch_dispatch_is() -> str:
@@ -617,7 +553,7 @@ def scrape_interconnectors(text: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# SCADA — per-DUID actual MW output (for Origin assets)
+# SCADA - per-DUID actual MW output (for Origin assets)
 # ---------------------------------------------------------------------------
 
 def scrape_scada_duids(duids: set) -> dict:
@@ -661,7 +597,7 @@ def scrape_unit_solution(text: str, duids: set) -> dict:
 # Each file is ~1.5KB and covers exactly ONE 30-min interval.
 # Files are named PUBLIC_TRADINGIS_YYYYMMDDHHMM_<id>.zip
 # Contains TRADING_PRICE (actual settled RRP) and TRADING_REGIONSUM (actual demand).
-# SETTLEMENTDATE is end-of-interval — subtract 30min to get interval start.
+# SETTLEMENTDATE is end-of-interval - subtract 30min to get interval start.
 # ---------------------------------------------------------------------------
 
 def scrape_trading_history() -> dict:
@@ -669,7 +605,7 @@ def scrape_trading_history() -> dict:
     Fetch today's TradingIS CURRENT files for price history.
     Each file covers ONE 30-min interval (~1.5KB).
     TRADING_PRICE uses INVALIDFLAG (not INTERVENTION).
-    SETTLEMENTDATE is end-of-interval — subtract 30min.
+    SETTLEMENTDATE is end-of-interval - subtract 30min.
     Returns { "prices": {region: [{interval, rrp}]} }
     """
     now_aest = datetime.now(AEST)
@@ -771,9 +707,8 @@ def scrape_dispatch_history() -> dict:
     These 5-min dispatch prices fill the ~1hr gap that TradingIS (30-min) lags behind.
     Cap at 300 files.
     """
-    now_aest   = datetime.now(AEST)
-    today_str  = now_aest.strftime("%Y%m%d")
-    today_date = now_aest.date()
+    now_aest = datetime.now(AEST)
+    today_str = now_aest.strftime("%Y%m%d")
 
     all_zips = _list_hrefs(DISPATCH_IS_URL)
     today_zips = [u for u in all_zips if today_str in u and "PUBLIC_DISPATCHIS" in u.upper()]
@@ -955,15 +890,10 @@ def scrape_dispatch_history() -> dict:
                      for r, s in prices.items() if s}
 
     # Backfill _ic_history so IC chart shows full day on startup
-    # Only keep today's data — clear any stale yesterday keys first
     for ic_id, series in ic_flows.items():
         if ic_id not in _ic_history:
             _ic_history[ic_id] = {}
         _ic_history[ic_id].update(series)
-        # Trim to 290 points (~24h of 5-min data)
-        while len(_ic_history[ic_id]) > 290:
-            oldest = sorted(_ic_history[ic_id].keys())[0]
-            del _ic_history[ic_id][oldest]
 
     # Store rooftop data globally so scrape_scada_history can merge it in after backfill
     global _rooftop_history
@@ -1023,18 +953,9 @@ def scrape_predispatch_prices(text: str) -> dict:
                 rrp = round(float(rrp_str), 2)
                 # DATETIME is end-of-interval; shift back 30min for display
                 dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                # Keep anything from 30min ago onwards, up to 40hrs ahead
-                if dt >= now_aest - timedelta(minutes=30) and dt <= now_aest + timedelta(hours=40):
-                    # Use HH:MM label — for overnight intervals use 24hr+ notation
-                    total_mins = int((dt - dt.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds() // 60)
-                    if dt.date() == today:
-                        label = dt.strftime("%H:%M")
-                    else:
-                        # Next day: offset by 1440 mins so 00:30 tomorrow = "24:30"
-                        days_ahead = (dt.date() - today).days
-                        h = dt.hour + days_ahead * 24
-                        label = f"{h:02d}:{dt.minute:02d}"
-                    region_series[region][label] = rrp
+                # Only keep today's future intervals (AEST) - keep anything within last 30min too
+                if dt.date() == today and dt >= now_aest - timedelta(minutes=30):
+                    region_series[region][dt.strftime("%H:%M")] = rrp
             except (ValueError, TypeError):
                 pass
         break
@@ -1130,7 +1051,7 @@ def scrape_p5min_unit_solution(text: str) -> dict:
     Extract DUID-level MW forecasts from P5MIN_UNIT_SOLUTION.
     Returns { duid: [{interval: "HH:MM", mw: float}] } for future intervals today.
     P5MIN covers ~1hr ahead in 5-min intervals.
-    INTERVAL_DATETIME is end-of-period — subtract 5min for display label.
+    INTERVAL_DATETIME is end-of-period - subtract 5min for display label.
     """
     if not text:
         return {}
@@ -1227,7 +1148,7 @@ def scrape_tomorrow_prices(text: str) -> dict:
 
 def scrape_tomorrow_demand(text: str, stpasa: dict) -> dict:
     """
-    Tomorrow's demand forecast — combines predispatch (finer resolution near midnight)
+    Tomorrow's demand forecast - combines predispatch (finer resolution near midnight)
     and STPASA (broader 30-min intervals for the full day).
     Returns { region: [{interval: "HH:MM", demand: float}] }
     """
@@ -1286,7 +1207,7 @@ def scrape_tomorrow_demand(text: str, stpasa: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Fuel mix — OpenNEM (single NEM-wide call, not 5 calls)
+# Fuel mix - OpenNEM (single NEM-wide call, not 5 calls)
 # ---------------------------------------------------------------------------
 
 def _normalise_fuel(fuel: str) -> str:
@@ -1305,7 +1226,7 @@ def _normalise_fuel(fuel: str) -> str:
 def scrape_fuel_mix_live() -> dict:
     """
     Compute current fuel mix from SCADA output + registration list.
-    Returns { region: { fuel: mw } } — a single snapshot (not history).
+    Returns { region: { fuel: mw } } - a single snapshot (not history).
     Used as primary source; OpenNEM used for history if available.
     """
     try:
@@ -1381,7 +1302,7 @@ def scrape_fuel_mix_history_opennem() -> dict:
             return final
         raise ValueError("OpenNEM returned empty data")
     except Exception as e:
-        logger.warning(f"OpenNEM fuel mix failed: {e} — using live SCADA snapshot")
+        logger.warning(f"OpenNEM fuel mix failed: {e} - using live SCADA snapshot")
         # Fall back: wrap live snapshot as single-point history
         live = scrape_fuel_mix_live()
         now_label = datetime.now(AEST).strftime("%H:%M")
@@ -1389,18 +1310,18 @@ def scrape_fuel_mix_history_opennem() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# In-memory demand history — lightweight fallback used only if TradingIS fetch fails
+# In-memory demand history - lightweight fallback used only if TradingIS fetch fails
 # ---------------------------------------------------------------------------
 
 _demand_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
 
 # ---------------------------------------------------------------------------
-# In-memory fuel mix history — populated by scrape_gen every 15 min
+# In-memory fuel mix history - populated by scrape_gen every 15 min
 # { region: { "HH:MM": { fuel: mw } } }
 # Keyed by AEST time string; old entries pruned to keep only today's data.
 # ---------------------------------------------------------------------------
 _fuel_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-_duid_history: dict[str, dict] = {}  # { duid: { "HH:MM": mw } } — per-unit today history
+_duid_history: dict[str, dict] = {}  # { duid: { "HH:MM": mw } } - per-unit today history
 _rooftop_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}  # TOTALINTERMITTENTGENERATION
 
 def _update_fuel_history(fuel_mix: dict, scada: dict | None = None, pump_load: dict | None = None) -> None:
@@ -1409,14 +1330,6 @@ def _update_fuel_history(fuel_mix: dict, scada: dict | None = None, pump_load: d
     # Snap to nearest 5-min boundary so labels align with the 5-min time spine in the frontend
     snapped_min = (now.minute // 5) * 5
     label = now.strftime("%H:") + f"{snapped_min:02d}"
-
-    # Purge any slots AFTER the current label — these are yesterday's data
-    # that wrapped around midnight and are now "future" slots on today's spine
-    for region in NEM_REGIONS:
-        stale = [k for k in list(_fuel_history.get(region, {}).keys()) if k > label]
-        for k in stale:
-            del _fuel_history[region][k]
-
     for region in NEM_REGIONS:
         if region not in fuel_mix:
             continue
@@ -1436,13 +1349,9 @@ def _update_fuel_history(fuel_mix: dict, scada: dict | None = None, pump_load: d
                 continue
             if duid not in _duid_history:
                 _duid_history[duid] = {}
-            # Pump-load DUIDs report positive MW when consuming — negate for display
+            # Pump-load DUIDs report positive MW when consuming - negate for display
             stored_mw = -round(mw, 1) if duid in PUMP_LOAD_DUIDS else round(mw, 1)
             _duid_history[duid][label] = stored_mw
-            # Purge stale future slots from yesterday
-            stale_d = [k for k in list(_duid_history[duid].keys()) if k > label]
-            for k in stale_d:
-                del _duid_history[duid][k]
             if len(_duid_history[duid]) > 290:
                 oldest = sorted(_duid_history[duid].keys())[0]
                 del _duid_history[duid][oldest]
@@ -1460,12 +1369,6 @@ def _update_demand_history(region_summary: dict) -> None:
     for region, data in region_summary.items():
         if region in NEM_REGIONS and "TOTALDEMAND" in data:
             _demand_history[region][label] = data["TOTALDEMAND"]
-            stale_dem = [k for k in list(_demand_history[region].keys()) if k > label]
-            for k in stale_dem:
-                del _demand_history[region][k]
-            if len(_demand_history[region]) > 290:
-                oldest = sorted(_demand_history[region].keys())[0]
-                del _demand_history[region][oldest]
 
 
 def _get_demand_history() -> dict:
@@ -1489,14 +1392,7 @@ def _update_ic_history(ic_snapshot: dict) -> None:
     for ic_id, vals in ic_snapshot.items():
         if ic_id not in _ic_history:
             _ic_history[ic_id] = {}
-        # Purge stale future slots from yesterday
-        stale = [k for k in list(_ic_history[ic_id].keys()) if k > label]
-        for k in stale:
-            del _ic_history[ic_id][k]
         _ic_history[ic_id][label] = vals.get("flow", 0)
-        if len(_ic_history[ic_id]) > 290:
-            oldest = sorted(_ic_history[ic_id].keys())[0]
-            del _ic_history[ic_id][oldest]
 
 
 def _get_ic_history() -> dict:
@@ -1527,13 +1423,6 @@ def _update_bdu_history(region_summary: dict) -> None:
             "storage":   round(soc, 1) if soc is not None else None,
             "max_avail": round(cap, 1) if cap is not None else None,
         }
-        # Purge stale future slots from yesterday and trim
-        stale_b = [k for k in list(_bdu_history[region].keys()) if k > label]
-        for k in stale_b:
-            del _bdu_history[region][k]
-        if len(_bdu_history[region]) > 290:
-            oldest = sorted(_bdu_history[region].keys())[0]
-            del _bdu_history[region][oldest]
 
 
 def _update_live_duid_history(scada: dict) -> None:
@@ -1588,33 +1477,31 @@ def scrape_predispatch_interconnectors(text: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Main scrape_all — parallel fetches
+# Main scrape_all - parallel fetches
 # ---------------------------------------------------------------------------
 
 def scrape_all() -> dict:
     logger.info("scrape_all starting...")
 
     # Run all IO-bound fetches concurrently with per-future timeout
-    with ThreadPoolExecutor(max_workers=6) as ex:
+    with ThreadPoolExecutor(max_workers=4) as ex:
         f_dispatch_is   = ex.submit(_fetch_dispatch_is)
         f_predispatch   = ex.submit(_fetch_predispatch)
         f_trading       = ex.submit(scrape_trading_history)
         f_dispatch_hist = ex.submit(scrape_dispatch_history)
-        f_pd_sens       = ex.submit(scrape_predispatch_sensitivities)
         f_scada         = ex.submit(_fetch_full_scada)
 
     def _safe_result(fut, default, name):
         try:
             return fut.result(timeout=55)
         except Exception as e:
-            logger.error(f"scrape_all: {name} failed — {e}")
+            logger.error(f"scrape_all: {name} failed - {e}")
             return default
 
     dispatch_text    = _safe_result(f_dispatch_is,   "",  "dispatch_is")
     predispatch_text = _safe_result(f_predispatch,    "",  "predispatch")
     trading          = _safe_result(f_trading,        {"prices": {}, "fetch_stats": {}}, "trading")
     dispatch_hist    = _safe_result(f_dispatch_hist,  {"demand": {}, "op_demand": {}, "prices": {}}, "dispatch_hist")
-    pd_sens          = _safe_result(f_pd_sens,          {}, "pd_sens")
     scada_vals       = _safe_result(f_scada,          {}, "scada")
 
     dispatch_demand       = dispatch_hist.get("demand", {})
@@ -1643,7 +1530,7 @@ def scrape_all() -> dict:
     tomorrow_prices = scrape_tomorrow_prices(predispatch_text)
     tomorrow_demand = scrape_tomorrow_demand(predispatch_text, {})
 
-    # In-memory accumulators — IC builds up over process lifetime
+    # In-memory accumulators - IC builds up over process lifetime
     _update_demand_history(region_summary)
     _update_ic_history(interconnectors)
     _update_bdu_history(region_summary)
@@ -1678,7 +1565,7 @@ def scrape_all() -> dict:
         "Net Interchange":d.get("NETINTERCHANGE", 0),
     } for r, d in region_summary.items() if "DISPATCHABLEGENERATION" in d}
 
-    # Build Origin assets output — ORIGIN_DISPLAY_NAMES overrides nem_units station name
+    # Build Origin assets output - ORIGIN_DISPLAY_NAMES overrides nem_units station name
     origin_assets_out = {}
     for duid in ORIGIN_DUIDS:
         mw       = scada_vals.get(duid)
@@ -1712,7 +1599,7 @@ def scrape_all() -> dict:
             capped_dispatch_prices[r] = pts
 
     logger.info(
-        f"scrape_all done — prices:{list(prices.keys())} "
+        f"scrape_all done - prices:{list(prices.keys())} "
         f"trading_pts:{sum(len(v) for v in trading_prices.values())} "
         f"dispatch_5min_pts:{sum(len(v) for v in capped_dispatch_prices.values())} "
         f"origin_duids_found:{len(scada_vals)}"
@@ -1730,7 +1617,6 @@ def scrape_all() -> dict:
         "dispatch_prices_5min":  capped_dispatch_prices,
         "price_fetch_stats":     trading.get("fetch_stats", {}),
         "predispatch_prices":    pd_prices,
-        "predispatch_sensitivity": pd_sens,
         "demand_history":        demand_history,
         "op_demand_history":     dispatch_op_demand,
         "dispatch_history":      dispatch_demand,
@@ -1752,7 +1638,7 @@ def scrape_all() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Registration list cache — DUID -> {station, fuel, region, capacity}
+# Registration list cache - DUID -> {station, fuel, region, capacity}
 # ---------------------------------------------------------------------------
 
 _reg_cache: dict = {}
@@ -1972,7 +1858,7 @@ def _try_load_aemo_xls() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Full SCADA fetch — all DUIDs (not just Origin)
+# Full SCADA fetch - all DUIDs (not just Origin)
 # ---------------------------------------------------------------------------
 
 def _fetch_full_scada() -> dict:
@@ -2034,7 +1920,7 @@ def _scrape_rooftop_pv_latest() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# ST PASA — 7-day ahead regional demand forecast
+# ST PASA - 7-day ahead regional demand forecast
 # ---------------------------------------------------------------------------
 
 def scrape_stpasa_demand() -> dict:
@@ -2169,7 +2055,7 @@ def scrape_all_generators() -> dict:
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
-# scrape_scada_history — backfill 24hr fuel mix history from SCADA CURRENT files
+# scrape_scada_history - backfill 24hr fuel mix history from SCADA CURRENT files
 # ---------------------------------------------------------------------------
 
 def scrape_scada_history() -> None:
@@ -2188,13 +2074,14 @@ def scrape_scada_history() -> None:
 
     all_urls = _list_hrefs(SCADA_URL)
     today_urls = sorted([u for u in all_urls if today_str in u and "PUBLIC_DISPATCHSCADA" in u.upper()])
+    # Limit to 300 files (25hrs worth at 5min cadence)
     today_urls = today_urls[-300:]
 
     if not today_urls:
         logger.warning("scrape_scada_history: no SCADA files found for today")
         return
 
-    logger.info(f"scrape_scada_history: fetching {len(today_urls)} SCADA files…")
+    logger.info(f"scrape_scada_history: fetching {len(today_urls)} SCADA files...")
 
     def fetch_one(url):
         _time.sleep(random.uniform(0, 0.03))
@@ -2227,7 +2114,7 @@ def scrape_scada_history() -> None:
 
     # Parallel fetch
     all_snapshots = {}  # { HH:MM -> { duid: mw } }
-    with ThreadPoolExecutor(max_workers=12) as ex:
+    with ThreadPoolExecutor(max_workers=4) as ex:
         futures = {ex.submit(fetch_one, u): u for u in today_urls}
         for fut in as_completed(futures):
             result = fut.result()
@@ -2296,7 +2183,7 @@ def scrape_scada_history() -> None:
     logger.info("scrape_scada_history: merged rooftop solar into fuel history")
 
 
-# scrape_gen — medium speed: fuel mix from SCADA + NEM_UNITS static registry
+# scrape_gen - medium speed: fuel mix from SCADA + NEM_UNITS static registry
 # Refreshed every 15 min.
 # ---------------------------------------------------------------------------
 
@@ -2337,7 +2224,7 @@ def scrape_gen() -> dict:
     unmatched_log: list = []
 
     for duid, mw_raw in scada.items():
-        # Pump-load DUIDs report positive MW when consuming — negate for display
+        # Pump-load DUIDs report positive MW when consuming - negate for display
         mw = -mw_raw if (duid in PUMP_LOAD_DUIDS and mw_raw is not None) else mw_raw
         info     = reg.get(duid.upper(), {})
         region   = info.get("region", "") or cpid_map.get(duid.upper(), "")
@@ -2346,13 +2233,12 @@ def scrape_gen() -> dict:
         station  = info.get("station", duid)
         capacity = info.get("capacity")
 
-        in_nem = region in NEM_REGIONS
-        if not in_nem:
-            region = "Unknown"
+        if region not in NEM_REGIONS:
+            continue
 
         mw_val = mw if mw is not None else 0
-        # fuel_mix is for the generation chart — always positive (generation only)
-        # grouped is for DUID/station display — signed (negative = pumping/charging)
+        # fuel_mix is for the generation chart - always positive (generation only)
+        # grouped is for DUID/station display - signed (negative = pumping/charging)
         mw_for_chart = max(mw_val, 0)
         # Batteries and pump hydro show negative MW in grouped for display
         mw_pos = mw_val if fuel in ("Battery", "Hydro") else mw_for_chart
@@ -2361,12 +2247,10 @@ def scrape_gen() -> dict:
         if fuel == "Other" and abs(mw_val) > 50:
             logger.warning(f"OTHER_DUID: {duid} region={region} mw={mw_pos:.0f} raw_fuel={raw_fuel!r} station={station!r}")
 
-        if in_nem:
-            fuel_mix[region][fuel] = round(fuel_mix[region].get(fuel, 0) + mw_for_chart, 1)
-        if in_nem:
-            nem_totals[fuel]       = round(nem_totals.get(fuel, 0) + mw_for_chart, 1)
+        fuel_mix[region][fuel] = round(fuel_mix[region].get(fuel, 0) + mw_for_chart, 1)
+        nem_totals[fuel]       = round(nem_totals.get(fuel, 0) + mw_for_chart, 1)
         # Track pump hydro load (negative mw on Hydro DUIDs) for gen chart
-        if in_nem and fuel == "Hydro" and mw_val < -1:
+        if fuel == "Hydro" and mw_val < -1:
             pump_load[region] = round(pump_load.get(region, 0) + mw_val, 1)
 
         pct = round(mw_val / capacity * 100, 1) if (mw_val and capacity and capacity > 0) else None
@@ -2392,43 +2276,16 @@ def scrape_gen() -> dict:
         logger.info(f"scrape_gen: {len(unmatched_log)} SCADA DUIDs region-inferred (no registry entry): "
                     + ", ".join(f"{d}={mw:.0f}MW" for d, mw in top if mw and mw > 1))
 
-    # Add real Rooftop Solar from AEMO ROOFTOP_PV/ACTUAL — 30-min intervals by state
+    # Add real Rooftop Solar from AEMO ROOFTOP_PV/ACTUAL - 30-min intervals by state
     rooftop_pv = _scrape_rooftop_pv_latest()
     for region, mw in rooftop_pv.items():
         if mw > 0:
             fuel_mix[region]["Rooftop Solar"] = mw
 
-    # Override Solar and Wind totals using authoritative DISPATCH_REGIONSUM fields
-    # SS_SOLAR_CLEAREDMW / SS_WIND_CLEAREDMW are exact totals including all semi-scheduled
-    # units regardless of whether they appear in NEM_UNITS or the registration list
-    try:
-        for row in _parse_aemo(dispatch_text, "DISPATCH_REGIONSUM"):
-            region = row.get("REGIONID", "").strip()
-            if region not in NEM_REGIONS:
-                continue
-            if row.get("INTERVENTION", "0") not in ("0", ""):
-                continue
-            sol_str = row.get("SS_SOLAR_CLEAREDMW", "")
-            win_str = row.get("SS_WIND_CLEAREDMW", "")
-            try:
-                sol = round(float(sol_str), 1)
-                if sol > 0:
-                    fuel_mix[region]["Solar"] = sol
-            except (ValueError, TypeError):
-                pass
-            try:
-                win = round(float(win_str), 1)
-                if win > 0:
-                    fuel_mix[region]["Wind"] = win
-            except (ValueError, TypeError):
-                pass
-    except Exception as e:
-        logger.debug(f"scrape_gen: REGIONSUM solar/wind override failed: {e}")
-
     # Accumulate into in-memory history
     _update_fuel_history(fuel_mix, scada, pump_load)
 
-    logger.info(f"scrape_gen done — {len(scada)} SCADA DUIDs, "
+    logger.info(f"scrape_gen done - {len(scada)} SCADA DUIDs, "
                 f"reg={len(reg)}, buckets={sum(len(v) for v in fuel_mix.values())}")
     return {
         "timestamp":     datetime.now(timezone.utc).isoformat(),
@@ -2443,21 +2300,95 @@ def scrape_gen() -> dict:
     }
 
 
-# scrape_slow — background fetch for generators + week-ahead
+# scrape_slow - background fetch for generators + week-ahead
 # ---------------------------------------------------------------------------
+
+def scrape_pasa_duid_availability(source: str = "STPASA") -> dict:
+    """
+    Fetch PDPASA or STPASA DUID availability.
+    source: "PDPASA" (next ~36h, 30-min) or "STPASA" (next ~7d, 30-min)
+    Returns { duid: { interval_datetime: pasa_availability_mw } }
+    """
+    url_map = {"PDPASA": PDPASA_DUID_URL, "STPASA": STPASA_DUID_URL}
+    base_url = url_map.get(source, STPASA_DUID_URL)
+
+    try:
+        files = _list_hrefs(base_url)
+    except Exception as e:
+        logger.warning(f"scrape_pasa_duid_availability({source}): listing failed: {e}")
+        return {}
+
+    if not files:
+        return {}
+
+    latest = sorted(files)[-1]
+    logger.info(f"scrape_pasa_duid_availability({source}): fetching {latest}")
+    try:
+        text = _read_zip(latest)
+    except Exception as e:
+        logger.warning(f"scrape_pasa_duid_availability({source}): read failed: {e}")
+        return {}
+
+    if not text:
+        return {}
+
+    result: dict = {}  # { duid: { "YYYY-MM-DD HH:MM": avail_mw } }
+    for row in _parse_aemo(text, "DUIDAVAILABILITY"):
+        duid = row.get("DUID", "").strip()
+        if not duid:
+            continue
+        unit = NEM_UNITS.get(duid, {})
+        if not unit or not unit.get("capacity"):
+            continue
+        dt_str = row.get("INTERVAL_DATETIME", "")
+        avail_str = row.get("GENERATION_PASA_AVAILABILITY", "")
+        if not dt_str or not avail_str:
+            continue
+        try:
+            avail = round(float(avail_str))
+            dt = datetime.fromisoformat(dt_str.replace("/", "-"))
+            label = dt.strftime("%Y-%m-%d %H:%M")
+            if duid not in result:
+                result[duid] = {}
+            result[duid][label] = avail
+        except (ValueError, TypeError):
+            continue
+
+    logger.info(f"scrape_pasa_duid_availability({source}): {len(result)} DUIDs")
+    return result
+
 
 def scrape_mtpasa_outages() -> list:
     """
-    Fetch MTPASA DUID Availability report and identify units that are
-    currently offline, derated, or returning within the next 30 days.
+    Fetch MTPASA DUID Availability and blend with STPASA/PDPASA for near-term accuracy.
+    - Current availability: PDPASA (30-min, most current)
+    - Return date <7d: STPASA (30-min resolution)
+    - Return date >7d: MTPASA weekly change-points
 
     Returns list of dicts:
       { duid, station, fuel, region, capacity,
         avail_today, state_today,
-        change_mw, change_date, return_date }
+        change_mw, change_date, return_date, return_source }
     """
+    # Fetch STPASA and PDPASA in parallel alongside MTPASA
+    from concurrent.futures import ThreadPoolExecutor, as_completed as _ac
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        f_stpasa = ex.submit(scrape_pasa_duid_availability, "STPASA")
+        f_pdpasa = ex.submit(scrape_pasa_duid_availability, "PDPASA")
+        try:
+            files = _list_hrefs(MTPASA_DUID_URL)
+        except Exception as e:
+            logger.warning(f"scrape_mtpasa_outages: listing failed: {e}")
+            files = []
+        stpasa_avail = {}
+        pdpasa_avail = {}
+        try: stpasa_avail = f_stpasa.result(timeout=25)
+        except Exception as e: logger.warning(f"STPASA fetch failed: {e}")
+        try: pdpasa_avail = f_pdpasa.result(timeout=25)
+        except Exception as e: logger.warning(f"PDPASA fetch failed: {e}")
+
     try:
-        files = _list_hrefs(MTPASA_DUID_URL)
+        files = files or _list_hrefs(MTPASA_DUID_URL)
     except Exception as e:
         logger.warning(f"scrape_mtpasa_outages: listing failed: {e}")
         return []
@@ -2479,7 +2410,7 @@ def scrape_mtpasa_outages() -> list:
     if not text:
         return []
 
-    # Parse rows — table name is MTPASA_DUIDAVAILABILITY
+    # Parse rows - table name is MTPASA_DUIDAVAILABILITY
     now_aest  = datetime.now(AEST)
     today_str = now_aest.strftime("%Y/%m/%d")
 
@@ -2509,73 +2440,105 @@ def scrape_mtpasa_outages() -> list:
         if capacity <= 0:
             continue  # skip units we don't know
 
+        # Get today's or nearest availability
         sorted_days = sorted(days.keys())
         if not sorted_days:
             continue
 
-        # MTPASA publishes forward-looking availability from now
-        # The FIRST entry = current availability (effective now or imminently)
-        # Subsequent entries = future planned changes
-        # Use the entry closest to today (on or after) as current availability
-        current_entry = None
+        # Find the day entry closest to today
+        today_entry = None
         for d in sorted_days:
             if d >= today_str:
-                current_entry = days[d]
+                today_entry = days[d]
                 break
-        # If no future entry exists, use the last known entry
-        if current_entry is None:
-            current_entry = days[sorted_days[-1]]
+        if today_entry is None:
+            today_entry = days[sorted_days[-1]]
 
-        avail_today = current_entry["avail"]
-        state_today = current_entry["state"]
+        avail_today = today_entry["avail"]
+        state_today = today_entry["state"]
 
-        # Skip permanently out-of-service units
-        if state_today in ("Mothballed", "Retired", "Decommissioned"):
-            continue
+        # Override avail_today with PDPASA if available (more current, 30-min resolution)
+        pdpasa_slots = pdpasa_avail.get(duid, {})
+        if pdpasa_slots:
+            # Use the most recent PDPASA slot at or before now
+            now_label = now_aest.strftime("%Y-%m-%d %H:%M")
+            past_slots = sorted([k for k in pdpasa_slots if k <= now_label])
+            if past_slots:
+                avail_today = pdpasa_slots[past_slots[-1]]
 
-        # Skip fully available units (at or above nameplate, no derating)
+        # Skip fully available units with no derating
         if avail_today >= capacity and state_today in ("NoDeratings", "Unknown"):
             continue
+        # Skip mothballed units (long-term, less interesting day-to-day)
+        if state_today == "Mothballed":
+            continue
 
-        change_mw = avail_today - capacity  # negative = MW below nameplate
+        change_mw = avail_today - capacity
 
-        # Find the next date where availability meaningfully increases
+        # Find return date — try STPASA first (7d, 30-min), fall back to MTPASA
         return_date = None
+        return_source = "MTPASA"
+        change_date = None
+        past_today  = False
         prev_avail  = avail_today
+
+        # STPASA: look for recovery within next 7 days at 30-min resolution
+        stpasa_slots = stpasa_avail.get(duid, {})
+        if stpasa_slots:
+            now_str2 = now_aest.strftime("%Y-%m-%d %H:%M")
+            future_st = sorted([k for k in stpasa_slots if k > now_str2])
+            prev_st = avail_today
+            for slot in future_st:
+                slot_avail = stpasa_slots[slot]
+                if slot_avail >= prev_st + 50 or slot_avail >= capacity:
+                    return_date = slot[:10].replace("-", "/")
+                    return_source = "STPASA"
+                    break
+                prev_st = slot_avail
+
+        # MTPASA fallback for return date and change_date
         for d in sorted_days:
-            if d <= today_str:
+            if d < today_str:
+                continue
+            if not past_today:
+                past_today = True
                 continue
             entry_avail = days[d]["avail"]
-            if entry_avail >= prev_avail + 50 or entry_avail >= capacity:
+            # Return from MTPASA only if STPASA didn't find one
+            if return_date is None and entry_avail >= capacity and prev_avail < capacity:
                 return_date = d
-                break
+            # Change date: first day availability changes from today
+            if change_date is None and abs(entry_avail - avail_today) > 10:
+                change_date = d
             prev_avail = entry_avail
 
-        # State label
+        # Determine label
         if avail_today == 0 and state_today in ("Forced", "Unknown"):
             label = "Forced"
         elif avail_today == 0 and state_today == "Planned":
             label = "Planned"
         elif avail_today == 0:
             label = "Offline"
+        elif return_date and avail_today > 0 and change_mw > 0:
+            label = "Returning"
         elif avail_today < capacity * 0.95:
             label = "Derated"
         else:
             label = state_today
 
         results.append({
-            "duid":        duid,
-            "station":     unit.get("station", duid),
-            "fuel":        unit.get("fuel", "Other"),
-            "region":      unit.get("region", ""),
-            "capacity":    int(capacity),
-            "avail_today": int(avail_today),
-            "state":       label,
-            "pasa_state":  state_today,   # raw MTPASA UNITSTATE for filtering
-            "change_mw":   int(change_mw),
-            "return_date": return_date,
+            "duid":          duid,
+            "station":       unit.get("station", duid),
+            "fuel":          unit.get("fuel", "Other"),
+            "region":        unit.get("region", ""),
+            "capacity":      int(capacity),
+            "avail_today":   int(avail_today),
+            "state":         label,
+            "change_mw":     int(change_mw),
+            "change_date":   change_date,
+            "return_date":   return_date,
+            "return_source": return_source,
         })
-
 
     # Sort by change_mw ascending (largest losses first)
     results.sort(key=lambda x: x["change_mw"])
@@ -2584,141 +2547,45 @@ def scrape_mtpasa_outages() -> list:
 
 
 
-def scrape_predispatch_sensitivities() -> dict:
-    """
-    Fetch predispatch price sensitivity outputs from Predispatch_Sensitivities report.
-    Table: PRICESENSITIVITIES, columns: RRPEEP1..RRPEEP43
-    Returns { region: [ {interval, rrp, scenarios: {label: value}} ] }
-    
-    Scenario mappings (AEMO MMS standard):
-      NSW1: RRPEEP1=+100MW, RRPEEP2=-100MW, RRPEEP11=+200MW, RRPEEP12=-200MW, RRPEEP13=+400MW, RRPEEP14=-400MW
-      VIC1: RRPEEP3=+100MW, RRPEEP4=-100MW, RRPEEP15=+200MW, RRPEEP16=-200MW
-      QLD1: RRPEEP5=+100MW, RRPEEP6=-100MW, RRPEEP25=+200MW, RRPEEP26=-200MW, RRPEEP27=+400MW, RRPEEP28=-400MW
-      SA1:  RRPEEP7=+100MW, RRPEEP8=-100MW
-      TAS1: RRPEEP9=+100MW, RRPEEP10=-100MW
-    """
-    url = get_latest_file_url(PREDISPATCH_SENS_URL, "PUBLIC_PREDISPATCH_SENSITIVITIES")
-    if not url:
-        logger.warning("scrape_predispatch_sensitivities: no file found")
-        return {}
-
-    text = _read_zip(url)
-    if not text:
-        return {}
-
-    now_aest = datetime.now(AEST).replace(tzinfo=None)
-    today    = now_aest.date()
-
-    # Per-region scenario column mappings
-    # Derived empirically from price impact analysis (RRPEEP2 = base case, no change)
-    # NSW: scen 5=+100, 7=+200, 14=+400, 6=-100, 13=-200
-    # QLD: scen 33=+200, 35=+400, 34=-200 (no clean +100 isolated)
-    # SA:  scen 15=+100, 17=+200, 19=+400, 16=-100, 18=-200, 20=-400
-    # VIC/TAS: no clean isolated scenarios identified yet
-    REGION_SCENARIOS = {
-        "NSW1": [("RRPEEP5", "+100MW"), ("RRPEEP7",  "+200MW"), ("RRPEEP14", "+400MW"),
-                 ("RRPEEP6", "-100MW"), ("RRPEEP13", "-200MW")],
-        "QLD1": [("RRPEEP33", "+200MW"), ("RRPEEP35", "+400MW"),
-                 ("RRPEEP34", "-200MW")],
-        "SA1":  [("RRPEEP15", "+100MW"), ("RRPEEP17", "+200MW"), ("RRPEEP19", "+400MW"),
-                 ("RRPEEP16", "-100MW"), ("RRPEEP18", "-200MW"), ("RRPEEP20", "-400MW")],
-        "VIC1": [("RRPEEP3",  "+100MW"), ("RRPEEP4",  "-100MW")],
-        "TAS1": [("RRPEEP9",  "+100MW"), ("RRPEEP10", "-100MW")],
-    }
-
-    region_series: dict = {r: {} for r in NEM_REGIONS}
-
-    for row in _parse_aemo(text, "PRICESENSITIVITIES"):
-        region = row.get("REGIONID", "").strip()
-        if region not in NEM_REGIONS:
-            continue
-        if row.get("INTERVENTION", "0") not in ("0", ""):
-            continue
-        dt_str = row.get("DATETIME", "")
-        if not dt_str:
-            continue
-        try:
-            dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-            if dt < now_aest - timedelta(minutes=30) or dt > now_aest + timedelta(hours=40):
-                continue
-            # Build label using same 24hr+ convention as predispatch_prices
-            if dt.date() == today:
-                label = dt.strftime("%H:%M")
-            else:
-                days_ahead = (dt.date() - today).days
-                h = dt.hour + days_ahead * 24
-                label = f"{h:02d}:{dt.minute:02d}"
-
-            scenarios = {}
-            for col, desc in REGION_SCENARIOS.get(region, []):
-                v = row.get(col, "")
-                if v and v.strip():
-                    try:
-                        scenarios[desc] = round(float(v), 2)
-                    except ValueError:
-                        pass
-            if scenarios:
-                region_series[region][label] = scenarios
-        except (ValueError, TypeError):
-            pass
-
-    result = {}
-    for region, series in region_series.items():
-        if series:
-            result[region] = [{"interval": k, "scenarios": v}
-                              for k, v in sorted(series.items())]
-    logger.info(f"Predispatch sensitivities: {sum(len(v) for v in result.values())} pts")
-    return result
-
-
-
 def scrape_historical_prices(date_str: str) -> dict:
     """
     Fetch 30-min trading prices for any date (YYYYMMDD format).
-    - Current month: use CURRENT directory (per-interval files)
-    - Older dates: use ARCHIVE which has weekly ZIP bundles
-      named PUBLIC_TRADINGIS_YYYYMMDD_YYYYMMDD.zip (Sun-Sat weeks)
+    Uses CURRENT directory for yesterday, ARCHIVE for older dates.
     Returns { region: [ {interval: "HH:MM", rrp: float} ] }
     """
     from datetime import datetime as _dt, timedelta as _td
     now_aest = datetime.now(AEST)
+    today    = now_aest.date()
+    yesterday = (now_aest - _td(days=1)).date()
 
     try:
         req_date = _dt.strptime(date_str, "%Y%m%d").date()
     except ValueError:
         return {}
 
-    now_ym = now_aest.strftime("%Y%m")
-    req_ym = req_date.strftime("%Y%m")
-
-    if req_ym == now_ym:
-        # Current month: per-interval files in CURRENT
-        try:
-            all_files = _list_hrefs(TRADING_CURRENT)
-        except Exception as e:
-            logger.warning(f"scrape_historical_prices: CURRENT listing failed: {e}")
-            return {}
-        date_files = sorted([u for u in all_files if date_str in u and "PUBLIC_TRADINGIS" in u.upper()])
-        if not date_files:
-            logger.warning(f"scrape_historical_prices: no files for {date_str} in CURRENT")
-            return {}
+    # Choose source directory
+    if req_date >= yesterday:
+        base_url = TRADING_CURRENT
     else:
-        # Older dates: find the weekly archive bundle that contains req_date
-        # Archive files span Sun-Sat: find which week contains req_date
-        # Week start = most recent Sunday on or before req_date
-        days_since_sunday = req_date.weekday() + 1  # Mon=1..Sat=6, Sun=0 -> +1 makes Sun=7%7=0
-        week_start = req_date - _td(days=days_since_sunday % 7)
-        week_end   = week_start + _td(days=6)
-        week_start_str = week_start.strftime("%Y%m%d")
-        week_end_str   = week_end.strftime("%Y%m%d")
-        archive_url = f"{TRADING_ARCHIVE}PUBLIC_TRADINGIS_{week_start_str}_{week_end_str}.zip"
-        logger.info(f"scrape_historical_prices: trying weekly archive {archive_url}")
-        date_files = [archive_url]
+        # Archive uses YYYYMM subdirectory
+        ym = req_date.strftime("%Y%m")
+        base_url = f"{TRADING_ARCHIVE}{ym}/"
+
+    try:
+        all_files = _list_hrefs(base_url)
+    except Exception as e:
+        logger.warning(f"scrape_historical_prices: listing failed for {date_str}: {e}")
+        return {}
+
+    date_files = sorted([u for u in all_files if date_str in u and "PUBLIC_TRADINGIS" in u.upper()])
+    if not date_files:
+        logger.warning(f"scrape_historical_prices: no files found for {date_str}")
+        return {}
 
     prices: dict = {r: {} for r in NEM_REGIONS}
     for url in date_files:
         try:
-            text = (_read_zip_all(url) if _use_read_all else _read_zip(url))
+            text = _read_zip(url)
             if not text:
                 continue
             for row in _parse_aemo(text, "TRADING_PRICE"):
@@ -2745,74 +2612,6 @@ def scrape_historical_prices(date_str: str) -> dict:
 
 
 
-
-def scrape_historical_dispatch_prices(date_str: str) -> dict:
-    """
-    Fetch price data for a given date (YYYYMMDD).
-    - If date is within CURRENT DispatchIS window (~2 days): returns 5-min dispatch prices
-    - Otherwise: falls back to 30-min TradingIS archive (always available)
-    Returns { region: [ {interval: "HH:MM", rrp: float} ] }
-    """
-    from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
-
-    try:
-        req_date = datetime.strptime(date_str, "%Y%m%d").date()
-    except ValueError:
-        return {}
-
-    # ── Try CURRENT DispatchIS (holds last ~2 days of 5-min files) ────────────
-    all_zips = _list_hrefs(DISPATCH_IS_URL)
-    date_zips = sorted([u for u in all_zips if date_str in u and "PUBLIC_DISPATCHIS" in u.upper()])
-
-    if date_zips:
-        logger.info(f"scrape_historical_dispatch_prices: {len(date_zips)} 5-min files for {date_str}")
-        prices: dict = {r: {} for r in NEM_REGIONS}
-
-        def fetch_one(url):
-            try:
-                text = _read_zip(url)
-                if not text:
-                    return {}
-                result = {}
-                for row in _parse_aemo(text, "DISPATCH_PRICE"):
-                    if row.get("INTERVENTION", "0") not in ("0", ""):
-                        continue
-                    region = row.get("REGIONID", "").strip()
-                    if region not in NEM_REGIONS:
-                        continue
-                    dt_str2 = row.get("SETTLEMENTDATE", "")
-                    rrp_str = row.get("RRP", "")
-                    if not dt_str2 or not rrp_str:
-                        continue
-                    try:
-                        dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - timedelta(minutes=5)
-                        if dt.date() != req_date:
-                            continue
-                        label = dt.strftime("%H:%M")
-                        if region not in result:
-                            result[region] = {}
-                        result[region][label] = round(float(rrp_str), 2)
-                    except (ValueError, TypeError):
-                        pass
-                return result
-            except Exception as e:
-                logger.debug(f"scrape_historical_dispatch_prices file error {url}: {e}")
-                return {}
-
-        with ThreadPoolExecutor(max_workers=10) as ex:
-            for fut in _as_completed({ex.submit(fetch_one, u): u for u in date_zips}):
-                for region, slots in fut.result().items():
-                    prices[region].update(slots)
-
-        result = {r: sorted([{"interval": k, "rrp": v} for k, v in prices[r].items()],
-                             key=lambda x: x["interval"])
-                  for r in NEM_REGIONS if prices[r]}
-        if result:
-            return result
-
-    # ── Fallback: 30-min TradingIS (always available for any past date) ───────
-    logger.info(f"scrape_historical_dispatch_prices: falling back to 30-min TradingIS for {date_str}")
-    return scrape_historical_prices(date_str)
 def scrape_yesterday() -> dict:
     """
     Fetch yesterday's full-day data from CURRENT directory files.
@@ -2921,7 +2720,7 @@ def scrape_yesterday() -> dict:
         except Exception:
             return []
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    with ThreadPoolExecutor(max_workers=4) as ex:
         futs = {ex.submit(_fetch_dispatch_yesterday, u): u for u in yest_dispatch}
         for fut in _as_completed(futs):
             for item in fut.result():
@@ -2950,7 +2749,7 @@ def scrape_yesterday() -> dict:
         return {ic: [{"interval": k, "flow": v} for k, v in sorted(s.items())] for ic, s in d.items() if s}
 
     total_pts = sum(len(v) for v in prices.values()) + sum(len(v) for v in demand.values())
-    logger.info(f"scrape_yesterday: {ystr} — price_pts={sum(len(v) for v in prices.values())} demand_pts={sum(len(v) for v in demand.values())}")
+    logger.info(f"scrape_yesterday: {ystr} - price_pts={sum(len(v) for v in prices.values())} demand_pts={sum(len(v) for v in demand.values())}")
     return {
         "date":       yesterday.strftime("%Y-%m-%d"),
         "label":      yesterday.strftime("%A %-d %b"),
@@ -3042,7 +2841,7 @@ def _safe_mtpasa_outages() -> list:
             fut = ex.submit(scrape_mtpasa_outages)
             return fut.result(timeout=30)
     except FuturesTimeout:
-        logger.warning("scrape_mtpasa_outages timed out after 30s — returning empty list")
+        logger.warning("scrape_mtpasa_outages timed out after 30s - returning empty list")
         return []
     except Exception as e:
         logger.warning(f"scrape_mtpasa_outages failed: {e}")

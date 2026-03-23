@@ -2360,82 +2360,68 @@ def scrape_pasa_duid_availability(source: str = "STPASA") -> dict:
 
 def scrape_mtpasa_outages() -> list:
     """
-    Fetch MTPASA DUID Availability and blend with STPASA/PDPASA for near-term accuracy.
-    - Current availability: PDPASA (30-min, most current)
-    - Return date <7d: STPASA (30-min resolution)
-    - Return date >7d: MTPASA weekly change-points
-
-    Returns list of dicts:
-      { duid, station, fuel, region, capacity,
-        avail_today, state_today,
-        change_mw, change_date, return_date, return_source }
+    Find units that are currently offline/derated OR have upcoming availability changes.
+    Sources (in priority order):
+      - PDPASA: current availability (30-min, most fresh)
+      - STPASA: next 7 days at 30-min resolution
+      - MTPASA: next 2 years at weekly change-points
+    A unit appears if:
+      (a) current availability < nameplate, OR
+      (b) availability changes by any amount in STPASA or MTPASA horizon
     """
-    # Fetch STPASA and PDPASA in parallel alongside MTPASA
-    from concurrent.futures import ThreadPoolExecutor, as_completed as _ac
+    from concurrent.futures import ThreadPoolExecutor
+
+    # Fetch all three sources in parallel
     with ThreadPoolExecutor(max_workers=3) as ex:
         f_stpasa = ex.submit(scrape_pasa_duid_availability, "STPASA")
         f_pdpasa = ex.submit(scrape_pasa_duid_availability, "PDPASA")
+        f_mtpasa_files = ex.submit(_list_hrefs, MTPASA_DUID_URL)
+
+    stpasa_avail = {}
+    pdpasa_avail = {}
+    mtpasa_files = []
+    try: stpasa_avail = f_stpasa.result(timeout=25)
+    except Exception as e: logger.warning(f"STPASA fetch failed: {e}")
+    try: pdpasa_avail = f_pdpasa.result(timeout=25)
+    except Exception as e: logger.warning(f"PDPASA fetch failed: {e}")
+    try: mtpasa_files = f_mtpasa_files.result(timeout=25)
+    except Exception as e: logger.warning(f"MTPASA listing failed: {e}")
+
+    # Parse MTPASA file
+    duid_data: dict = {}  # { duid: { "YYYY/MM/DD": {avail, state} } }
+    if mtpasa_files:
+        latest = sorted(mtpasa_files)[-1]
+        logger.info(f"scrape_mtpasa_outages: fetching {latest}")
         try:
-            files = _list_hrefs(MTPASA_DUID_URL)
+            text = _read_zip(latest)
+            if text:
+                for row in _parse_aemo(text, "MTPASA_DUIDAVAILABILITY"):
+                    duid = row.get("DUID", "").strip()
+                    if not duid:
+                        continue
+                    unit = NEM_UNITS.get(duid, {})
+                    if not unit or not unit.get("capacity"):
+                        continue
+                    day = row.get("DAY", "").strip()[:10]
+                    try:
+                        avail = float(row.get("PASAAVAILABILITY") or 0)
+                    except ValueError:
+                        avail = 0.0
+                    state = row.get("UNITSTATE", "").strip() or "Unknown"
+                    if duid not in duid_data:
+                        duid_data[duid] = {}
+                    duid_data[duid][day] = {"avail": avail, "state": state}
         except Exception as e:
-            logger.warning(f"scrape_mtpasa_outages: listing failed: {e}")
-            files = []
-        stpasa_avail = {}
-        pdpasa_avail = {}
-        try: stpasa_avail = f_stpasa.result(timeout=25)
-        except Exception as e: logger.warning(f"STPASA fetch failed: {e}")
-        try: pdpasa_avail = f_pdpasa.result(timeout=25)
-        except Exception as e: logger.warning(f"PDPASA fetch failed: {e}")
+            logger.warning(f"MTPASA parse failed: {e}")
 
-    try:
-        files = files or _list_hrefs(MTPASA_DUID_URL)
-    except Exception as e:
-        logger.warning(f"scrape_mtpasa_outages: listing failed: {e}")
-        return []
-
-    if not files:
-        logger.warning("scrape_mtpasa_outages: no files found")
-        return []
-
-    # Take the most recent file
-    latest = sorted(files)[-1]
-    logger.info(f"scrape_mtpasa_outages: fetching {latest}")
-
-    try:
-        text = _read_zip(latest)
-    except Exception as e:
-        logger.warning(f"scrape_mtpasa_outages: read failed: {e}")
-        return []
-
-    if not text:
-        return []
-
-    # Parse rows - table name is MTPASA_DUIDAVAILABILITY
     now_aest  = datetime.now(AEST)
     today_str = now_aest.strftime("%Y/%m/%d")
+    now_label = now_aest.strftime("%Y-%m-%d %H:%M")
 
-    # Collect per-DUID data: { duid: { date_str: {avail, state} } }
-    duid_data: dict = {}
-    for row in _parse_aemo(text, "MTPASA_DUIDAVAILABILITY"):
-        duid = row.get("DUID", "").strip()
-        if not duid:
-            continue
-        day  = row.get("DAY", "").strip()[:10]   # "YYYY/MM/DD"
-        try:
-            avail = float(row.get("PASAAVAILABILITY") or 0)
-        except ValueError:
-            avail = 0.0
-        state = row.get("UNITSTATE", "").strip() or "Unknown"
-
-        if duid not in duid_data:
-            duid_data[duid] = {}
-        duid_data[duid][day] = {"avail": avail, "state": state}
+    # Combined DUID set — any DUID in any source
+    all_duids = set(duid_data.keys()) | set(stpasa_avail.keys()) | set(pdpasa_avail.keys())
 
     results = []
-
-    # ── Build combined DUID set: MTPASA + STPASA ──────────────────────────────
-    # Any DUID that shows a change in either source is a candidate
-    all_duids = set(duid_data.keys()) | set(stpasa_avail.keys())
 
     for duid in all_duids:
         unit = NEM_UNITS.get(duid, {})
@@ -2443,124 +2429,140 @@ def scrape_mtpasa_outages() -> list:
         if capacity <= 0:
             continue
 
-        # ── Current availability ───────────────────────────────────────────────
-        # Priority: PDPASA (most current) → STPASA current slot → MTPASA today
-        avail_today = capacity  # default: assume full
-        state_today = "Unknown"
-        source_today = "MTPASA"
+        # ── Step 1: Current availability ──────────────────────────────────────
+        # Priority: PDPASA > STPASA current slot > MTPASA today
+        avail_now = capacity  # assume full until proven otherwise
+        state_now = "Unknown"
+        avail_source = "assumed"
 
-        # MTPASA: find today's entry
+        # MTPASA baseline
         mtpasa_days = duid_data.get(duid, {})
         sorted_days = sorted(mtpasa_days.keys())
         if sorted_days:
-            today_entry = None
-            for d in sorted_days:
-                if d >= today_str:
-                    today_entry = mtpasa_days[d]
-                    break
+            today_entry = next((mtpasa_days[d] for d in sorted_days if d >= today_str), None)
             if today_entry is None:
                 today_entry = mtpasa_days[sorted_days[-1]]
-            avail_today = today_entry["avail"]
-            state_today = today_entry["state"]
+            avail_now = today_entry["avail"]
+            state_now = today_entry["state"]
+            avail_source = "MTPASA"
 
-        # STPASA: override with current slot if available
+        # STPASA override (most recent slot <= now)
         stpasa_slots = stpasa_avail.get(duid, {})
-        if stpasa_slots:
-            now_str2 = now_aest.strftime("%Y-%m-%d %H:%M")
-            past_st = sorted([k for k in stpasa_slots if k <= now_str2])
-            if past_st:
-                avail_today = stpasa_slots[past_st[-1]]
-                source_today = "STPASA"
+        past_st = sorted([k for k in stpasa_slots if k <= now_label])
+        if past_st:
+            avail_now = stpasa_slots[past_st[-1]]
+            avail_source = "STPASA"
+            state_now = state_now  # keep MTPASA state if available
 
-        # PDPASA: override with most recent reading if available
+        # PDPASA override (most current)
         pdpasa_slots = pdpasa_avail.get(duid, {})
-        if pdpasa_slots:
-            now_str2 = now_aest.strftime("%Y-%m-%d %H:%M")
-            past_pd = sorted([k for k in pdpasa_slots if k <= now_str2])
-            if past_pd:
-                avail_today = pdpasa_slots[past_pd[-1]]
-                source_today = "PDPASA"
+        past_pd = sorted([k for k in pdpasa_slots if k <= now_label])
+        if past_pd:
+            avail_now = pdpasa_slots[past_pd[-1]]
+            avail_source = "PDPASA"
 
-        # Skip permanently retired/mothballed
-        if state_today in ("Mothballed", "Retired", "Decommissioned"):
+        # Skip permanently retired
+        if state_now in ("Mothballed", "Retired", "Decommissioned"):
             continue
 
-        # Skip fully available units
-        if avail_today >= capacity and state_today in ("NoDeratings", "Unknown"):
-            continue
+        # ── Step 2: Find first upcoming change ────────────────────────────────
+        # Check STPASA future slots first (30-min resolution, next 7 days)
+        future_st = sorted([k for k in stpasa_slots if k > now_label])
+        next_change_date = None
+        next_change_avail = None
+        next_change_source = None
 
-        change_mw = avail_today - capacity
+        prev = avail_now
+        for slot in future_st:
+            slot_avail = stpasa_slots[slot]
+            if slot_avail != prev:
+                next_change_date = slot[:10].replace("-", "/")
+                next_change_avail = slot_avail
+                next_change_source = "STPASA"
+                break
+            prev = slot_avail
 
-        # ── Return date ────────────────────────────────────────────────────────
-        # Priority: STPASA (7d, 30-min) → MTPASA (weekly change-points)
+        # If STPASA didn't find a change, check MTPASA beyond STPASA horizon
+        if not next_change_date and sorted_days:
+            stpasa_end = future_st[-1][:10].replace("-", "/") if future_st else today_str
+            prev_m = avail_now
+            for d in sorted_days:
+                if d <= stpasa_end:
+                    prev_m = mtpasa_days[d]["avail"]
+                    continue
+                entry_avail = mtpasa_days[d]["avail"]
+                if entry_avail != prev_m:
+                    next_change_date = d
+                    next_change_avail = entry_avail
+                    next_change_source = "MTPASA"
+                    break
+                prev_m = entry_avail
+
+        # ── Step 3: Find return to full capacity ──────────────────────────────
         return_date = None
-        return_source = "MTPASA"
-        change_date = None
+        return_source = None
 
-        # STPASA: scan future 30-min slots for recovery
-        if stpasa_slots:
-            now_str2 = now_aest.strftime("%Y-%m-%d %H:%M")
-            future_st = sorted([k for k in stpasa_slots if k > now_str2])
-            prev_st = avail_today
+        if avail_now < capacity:
+            # Look in STPASA first
+            prev_ret = avail_now
             for slot in future_st:
                 slot_avail = stpasa_slots[slot]
-                if slot_avail >= prev_st + 50 or slot_avail >= capacity:
+                if slot_avail > prev_ret:
                     return_date = slot[:10].replace("-", "/")
                     return_source = "STPASA"
                     break
-                prev_st = slot_avail
+                prev_ret = slot_avail
 
-        # MTPASA fallback for return date beyond STPASA horizon
-        if not return_date and sorted_days:
-            past_today = False
-            prev_avail = avail_today
-            for d in sorted_days:
-                if d < today_str:
-                    continue
-                if not past_today:
-                    past_today = True
-                    continue
-                entry_avail = mtpasa_days[d]["avail"]
-                if return_date is None and entry_avail >= capacity and prev_avail < capacity:
-                    return_date = d
-                if change_date is None and abs(entry_avail - avail_today) > 10:
-                    change_date = d
-                prev_avail = entry_avail
+            # Fallback to MTPASA
+            if not return_date and sorted_days:
+                prev_m = avail_now
+                for d in sorted_days:
+                    if d <= today_str:
+                        continue
+                    entry_avail = mtpasa_days[d]["avail"]
+                    if entry_avail > prev_m:
+                        return_date = d
+                        return_source = "MTPASA"
+                        break
+                    prev_m = entry_avail
 
-        # ── State label ────────────────────────────────────────────────────────
-        if avail_today == 0:
-            if state_today == "Forced":
-                label = "Forced"
-            elif state_today == "Planned":
-                label = "Planned"
-            else:
-                label = "Offline"
-        elif avail_today < capacity * 0.95:
+        # ── Step 4: Include or skip ───────────────────────────────────────────
+        currently_affected = avail_now < capacity
+        has_upcoming_change = next_change_date is not None
+
+        # Skip if fully available AND no upcoming changes
+        if not currently_affected and not has_upcoming_change:
+            continue
+
+        # ── Step 5: State label ───────────────────────────────────────────────
+        if avail_now == 0:
+            label = "Forced" if state_now == "Forced" else "Planned" if state_now == "Planned" else "Offline"
+        elif avail_now < capacity:
             label = "Derated"
         else:
-            label = state_today or "Unknown"
+            label = "Upcoming"  # fully available now but change coming
 
         results.append({
-            "duid":          duid,
-            "station":       unit.get("station", duid),
-            "fuel":          unit.get("fuel", "Other"),
-            "region":        unit.get("region", ""),
-            "capacity":      int(capacity),
-            "avail_today":   int(avail_today),
-            "state":         label,
-            "pasa_state":    state_today,
-            "change_mw":     int(change_mw),
-            "change_date":   change_date,
-            "return_date":   return_date,
-            "return_source": return_source,
-            "avail_source":  source_today,
+            "duid":              duid,
+            "station":           unit.get("station", duid),
+            "fuel":              unit.get("fuel", "Other"),
+            "region":            unit.get("region", ""),
+            "capacity":          int(capacity),
+            "avail_today":       int(avail_now),
+            "avail_source":      avail_source,
+            "state":             label,
+            "pasa_state":        state_now,
+            "change_mw":         int(avail_now - capacity),
+            "next_change_date":  next_change_date,
+            "next_change_avail": int(next_change_avail) if next_change_avail is not None else None,
+            "next_change_source": next_change_source,
+            "return_date":       return_date,
+            "return_source":     return_source,
         })
 
     results.sort(key=lambda x: x["change_mw"])
-    logger.info(f"scrape_mtpasa_outages: {len(results)} units (MTPASA+STPASA blend)")
+    logger.info(f"scrape_mtpasa_outages: {len(results)} units (current+upcoming, MTPASA+STPASA+PDPASA)")
     return results
-
-
 
 
 def scrape_slow() -> dict:

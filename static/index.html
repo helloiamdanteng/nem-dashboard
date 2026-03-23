@@ -256,6 +256,7 @@ let currentPanel = 'prices';
 let charts = {};
 let latestData = null;
 let genRegion = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']); // multi-select Set
+let genMultiSelect = false; // when false, clicking a region selects only that one
 let genPriceFilter   = new Set(); // price lines off by default (gen page)
 let originPriceFilter   = new Set(); // price lines off by default (origin page)
 let originHideOffline   = true;      // hide offline stations by default
@@ -803,6 +804,17 @@ function renderGeneration(data) {
   </button>`;
   html += '</div>';
 
+  // Select Multiple toggle
+  html += `<div style="margin-top:5px;margin-bottom:2px">
+    <button onclick="toggleGenMultiSelect()"
+      style="font-family:var(--font-mono);font-size:9px;padding:3px 10px;border-radius:20px;cursor:pointer;
+      border:1px solid ${genMultiSelect ? '#94a3b8' : '#334155'};
+      background:${genMultiSelect ? '#94a3b822' : 'transparent'};
+      color:${genMultiSelect ? '#94a3b8' : '#475569'}">
+      ${genMultiSelect ? '✓ ' : ''}Select Multiple
+    </button>
+  </div>`;
+
   // Main 24hr chart
   html += '<div class="chart-card"><div class="chart-title">Loading…</div>';
   html += '<div class="chart-container" style="height:280px"><canvas id="fuelChart"></canvas></div>';
@@ -868,10 +880,33 @@ function selectGenRegion(region) {
 }
 
 function toggleGenRegion(r) {
-  if (genRegion.has(r)) {
-    genRegion.delete(r);
+  if (genMultiSelect) {
+    // Multi-select: add/remove from set
+    if (genRegion.has(r)) { genRegion.delete(r); }
+    else { genRegion.add(r); }
   } else {
-    genRegion.add(r);
+    // Single-select: switch to just this region, auto-enable its price
+    const alreadyOnlyThis = genRegion.size === 1 && genRegion.has(r);
+    if (alreadyOnlyThis) {
+      // Clicking the already-selected single region → go back to NEM
+      genRegion = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
+      genPriceFilter.clear();
+    } else {
+      genRegion = new Set([r]);
+      genPriceFilter = new Set([r]); // auto-enable price for this region
+    }
+  }
+  if (latestData) renderPanel('generation', latestData);
+}
+
+function toggleGenMultiSelect() {
+  genMultiSelect = !genMultiSelect;
+  if (!genMultiSelect) {
+    // Switching off multi-select: if multiple regions selected, reset to NEM
+    if (genRegion.size !== 1) {
+      genRegion = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
+      genPriceFilter.clear();
+    }
   }
   if (latestData) renderPanel('generation', latestData);
 }

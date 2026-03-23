@@ -3256,7 +3256,7 @@ function drawBatteryCharts(data) {
         datasets.push({
           label: REGION_SHORT[r], regionId: r,
           data: allSlots.map((l,i) => i <= lastIdx ? (hm[l] ?? null) : null),
-          borderColor: color, backgroundColor: color + '44',
+          borderColor: color, backgroundColor: color + '88',
           borderWidth: 1, pointRadius: 0, tension: 0.2,
           fill: 'origin', spanGaps: false, stack: 'batt', yAxisID: 'y', order: 2,
         });
@@ -3336,7 +3336,7 @@ function drawBatteryCharts(data) {
         datasets.push({
           label: REGION_SHORT[r],
           data: allSlots.map((l,i) => i <= lastIdx ? (hm[l] ?? null) : null),
-          borderColor: color, backgroundColor: color+'44',
+          borderColor: color, backgroundColor: color+'88',
           borderWidth: 1, pointRadius: 0, tension: 0.2,
           fill: 'origin', spanGaps: false, stack: 'batt', yAxisID: 'y', order: 2,
         });

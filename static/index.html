@@ -256,7 +256,8 @@ let currentPanel = 'prices';
 let charts = {};
 let latestData = null;
 let genRegion = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']); // multi-select Set
-let genMultiSelect = false; // when false, clicking a region selects only that one
+let genMultiSelect = false;
+let priceLogScale = false; // P&D price chart log scale toggle // when false, clicking a region selects only that one
 let genPriceFilter   = new Set(); // price lines off by default (gen page)
 let originPriceFilter   = new Set(); // price lines off by default (origin page)
 let originHideOffline   = true;      // hide offline stations by default
@@ -396,6 +397,13 @@ function renderPrices(data) {
       border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;color:${REGION_COLORS[r]};cursor:pointer"
       >${REGION_SHORT[r]}</button>`;
   }
+  html += `<button onclick="togglePriceLogScale()"
+    style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;cursor:pointer;margin-left:4px;
+    border:1px solid ${priceLogScale ? '#94a3b8' : '#334155'};
+    background:${priceLogScale ? '#94a3b822' : 'transparent'};
+    color:${priceLogScale ? '#94a3b8' : '#475569'}">
+    ${priceLogScale ? '✓ ' : ''}Log
+  </button>`;
   html += '</div></div>';
   html += '<div class="section-title">Demand + Non-Sched Gen (MW)</div><div class="demand-grid">';
   for (const r of REGIONS) {
@@ -609,6 +617,11 @@ function drawPriceSensitivityChart(data) {
 }
 
 
+function togglePriceLogScale() {
+  priceLogScale = !priceLogScale;
+  if (latestData) renderPanel('prices', latestData);
+}
+
 function togglePriceRegion(r) {
   if (!charts.priceHist) return;
   const btn = document.getElementById('pr-' + r);
@@ -744,6 +757,7 @@ function drawPriceChart(data) {
           }
         },
         y: {
+          type: priceLogScale ? 'logarithmic' : 'linear',
           ticks: {
             color: '#94a3b8',
             font: { family: 'Space Mono', size: 10 },

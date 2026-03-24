@@ -2623,9 +2623,14 @@ def scrape_mtpasa_outages() -> list:
         mtpasa_days = duid_data.get(duid, {})
         sorted_days = sorted(mtpasa_days.keys())
         if sorted_days:
-            today_entry = next((mtpasa_days[d] for d in sorted_days if d >= today_str), None)
-            if today_entry is None:
-                today_entry = mtpasa_days[sorted_days[-1]]
+            # Find most recent change-point on or before today
+            # MTPASA has sparse change-points — availability is the last known value
+            past_days = [d for d in sorted_days if d <= today_str]
+            if past_days:
+                today_entry = mtpasa_days[past_days[-1]]
+            else:
+                # No past entry — use first future entry (outage starts today or later)
+                today_entry = mtpasa_days[sorted_days[0]]
             avail_now = today_entry["avail"]
             state_now = today_entry["state"]
             avail_source = "MTPASA"

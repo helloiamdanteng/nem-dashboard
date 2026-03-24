@@ -4847,7 +4847,7 @@ function showMtpasaModal(duid, u, days) {
   let current = null;
   for (const pt of days) {
     const pct = capacity > 0 ? pt.avail / capacity : 1;
-    const type = pct >= 0.98 ? 'full' : pct <= 0.02 ? 'offline' : 'derated';
+    const type = pct >= 0.85 ? 'full' : pct <= 0.02 ? 'offline' : 'derated';
     if (!current || current.type !== type || current.avail !== pt.avail || current.state !== pt.state) {
       if (current) periods.push(current);
       current = {start: pt.day, end: pt.day, avail: pt.avail, state: pt.state, type};

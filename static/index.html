@@ -3977,7 +3977,8 @@ function drawWeekCharts(fastData) {
       renewDatasets.push({
         label: REGION_SHORT[r] + ' Solar', regionId: r, seriesType: 'solar',
         data: pasaLabels.map(l => solarMap[l] ?? null),
-        borderColor: REGION_COLORS[r], backgroundColor: REGION_COLORS[r] + '44',
+        borderColor: ({'QLD1':'#fbd07c','NSW1':'#90c8f0','VIC1':'#86e8b0','SA1':'#f0908a','TAS1':'#c49fd8'}[r] || REGION_COLORS[r]),
+        backgroundColor: ({'QLD1':'#fbd07c','NSW1':'#90c8f0','VIC1':'#86e8b0','SA1':'#f0908a','TAS1':'#c49fd8'}[r] || REGION_COLORS[r]) + 'cc',
         borderWidth: 1, fill: 'origin', pointRadius: 0, tension: 0.2,
         spanGaps: true, stack: 'renew', yAxisID: 'y',
       });
@@ -3986,7 +3987,7 @@ function drawWeekCharts(fastData) {
       renewDatasets.push({
         label: REGION_SHORT[r] + ' Wind', regionId: r, seriesType: 'wind',
         data: pasaLabels.map(l => windMap[l] ?? null),
-        borderColor: REGION_COLORS[r], backgroundColor: REGION_COLORS[r] + '88',
+        borderColor: REGION_COLORS[r], backgroundColor: REGION_COLORS[r] + 'cc',
         borderWidth: 1.5, fill: 'stack', pointRadius: 0, tension: 0.2,
         spanGaps: true, stack: 'renew', yAxisID: 'y',
       });

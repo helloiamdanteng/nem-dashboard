@@ -2595,81 +2595,106 @@ def scrape_mtpasa_outages() -> list:
 
     results = []
 
-    # ── Logic ─────────────────────────────────────────────────────────────────
-    # STPASA and MTPASA are both forward-looking (start ~2 days out).
-    # For each DUID: check the EARLIEST available slot in STPASA.
-    # If it's below 70% of capacity → it's on outage (starting soon).
-    # Then scan forward for first slot that returns above 70% = return date.
-    # MTPASA covers the longer horizon for return dates beyond STPASA's 7 days.
+    # ── Strategy ──────────────────────────────────────────────────────────────
+    # Use STPASA first interval as "current" availability — but only for
+    # SCHEDULED units (coal, gas, hydro, battery) where zero means outage.
+    # Wind/Solar are excluded — zero at night is normal, not an outage.
+    # For units not in STPASA, fall back to MTPASA change-points.
+    # Return date = first future interval/day where avail goes back above 70%.
     # ──────────────────────────────────────────────────────────────────────────
     THRESHOLD = 0.70
+    SCHEDULED_FUELS = {"Black Coal", "Brown Coal", "Gas", "Hydro", "Battery", "Liquid", "Other"}
 
-    all_duids = set(duid_data.keys()) | set(stpasa_avail.keys())
+    # Build STPASA: first interval per DUID
+    stpasa_first: dict = {}   # { duid: avail_mw at first interval }
+    stpasa_first_dt: str = "" # the first interval datetime string
+    all_st_slots = stpasa_avail  # already { duid: { "YYYY-MM-DD HH:MM": mw } }
+    if all_st_slots:
+        # Find global first interval across all DUIDs
+        all_dts = set()
+        for slots in all_st_slots.values():
+            all_dts.update(slots.keys())
+        if all_dts:
+            stpasa_first_dt = sorted(all_dts)[0]
+            for duid, slots in all_st_slots.items():
+                if stpasa_first_dt in slots:
+                    stpasa_first[duid] = slots[stpasa_first_dt]
+
+    all_duids = set(stpasa_first.keys()) | set(duid_data.keys())
 
     for duid in all_duids:
         unit = NEM_UNITS.get(duid, {})
         capacity = unit.get("capacity") or 0
         if capacity <= 0:
             continue
+        fuel = unit.get("fuel", "Other")
+
+        # Only process scheduled/dispatchable fuels
+        if fuel not in SCHEDULED_FUELS:
+            continue
 
         threshold_mw = capacity * THRESHOLD
         mtpasa_days = duid_data.get(duid, {})
         sorted_days = sorted(mtpasa_days.keys())
         stpasa_slots = stpasa_avail.get(duid, {})
-        sorted_st = sorted(stpasa_slots.keys())
 
-        # ── Step 1: Current/imminent availability ─────────────────────────────
-        # Use earliest STPASA slot as the best near-term availability signal.
-        # Fall back to earliest MTPASA entry if not in STPASA.
-        avail_now = capacity  # assume full
+        # ── Current availability ───────────────────────────────────────────────
+        # Priority: STPASA first interval > MTPASA most recent past entry
+        avail_now = None
         state_now = "Unknown"
-        avail_source = "assumed"
-        outage_start = None
+        avail_source = None
 
-        if sorted_st:
-            first_slot = sorted_st[0]
-            avail_now = stpasa_slots[first_slot]
+        if duid in stpasa_first:
+            avail_now = stpasa_first[duid]
             avail_source = "STPASA"
-            outage_start = first_slot[:10].replace("-", "/")
-        elif sorted_days:
-            first_day = sorted_days[0]
-            avail_now = mtpasa_days[first_day]["avail"]
-            state_now = mtpasa_days[first_day]["state"]
-            avail_source = "MTPASA"
-            outage_start = first_day
 
-        # Skip if not on outage
-        if avail_now >= threshold_mw:
-            continue
+        if avail_now is None and sorted_days:
+            past_days = [d for d in sorted_days if d <= today_str]
+            if past_days:
+                entry = mtpasa_days[past_days[-1]]
+                avail_now = entry["avail"]
+                state_now = entry["state"]
+                avail_source = "MTPASA"
+            elif sorted_days:
+                entry = mtpasa_days[sorted_days[0]]
+                avail_now = entry["avail"]
+                state_now = entry["state"]
+                avail_source = "MTPASA"
 
-        # Skip retired
+        if avail_now is None:
+            avail_now = capacity  # assume full if no data
+
+        # Skip permanently retired
         if state_now in ("Mothballed", "Retired", "Decommissioned"):
             continue
 
-        # ── Step 2: Find return date ──────────────────────────────────────────
-        # STPASA: scan daily 00:30 slots for first day back above threshold
+        # Skip if above threshold
+        if avail_now >= threshold_mw:
+            continue
+
+        # ── Find return date ───────────────────────────────────────────────────
+        # Scan STPASA slots forward for first slot >= threshold
         return_date = None
         return_source = None
 
-        # Find when STPASA shows recovery
-        for slot in sorted_st:
+        future_st = sorted([k for k in stpasa_slots if k > stpasa_first_dt])
+        for slot in future_st:
             if stpasa_slots[slot] >= threshold_mw:
                 return_date = slot[:10].replace("-", "/")
                 return_source = "STPASA"
                 break
 
-        # MTPASA: scan all change-points for recovery beyond STPASA horizon
-        if not return_date:
-            stpasa_end = sorted_st[-1][:10].replace("-", "/") if sorted_st else ""
+        # Fallback to MTPASA
+        if not return_date and sorted_days:
             for d in sorted_days:
-                if stpasa_end and d <= stpasa_end:
+                if d <= today_str:
                     continue
                 if mtpasa_days[d]["avail"] >= threshold_mw:
                     return_date = d
                     return_source = "MTPASA"
                     break
 
-        # ── Step 3: State label ───────────────────────────────────────────────
+        # ── State label ───────────────────────────────────────────────────────
         if avail_now == 0:
             label = "Forced" if state_now == "Forced" else "Planned" if state_now == "Planned" else "Offline"
         else:
@@ -2678,7 +2703,7 @@ def scrape_mtpasa_outages() -> list:
         results.append({
             "duid":          duid,
             "station":       unit.get("station", duid),
-            "fuel":          unit.get("fuel", "Other"),
+            "fuel":          fuel,
             "region":        unit.get("region", ""),
             "capacity":      int(capacity),
             "avail_today":   int(avail_now),
@@ -2686,7 +2711,6 @@ def scrape_mtpasa_outages() -> list:
             "state":         label,
             "pasa_state":    state_now,
             "change_mw":     int(avail_now - capacity),
-            "outage_start":  outage_start,
             "return_date":   return_date,
             "return_source": return_source,
         })

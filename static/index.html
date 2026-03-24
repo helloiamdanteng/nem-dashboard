@@ -4360,7 +4360,10 @@ function renderOutages(data) {
     return { label, days };
   }
 
-  let html = '<div class="section-title">Capacity Reductions — MTPASA + STPASA</div>';
+  let html = '<div class="section-title">Capacity Reductions - MTPASA + STPASA</div>' +
+    '<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-bottom:8px;line-height:1.5">' +
+    'Units below 85% of registered capacity, or with a significant change scheduled. Minor ambient deratings excluded. Source: PDPASA / STPASA / MTPASA.' +
+    '</div>';
 
   if (!slowData) {
     html += '<div class="state-msg"><div class="icon">⏳</div><div>Loading outage data…</div></div>';

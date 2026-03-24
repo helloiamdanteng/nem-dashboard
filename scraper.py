@@ -404,16 +404,19 @@ ORIGIN_DISPLAY_NAMES: dict = {
     "GUNNING1": "Gunning Wind Farm",
     "ERB01":    "Eraring Battery",
     "ERGT01":   "Eraring Liquid",
-    # Coal units
+    # Eraring coal
     "ER01":     "Eraring",
     "ER02":     "Eraring",
     "ER03":     "Eraring",
     "ER04":     "Eraring",
-    # Shoalhaven — long AEMO name
+    # Shoalhaven
     "SHGEN":    "Shoalhaven",
     "SHPUMP":   "Shoalhaven Pump",
-    # Darling Downs
+    # Darling Downs gas + solar
     "DDPS1":    "Darling Downs",
+    "DDSF1":    "Darling Downs Solar",
+    # Daydream
+    "DAYDSF1":  "Daydream Solar",
     # Mt Stuart
     "MSTUART1": "Mt Stuart",
     "MSTUART2": "Mt Stuart",
@@ -421,12 +424,29 @@ ORIGIN_DISPLAY_NAMES: dict = {
     # Mortlake
     "MORTLK11": "Mortlake",
     "MORTLK12": "Mortlake",
+    # Stockyard Hill
+    "STOCKYD1": "Stockyard Hill",
     # Ladbroke Grove
     "LADBROK1": "Ladbroke Grove",
     "LADBROK2": "Ladbroke Grove",
+    # Quarantine
+    "QPS1":     "Quarantine",
+    "QPS2":     "Quarantine",
+    "QPS3":     "Quarantine",
+    "QPS4":     "Quarantine",
+    "QPS5":     "Quarantine",
     # Snowtown
     "SNOWNTH1": "Snowtown 1",
     "SNOWSTH1": "Snowtown 2",
+    # Uranquinty — two DUID families, same display name
+    "URANQ1":   "Uranquinty",
+    "URANQ2":   "Uranquinty",
+    "URANQ3":   "Uranquinty",
+    "URANQ4":   "Uranquinty",
+    "URANQ11":  "Uranquinty",
+    "URANQ12":  "Uranquinty",
+    "URANQ13":  "Uranquinty",
+    "URANQ14":  "Uranquinty",
 }
 
 

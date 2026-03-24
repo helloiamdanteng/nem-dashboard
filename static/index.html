@@ -5106,9 +5106,9 @@ function drawCoalCalendar() {
         let fill='#0d1420';
         if (pt&&u.capacity>0) {
           const pct=pt.avail/u.capacity;
-          if (pct>=0.98)      fill='#0d1117';  // full capacity — black
+          if (pct>=0.85)      fill='#0d1117';  // full / minor derate — black
           else if (pct<=0.02) fill='#7f1d1d';  // full outage — red
-          else                fill='#78350f';   // derated — brown
+          else                fill='#78350f';   // significant derate (>15%) — brown
         }
         if (!groups[fill]) groups[fill]=[];
         groups[fill].push(wi);

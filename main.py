@@ -723,6 +723,66 @@ async def pasa_dirs_debug():
     result = await loop.run_in_executor(None, _fetch)
     return result
 
+@app.get("/api/stpasa-snapshot")
+async def stpasa_snapshot():
+    """Check the first STPASA interval - what is available/unavailable right now."""
+    import asyncio
+    from scraper import _list_hrefs, _read_zip, _parse_aemo, NEM_UNITS, STPASA_DUID_URL, AEST
+    from datetime import datetime
+
+    loop = asyncio.get_running_loop()
+
+    def _fetch():
+        files = _list_hrefs(STPASA_DUID_URL)
+        if not files:
+            return {"error": "no files"}
+        latest = sorted(files)[-1]
+        text = _read_zip(latest)
+
+        # Get all rows, find the first (earliest) INTERVAL_DATETIME
+        rows = list(_parse_aemo(text, "DUIDAVAILABILITY"))
+        if not rows:
+            return {"error": "no rows"}
+
+        # Find the first interval datetime
+        first_dt = min(r.get("INTERVAL_DATETIME","") for r in rows if r.get("INTERVAL_DATETIME"))
+        last_dt  = max(r.get("INTERVAL_DATETIME","") for r in rows if r.get("INTERVAL_DATETIME"))
+
+        # Get all DUIDs at the first interval
+        first_rows = [r for r in rows if r.get("INTERVAL_DATETIME","") == first_dt]
+
+        # Find unavailable ones (< 70% of nameplate)
+        unavailable = []
+        for r in first_rows:
+            duid = r.get("DUID","").strip()
+            unit = NEM_UNITS.get(duid, {})
+            cap = unit.get("capacity", 0)
+            if cap <= 0:
+                continue
+            avail = float(r.get("GENERATION_PASA_AVAILABILITY") or 0)
+            if avail < cap * 0.70:
+                unavailable.append({
+                    "duid": duid,
+                    "station": unit.get("station", duid),
+                    "fuel": unit.get("fuel","?"),
+                    "region": unit.get("region","?"),
+                    "capacity": cap,
+                    "avail": avail,
+                    "pct": round(avail/cap*100, 1),
+                })
+
+        unavailable.sort(key=lambda x: x["avail"] - x["capacity"])
+        return {
+            "file": latest,
+            "first_interval": first_dt,
+            "last_interval": last_dt,
+            "total_duids_in_file": len(set(r.get("DUID") for r in rows)),
+            "unavailable_count": len(unavailable),
+            "unavailable": unavailable[:50],
+        }
+
+    return await loop.run_in_executor(None, _fetch)
+
 @app.get("/api/eraring-debug2")
 async def eraring_debug2():
     """Check earliest/latest STPASA slots for Eraring."""

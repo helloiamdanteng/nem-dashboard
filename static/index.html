@@ -2599,7 +2599,7 @@ async function openOriginStationModal(stnName) {
 
   let statsHtml = [
     `<span>Now: <b style="color:${baseColor}">${fmt(totalNow,0)} MW</b></span>`,
-    maxMw !== null ? `<span>Peak today: <b style="color:${baseColor}">${fmt(maxMw,0)} MW</b></span>` : null,
+
     `<span style="color:#475569">of ${fmt(s.totalCap,0)} MW cap</span>`,
   ].filter(Boolean).join('<span style="color:#334155"> · </span>');
 

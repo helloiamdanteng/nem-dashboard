@@ -402,9 +402,31 @@ ORIGIN_DISPLAY_NAMES: dict = {
     "BNGSF1":   "Bungala Solar 1",
     "BNGSF2":   "Bungala Solar 2",
     "GUNNING1": "Gunning Wind Farm",
-    "ERB01":     "Eraring Battery",
+    "ERB01":    "Eraring Battery",
+    "ERGT01":   "Eraring Liquid",
+    # Coal units
+    "ER01":     "Eraring",
+    "ER02":     "Eraring",
+    "ER03":     "Eraring",
+    "ER04":     "Eraring",
+    # Shoalhaven — long AEMO name
+    "SHGEN":    "Shoalhaven",
     "SHPUMP":   "Shoalhaven Pump",
-    "ERGT01":   "Eraring",
+    # Darling Downs
+    "DDPS1":    "Darling Downs",
+    # Mt Stuart
+    "MSTUART1": "Mt Stuart",
+    "MSTUART2": "Mt Stuart",
+    "MSTUART3": "Mt Stuart",
+    # Mortlake
+    "MORTLK11": "Mortlake",
+    "MORTLK12": "Mortlake",
+    # Ladbroke Grove
+    "LADBROK1": "Ladbroke Grove",
+    "LADBROK2": "Ladbroke Grove",
+    # Snowtown
+    "SNOWNTH1": "Snowtown 1",
+    "SNOWSTH1": "Snowtown 2",
 }
 
 

@@ -409,6 +409,32 @@ async def debug():
     return JSONResponse(content=result)
 
 
+@app.get("/api/reg-sources-debug")
+async def reg_sources_debug():
+    """Test all registration list sources to find what works from Render."""
+    import asyncio, time as _time
+    from scraper import _get, _list_hrefs, NEMWEB_BASE
+
+    loop = asyncio.get_running_loop()
+    def _fetch():
+        results = {}
+        # Test SEMP CSV
+        url = f"{NEMWEB_BASE}/REPORTS/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV"
+        r = _get(url, timeout=10)
+        results["semp_csv"] = {"status": r.status_code if r else "failed", "size": len(r.content) if r else 0}
+
+        # Test DVD directory listing
+        for path in [f"{NEMWEB_BASE}/REPORTS/CURRENT/DVD/", f"{NEMWEB_BASE}/REPORTS/ARCHIVE/DVD/"]:
+            try:
+                files = _list_hrefs(path)
+                detail = [f for f in files if "DUDETAIL" in f.upper()]
+                results[f"dvd_{path.split('/')[-2]}"] = {"file_count": len(files), "dudetail_count": len(detail), "sample": detail[-2:] if detail else []}
+            except Exception as e:
+                results[f"dvd_{path.split('/')[-2]}"] = {"error": str(e)}
+        return results
+
+    return await loop.run_in_executor(None, _fetch)
+
 @app.get("/api/reg-test")
 async def reg_test():
     """Directly test AEMO registration list download and parse."""

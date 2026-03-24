@@ -2382,30 +2382,34 @@ def scrape_pasa_duid_availability(source: str = "STPASA") -> dict:
     if not text:
         return {}
 
-    result: dict = {}  # { duid: { "YYYY-MM-DD HH:MM": avail_mw } }
+    result: dict = {}  # { duid: { "YYYY-MM-DD HH:MM": pasa_avail_mw } }
+    max_avail: dict = {}  # { duid: max_generation_availability_mw } — use as capacity baseline
     for row in _parse_aemo(text, "DUIDAVAILABILITY"):
         duid = row.get("DUID", "").strip()
         if not duid:
             continue
-        unit = NEM_UNITS.get(duid, {})
-        if not unit or not unit.get("capacity"):
-            continue
         dt_str = row.get("INTERVAL_DATETIME", "")
         avail_str = row.get("GENERATION_PASA_AVAILABILITY", "")
+        max_str   = row.get("GENERATION_MAX_AVAILABILITY", "")
         if not dt_str or not avail_str:
             continue
         try:
             avail = round(float(avail_str))
+            max_a = round(float(max_str)) if max_str else None
             dt = datetime.fromisoformat(dt_str.replace("/", "-"))
             label = dt.strftime("%Y-%m-%d %H:%M")
             if duid not in result:
                 result[duid] = {}
             result[duid][label] = avail
+            # Track the maximum of GENERATION_MAX_AVAILABILITY seen across all slots
+            if max_a is not None:
+                if duid not in max_avail or max_a > max_avail[duid]:
+                    max_avail[duid] = max_a
         except (ValueError, TypeError):
             continue
 
     logger.info(f"scrape_pasa_duid_availability({source}): {len(result)} DUIDs")
-    return result
+    return {"slots": result, "max_avail": max_avail}
 
 
 def scrape_mtpasa_outages() -> list:
@@ -2427,15 +2431,21 @@ def scrape_mtpasa_outages() -> list:
         f_pdpasa = ex.submit(scrape_pasa_duid_availability, "PDPASA")
         f_mtpasa_files = ex.submit(_list_hrefs, MTPASA_DUID_URL)
 
-    stpasa_avail = {}
-    pdpasa_avail = {}
+    stpasa_result = {}
+    pdpasa_result = {}
     mtpasa_files = []
-    try: stpasa_avail = f_stpasa.result(timeout=25)
+    try: stpasa_result = f_stpasa.result(timeout=25)
     except Exception as e: logger.warning(f"STPASA fetch failed: {e}")
-    try: pdpasa_avail = f_pdpasa.result(timeout=25)
+    try: pdpasa_result = f_pdpasa.result(timeout=25)
     except Exception as e: logger.warning(f"PDPASA fetch failed: {e}")
     try: mtpasa_files = f_mtpasa_files.result(timeout=25)
     except Exception as e: logger.warning(f"MTPASA listing failed: {e}")
+
+    # Unpack slots and max_avail from new return format
+    stpasa_avail = stpasa_result.get("slots", {}) if isinstance(stpasa_result, dict) and "slots" in stpasa_result else stpasa_result
+    pdpasa_avail = pdpasa_result.get("slots", {}) if isinstance(pdpasa_result, dict) and "slots" in pdpasa_result else pdpasa_result
+    stpasa_max   = stpasa_result.get("max_avail", {}) if isinstance(stpasa_result, dict) else {}
+    pdpasa_max   = pdpasa_result.get("max_avail", {}) if isinstance(pdpasa_result, dict) else {}
 
     # Parse MTPASA file
     duid_data: dict = {}  # { duid: { "YYYY/MM/DD": {avail, state} } }
@@ -2479,7 +2489,16 @@ def scrape_mtpasa_outages() -> list:
         if capacity <= 0:
             continue
 
-        # ── Step 1: Current availability ──────────────────────────────────────
+        # ── Step 1: Determine capacity baseline ──────────────────────────────
+        # Use GENERATION_MAX_AVAILABILITY from PDPASA/STPASA as the ceiling
+        # This accounts for ambient derating, aux load etc — more accurate than nameplate
+        pasa_capacity = pdpasa_max.get(duid) or stpasa_max.get(duid) or capacity
+        # Never let PASA capacity exceed nameplate by more than 5% (sanity check)
+        pasa_capacity = min(pasa_capacity, capacity * 1.05)
+        # Use pasa_capacity as our reference going forward
+        capacity = pasa_capacity
+
+        # ── Step 2: Current availability ──────────────────────────────────────
         # Priority: PDPASA > STPASA current slot > MTPASA today
         avail_now = capacity  # assume full until proven otherwise
         state_now = "Unknown"

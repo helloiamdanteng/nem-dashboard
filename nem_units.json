@@ -1,39 +1,69 @@
 {
+  "-": {
+    "capacity": 148,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Portland Wind Farm"
+  },
   "ADPBA1": {
-    "capacity": 50,
+    "capacity": 8,
     "fuel": "Battery",
     "region": "SA1",
-    "station": "Adelaide Plains BESS"
+    "station": "Adelaide Desalination Plant"
+  },
+  "ADPMH1": {
+    "capacity": 1,
+    "fuel": "Hydro",
+    "region": "SA1",
+    "station": "Adelaide Desalination Plant"
   },
   "ADPPV1": {
-    "capacity": 80,
+    "capacity": 25,
     "fuel": "Solar",
     "region": "SA1",
-    "station": "Adelaide Plains Solar"
+    "station": "Adelaide Desalination Plant"
+  },
+  "ADPPV2": {
+    "capacity": 0,
+    "fuel": "Solar",
+    "region": "SA1",
+    "station": "Adelaide Desalination Plant"
+  },
+  "ADPPV3": {
+    "capacity": 0,
+    "fuel": "Solar",
+    "region": "SA1",
+    "station": "Adelaide Desalination Plant"
   },
   "AGLHAL": {
-    "capacity": 228,
+    "capacity": 217,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "AGL Hallett"
+    "station": "Hallett Power Station"
   },
   "AGLSOM": {
-    "capacity": 180,
+    "capacity": 170,
     "fuel": "Gas",
-    "region": "SA1",
-    "station": "Somerton"
+    "region": "VIC1",
+    "station": "Somerton Power Station"
   },
   "ALDGASF1": {
-    "capacity": 203,
-    "fuel": "Gas",
+    "capacity": 535,
+    "fuel": "Solar",
     "region": "QLD1",
-    "station": "Aldoga"
+    "station": "Aldoga Solar Farm"
   },
   "ANGAST1": {
     "capacity": 50,
-    "fuel": "Gas",
+    "fuel": "Liquid",
     "region": "SA1",
-    "station": "Angaston"
+    "station": "Angaston Power Station"
+  },
+  "APPIN": {
+    "capacity": 56,
+    "fuel": "Gas",
+    "region": "NSW1",
+    "station": "Appin Power Plant"
   },
   "ARARAT1": {
     "capacity": 240,
@@ -42,46 +72,58 @@
     "station": "Ararat Wind"
   },
   "ARWF1": {
-    "capacity": 240,
+    "capacity": 242,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Ararat"
+    "station": "Ararat Wind Farm"
   },
   "AVLSF1": {
-    "capacity": 228,
+    "capacity": 254,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Avonlie"
+    "station": "Avonlie Solar Farm"
+  },
+  "BAKING1": {
+    "capacity": 18,
+    "fuel": "Solar",
+    "region": "QLD1",
+    "station": "Baking Board Solar Farm"
   },
   "BALB1": {
-    "capacity": 50,
+    "capacity": 30,
     "fuel": "Battery",
     "region": "VIC1",
-    "station": "Bald Hills BESS"
+    "station": "Ballarat Battery Energy Storage System"
   },
   "BALDHWF1": {
     "capacity": 107,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Bald Hills"
+    "station": "Bald Hills Wind Farm"
   },
   "BANGOWF1": {
-    "capacity": 244,
+    "capacity": 159,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "Bango"
+    "station": "Bango 973 Wind Farm"
   },
   "BANGOWF2": {
-    "capacity": 244,
+    "capacity": 85,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "Bango 2"
+    "station": "Bango 999 Wind Farm"
   },
   "BANN1": {
-    "capacity": 108,
-    "fuel": "Gas",
-    "region": "WA",
-    "station": "Bannister"
+    "capacity": 100,
+    "fuel": "Solar",
+    "region": "VIC1",
+    "station": "Bannerton Solar Park"
+  },
+  "BAPS": {
+    "capacity": 13,
+    "fuel": "Hydro",
+    "region": "VIC1",
+    "station": "Banimboola Power Station"
   },
   "BARCABAT1": {
     "capacity": 20,
@@ -90,34 +132,34 @@
     "station": "Barcaldine Battery"
   },
   "BARCALDN": {
-    "capacity": 57,
+    "capacity": 37,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Barcaldine Gas"
+    "station": "Barcaldine Power Station"
   },
   "BARCSF1": {
-    "capacity": 57,
+    "capacity": 20,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Barcaldine"
+    "station": "Barcaldine Solar Farm"
   },
   "BARKIPS1": {
-    "capacity": 25,
-    "fuel": "Solar",
-    "region": "QLD1",
-    "station": "Barcaldine"
+    "capacity": 211,
+    "fuel": "Gas",
+    "region": "SA1",
+    "station": "Barker Inlet Power Station"
   },
   "BARRON-1": {
-    "capacity": 33,
+    "capacity": 30,
     "fuel": "Hydro",
     "region": "QLD1",
-    "station": "Barron Gorge"
+    "station": "Barron Gorge Power Station"
   },
   "BARRON-2": {
-    "capacity": 33,
+    "capacity": 30,
     "fuel": "Hydro",
     "region": "QLD1",
-    "station": "Barron Gorge"
+    "station": "Barron Gorge Power Station"
   },
   "BARRON1": {
     "capacity": 66,
@@ -135,7 +177,7 @@
     "capacity": 80,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Bastyan"
+    "station": "Bastyan Power Station"
   },
   "BASTYAN1": {
     "capacity": 80,
@@ -150,40 +192,46 @@
     "station": "Bastyan"
   },
   "BBATTERY1": {
-    "capacity": 50,
+    "capacity": 67,
     "fuel": "Battery",
-    "region": "NSW1",
-    "station": "Broken Hill BESS"
+    "region": "QLD1",
+    "station": "Bouldercombe Battery Project"
   },
   "BBTHREE1": {
-    "capacity": 100,
-    "fuel": "Battery",
-    "region": "VIC1",
-    "station": "Big Battery 3 (1)"
+    "capacity": 35,
+    "fuel": "Gas",
+    "region": "TAS1",
+    "station": "Bell Bay Three Power Station"
   },
   "BBTHREE2": {
-    "capacity": 100,
-    "fuel": "Battery",
-    "region": "VIC1",
-    "station": "Big Battery 3 (2)"
+    "capacity": 35,
+    "fuel": "Gas",
+    "region": "TAS1",
+    "station": "Bell Bay Three Power Station"
   },
   "BBTHREE3": {
-    "capacity": 100,
-    "fuel": "Battery",
-    "region": "VIC1",
-    "station": "Big Battery 3 (3)"
+    "capacity": 35,
+    "fuel": "Gas",
+    "region": "TAS1",
+    "station": "Bell Bay Three Power Station"
   },
   "BDL01": {
-    "capacity": 50,
-    "fuel": "Battery",
-    "region": "SA1",
-    "station": "Badgingarra BESS"
+    "capacity": 46,
+    "fuel": "Gas",
+    "region": "VIC1",
+    "station": "Bairnsdale Power Station"
   },
   "BDL02": {
-    "capacity": 50,
-    "fuel": "Battery",
-    "region": "SA1",
-    "station": "Badgingarra BESS 2"
+    "capacity": 46,
+    "fuel": "Gas",
+    "region": "VIC1",
+    "station": "Bairnsdale Power Station"
+  },
+  "BDONGHYD": {
+    "capacity": 19,
+    "fuel": "Hydro",
+    "region": "NSW1",
+    "station": "Burrendong Hydro Power Station"
   },
   "BELL_BAY3": {
     "capacity": 121,
@@ -216,76 +264,94 @@
     "station": "Bendeela"
   },
   "BERYLSF1": {
-    "capacity": 118,
+    "capacity": 98,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Beryl"
+    "station": "Beryl Solar Farm"
   },
   "BHB1": {
-    "capacity": 50,
+    "capacity": 66,
     "fuel": "Battery",
     "region": "NSW1",
-    "station": "Broken Hill BESS 2"
+    "station": "Broken Hill Battery Energy Storage System"
+  },
+  "BLNKTAS": {
+    "capacity": 478,
+    "fuel": "Other",
+    "region": "TAS1",
+    "station": "Basslink HVDC Link"
+  },
+  "BLNKVIC": {
+    "capacity": 594,
+    "fuel": "Other",
+    "region": "VIC1",
+    "station": "Basslink HVDC Link"
   },
   "BLOWERNG": {
     "capacity": 80,
     "fuel": "Hydro",
     "region": "NSW1",
-    "station": "Blowering"
+    "station": "Blowering Power Station"
   },
   "BLUEGSF1": {
-    "capacity": 136,
+    "capacity": 183,
     "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Blue Grass"
+    "region": "QLD1",
+    "station": "Blue Grass Solar Farm"
   },
   "BLUFF1": {
     "capacity": 52,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Bluff Wind"
+    "station": "The Bluff Wind Farm"
   },
   "BLYTHB1": {
-    "capacity": 50,
+    "capacity": 281,
     "fuel": "Battery",
     "region": "SA1",
-    "station": "Blyth Battery"
+    "station": "Blyth Battery Energy Storage System"
   },
   "BNGSF1": {
-    "capacity": 110,
+    "capacity": 135,
     "fuel": "Solar",
     "region": "SA1",
-    "station": "Bungala Solar 1"
+    "station": "Bungala One Solar Farm"
   },
   "BNGSF2": {
-    "capacity": 110,
+    "capacity": 135,
     "fuel": "Solar",
     "region": "SA1",
-    "station": "Bungala Solar 2"
+    "station": "Bungala Two Solar Farm"
   },
   "BOCORWF1": {
     "capacity": 113,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "Boco Rock"
+    "station": "Boco Rock Wind Farm"
   },
   "BODWF1": {
     "capacity": 113,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "Boco Rock 2"
+    "station": "Bodangora Wind Farm"
+  },
+  "BOLIVAR1": {
+    "capacity": 10,
+    "fuel": "Other",
+    "region": "SA1",
+    "station": "Bolivar Waste Water Treatment Plant"
   },
   "BOLIVPS1": {
-    "capacity": 35,
+    "capacity": 128,
     "fuel": "Gas",
-    "region": "NSW1",
-    "station": "Bolivia Hill"
+    "region": "SA1",
+    "station": "Bolivar Power Station"
   },
   "BOMENSF1": {
-    "capacity": 120,
+    "capacity": 121,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Bomen"
+    "station": "Bomen Solar Farm"
   },
   "BOMEN_SF1": {
     "capacity": 121,
@@ -294,16 +360,28 @@
     "station": "Bomen Solar"
   },
   "BOWWBA1": {
-    "capacity": 50,
+    "capacity": 3,
     "fuel": "Battery",
     "region": "SA1",
-    "station": "Bowmans Battery"
+    "station": "Bolivar Waste Water Treatment Plant"
+  },
+  "BOWWDG1": {
+    "capacity": 1,
+    "fuel": "Liquid",
+    "region": "SA1",
+    "station": "Bolivar Waste Water Treatment Plant"
   },
   "BOWWPV1": {
-    "capacity": 50,
+    "capacity": 8,
     "fuel": "Solar",
     "region": "SA1",
-    "station": "Bowmans Solar"
+    "station": "Bolivar Waste Water Treatment Plant"
+  },
+  "BPLANDF1": {
+    "capacity": 2,
+    "fuel": "Gas",
+    "region": "QLD1",
+    "station": "Browns Plains Landfill Gas PS"
   },
   "BPWF1": {
     "capacity": 107,
@@ -312,40 +390,40 @@
     "station": "Bald Hills"
   },
   "BRAEMAR1": {
-    "capacity": 171,
+    "capacity": 168,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Braemar"
+    "station": "Braemar Power Station"
   },
   "BRAEMAR2": {
-    "capacity": 171,
+    "capacity": 168,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Braemar"
+    "station": "Braemar Power Station"
   },
   "BRAEMAR3": {
-    "capacity": 171,
+    "capacity": 168,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Braemar"
+    "station": "Braemar Power Station"
   },
   "BRAEMAR5": {
-    "capacity": 174,
+    "capacity": 173,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Braemar 5"
+    "station": "Braemar 2 Power Station"
   },
   "BRAEMAR6": {
-    "capacity": 174,
+    "capacity": 173,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Braemar 6"
+    "station": "Braemar 2 Power Station"
   },
   "BRAEMAR7": {
-    "capacity": 192,
+    "capacity": 173,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Braemar 2"
+    "station": "Braemar 2 Power Station"
   },
   "BRAEMAR8": {
     "capacity": 192,
@@ -359,11 +437,17 @@
     "region": "QLD1",
     "station": "Braemar 2"
   },
+  "BRDDBES1": {
+    "capacity": 240,
+    "fuel": "Battery",
+    "region": "QLD1",
+    "station": "Broadsound Energy Park"
+  },
   "BRDDSF01": {
-    "capacity": 100,
+    "capacity": 368,
     "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Bridgetown Solar"
+    "region": "QLD1",
+    "station": "Broadsound Energy Park"
   },
   "BRINBA_WF1": {
     "capacity": 157,
@@ -372,88 +456,106 @@
     "station": "Brinbeal Wind"
   },
   "BRNDBES1": {
-    "capacity": 50,
+    "capacity": 215,
     "fuel": "Battery",
     "region": "QLD1",
-    "station": "Brendale Battery"
+    "station": "Brendale BESS"
   },
   "BROKENH1": {
-    "capacity": 53,
+    "capacity": 54,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Broken Hill"
+    "station": "Broken Hill Solar Plant"
+  },
+  "BROOKLYN": {
+    "capacity": 3,
+    "fuel": "Gas",
+    "region": "VIC1",
+    "station": "Brooklyn LFG U1-3"
+  },
+  "BROWNMT": {
+    "capacity": 5,
+    "fuel": "Hydro",
+    "region": "NSW1",
+    "station": "Brown Mountain Hydro Power Station"
   },
   "BRYB1WF1": {
-    "capacity": 20,
+    "capacity": 181,
     "fuel": "Wind",
-    "region": "SA1",
-    "station": "Bryan Bryan"
+    "region": "VIC1",
+    "station": "Berrybank Wind Farm"
   },
   "BRYB2WF2": {
-    "capacity": 28,
+    "capacity": 109,
     "fuel": "Wind",
-    "region": "SA1",
-    "station": "Bryan Bryan 2"
+    "region": "VIC1",
+    "station": "Berrybank 2 Wind Farm"
   },
   "BULBES1": {
-    "capacity": 50,
+    "capacity": 24,
     "fuel": "Battery",
     "region": "VIC1",
-    "station": "Bulgana BESS"
+    "station": "Bulgana Green Power Hub"
   },
   "BULGANA1": {
     "capacity": 204,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Bulgana"
+    "station": "Bulgana Green Power Hub"
   },
   "BUNGAMB1": {
-    "capacity": 50,
+    "capacity": 217,
     "fuel": "Battery",
     "region": "SA1",
-    "station": "Bungama Battery"
+    "station": "Bungama Battery Energy Storage System"
+  },
+  "BURRIN": {
+    "capacity": 34,
+    "fuel": "Hydro",
+    "region": "NSW1",
+    "station": "Burrinjuck Hydro Power Station"
   },
   "BUSF1": {
-    "capacity": 55,
+    "capacity": 101,
     "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Bulli"
+    "region": "QLD1",
+    "station": "Bundaberg Solar Farm"
   },
   "BUTLERSG": {
-    "capacity": 12,
-    "fuel": "Gas",
-    "region": "SA1",
-    "station": "Butler"
+    "capacity": 14,
+    "fuel": "Hydro",
+    "region": "TAS1",
+    "station": "Butlers Gorge Power Station"
   },
   "BW01": {
     "capacity": 660,
     "fuel": "Black Coal",
     "region": "NSW1",
-    "station": "Bayswater"
+    "station": "Bayswater Power Station"
   },
   "BW02": {
     "capacity": 660,
     "fuel": "Black Coal",
     "region": "NSW1",
-    "station": "Bayswater"
+    "station": "Bayswater Power Station"
   },
   "BW03": {
     "capacity": 660,
     "fuel": "Black Coal",
     "region": "NSW1",
-    "station": "Bayswater"
+    "station": "Bayswater Power Station"
   },
   "BW04": {
     "capacity": 660,
     "fuel": "Black Coal",
     "region": "NSW1",
-    "station": "Bayswater"
+    "station": "Bayswater Power Station"
   },
   "BWTR1": {
-    "capacity": 50,
-    "fuel": "Battery",
+    "capacity": 38,
+    "fuel": "Gas",
     "region": "NSW1",
-    "station": "Boulter BESS"
+    "station": "Broadwater Power Station"
   },
   "CALLIDE3": {
     "capacity": 450,
@@ -471,13 +573,13 @@
     "capacity": 350,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Callide B"
+    "station": "Callide Power Station"
   },
   "CALL_B_2": {
     "capacity": 350,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Callide B"
+    "station": "Callide Power Station"
   },
   "CANUNDA1": {
     "capacity": 46,
@@ -486,7 +588,7 @@
     "station": "Canunda Wind"
   },
   "CAPBES1": {
-    "capacity": 100,
+    "capacity": 125,
     "fuel": "Battery",
     "region": "NSW1",
     "station": "Capital Battery"
@@ -495,7 +597,7 @@
     "capacity": 140,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "Capital Wind"
+    "station": "Capital Wind Farm"
   },
   "CATAGUNYA1": {
     "capacity": 27,
@@ -513,7 +615,7 @@
     "capacity": 66,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Cathedral Rock"
+    "station": "Cathedral Rocks"
   },
   "CATTLE_HILL1": {
     "capacity": 149,
@@ -527,17 +629,59 @@
     "region": "TAS1",
     "station": "Cattle Hill"
   },
-  "CBWWBA1": {
-    "capacity": 10,
-    "fuel": "Battery",
+  "CBWF1": {
+    "capacity": 20,
+    "fuel": "Wind",
     "region": "VIC1",
-    "station": "Cape Bridgewater BESS"
+    "station": "Coonooer Bridge Wind Farm"
+  },
+  "CBWWBA1": {
+    "capacity": 2,
+    "fuel": "Battery",
+    "region": "SA1",
+    "station": "Christies Beach Wastewater Treatment Plant"
+  },
+  "CBWWBG1": {
+    "capacity": 1,
+    "fuel": "Gas",
+    "region": "SA1",
+    "station": "Christies Beach Wastewater Treatment Plant"
+  },
+  "CBWWDG1": {
+    "capacity": 2,
+    "fuel": "Liquid",
+    "region": "SA1",
+    "station": "Christies Beach Wastewater Treatment Plant"
+  },
+  "CBWWDG2": {
+    "capacity": 1,
+    "fuel": "Liquid",
+    "region": "SA1",
+    "station": "Christies Beach Wastewater Treatment Plant"
+  },
+  "CBWWPV1": {
+    "capacity": 3,
+    "fuel": "Solar",
+    "region": "SA1",
+    "station": "Christies Beach Wastewater Treatment Plant"
+  },
+  "CBWWPV2": {
+    "capacity": 1,
+    "fuel": "Solar",
+    "region": "SA1",
+    "station": "Christies Beach Wastewater Treatment Plant"
+  },
+  "CESF1": {
+    "capacity": 0,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Capital East Solar Farm"
   },
   "CETHANA": {
     "capacity": 85,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Cethana"
+    "station": "Cethana Power Station"
   },
   "CETHANA1": {
     "capacity": 85,
@@ -546,64 +690,76 @@
     "station": "Cethana"
   },
   "CG1": {
-    "capacity": 150,
+    "capacity": 181,
     "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Callide Gas"
+    "region": "NSW1",
+    "station": "Colongra Power Station"
   },
   "CG2": {
-    "capacity": 150,
+    "capacity": 181,
     "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Callide Gas"
+    "region": "NSW1",
+    "station": "Colongra Power Station"
   },
   "CG3": {
-    "capacity": 150,
+    "capacity": 181,
     "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Callide Gas"
+    "region": "NSW1",
+    "station": "Colongra Power Station"
   },
   "CG4": {
-    "capacity": 150,
+    "capacity": 181,
     "fuel": "Gas",
-    "region": "QLD1",
-    "station": "Callide Gas"
+    "region": "NSW1",
+    "station": "Colongra Power Station"
   },
   "CGBESS01": {
-    "capacity": 50,
+    "capacity": 90,
     "fuel": "Battery",
-    "region": "QLD1",
-    "station": "Coopers Gap BESS"
+    "region": "SA1",
+    "station": "Clements Gap BESS"
   },
   "CHALLHWF": {
     "capacity": 52,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Challicum Hills"
+    "station": "Challicum Hills Wind Farm"
   },
   "CHBESS1": {
-    "capacity": 50,
+    "capacity": 134,
     "fuel": "Battery",
     "region": "QLD1",
-    "station": "Chinchilla BESS"
+    "station": "Chinchilla BESS, Units 1-80"
   },
   "CHILDSF1": {
-    "capacity": 58,
+    "capacity": 64,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Childers"
+    "station": "Childers Solar Farm"
+  },
+  "CHPSTWF1": {
+    "capacity": 6,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Chepstowe Wind Farm"
   },
   "CHYTWF1": {
     "capacity": 58,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Cherry Tree"
+    "station": "Cherry Tree Wind Farm"
   },
   "CLARESF1": {
-    "capacity": 100,
+    "capacity": 110,
     "fuel": "Solar",
     "region": "QLD1",
     "station": "Clare Solar Farm"
+  },
+  "CLAYTON": {
+    "capacity": 11,
+    "fuel": "Gas",
+    "region": "VIC1",
+    "station": "Clayton Landfill Gas Power Station"
   },
   "CLEMENTS1": {
     "capacity": 57,
@@ -615,55 +771,61 @@
     "capacity": 57,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Clements Gap"
+    "station": "Clements Gap Wind Farm"
   },
   "CLERMSF1": {
-    "capacity": 60,
+    "capacity": 92,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Clermont"
+    "station": "Clermont Solar Farm"
   },
   "CLOVER": {
-    "capacity": 18,
+    "capacity": 38,
     "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Clover"
+    "region": "VIC1",
+    "station": "Clover Power Station"
   },
   "CLRKCWF1": {
-    "capacity": 400,
+    "capacity": 346,
     "fuel": "Wind",
     "region": "QLD1",
-    "station": "Clarke Creek"
+    "station": "Clarke Creek Wind Farm"
   },
   "CLRKCWF2": {
-    "capacity": 400,
+    "capacity": 104,
     "fuel": "Wind",
     "region": "QLD1",
-    "station": "Clarke Creek 2"
+    "station": "Clarke Creek Wind Farm"
   },
   "CLUNY": {
-    "capacity": 18,
+    "capacity": 19,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Cluny"
+    "station": "Cluny Power Station"
   },
   "CNUNDAWF": {
     "capacity": 46,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Canunda"
+    "station": "Canunda Wind Farm"
+  },
+  "CODRNGTON": {
+    "capacity": 18,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Codrington Wind Farm"
   },
   "COHUNSF1": {
-    "capacity": 50,
+    "capacity": 31,
     "fuel": "Solar",
     "region": "VIC1",
-    "station": "Cohuna"
+    "station": "Cohuna Solar Farm"
   },
   "COLEASF1": {
-    "capacity": 150,
+    "capacity": 180,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Coleambally"
+    "station": "Coleambally Solar Farm"
   },
   "COLONGRA1": {
     "capacity": 187,
@@ -690,16 +852,16 @@
     "station": "Colongra"
   },
   "COLUMSF1": {
-    "capacity": 150,
+    "capacity": 217,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Columboola"
+    "station": "Columboola Solar Farm"
   },
   "COLWF01": {
     "capacity": 226,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "Collector"
+    "station": "Collector Wind Farm 1"
   },
   "CONDAMINE1": {
     "capacity": 140,
@@ -711,7 +873,7 @@
     "capacity": 30,
     "fuel": "Gas",
     "region": "NSW1",
-    "station": "Condong"
+    "station": "Condong Power Station"
   },
   "COOPERS1": {
     "capacity": 453,
@@ -720,46 +882,52 @@
     "station": "Coopers Gap Wind"
   },
   "COOPGWF1": {
-    "capacity": 453,
+    "capacity": 452,
     "fuel": "Wind",
     "region": "QLD1",
-    "station": "Coopers Gap"
+    "station": "Coopers Gap Wind Farm"
+  },
+  "COPTNHYD": {
+    "capacity": 22,
+    "fuel": "Hydro",
+    "region": "NSW1",
+    "station": "Copeton Hydro Power Station"
   },
   "CPP_3": {
-    "capacity": 450,
+    "capacity": 466,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Callide C"
+    "station": "Callide C Nett Off"
   },
   "CPP_4": {
-    "capacity": 450,
+    "capacity": 420,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Callide C"
+    "station": "Callide C Nett Off"
   },
   "CPSA": {
-    "capacity": 50,
+    "capacity": 143,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Curtis Island"
+    "station": "Condamine Power Station A"
   },
   "CROOKWF2": {
-    "capacity": 92,
+    "capacity": 96,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "Crookwell 2"
+    "station": "Crookwell 2 Wind Farm"
   },
   "CROOKWF3": {
-    "capacity": 110,
+    "capacity": 57,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "Crookwell 3"
+    "station": "Crookwell 3 Wind Farm"
   },
   "CROWLWF1": {
     "capacity": 80,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Crowlands"
+    "station": "Crowlands Wind Farm"
   },
   "CRUDINE1": {
     "capacity": 135,
@@ -768,40 +936,40 @@
     "station": "Crudine Ridge"
   },
   "CRURWF1": {
-    "capacity": 25,
+    "capacity": 141,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "Crookwell"
+    "station": "Crudine Ridge Wind Farm"
   },
   "CRWARP1": {
-    "capacity": 300,
+    "capacity": 186,
     "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Crawney Pass"
+    "region": "VIC1",
+    "station": "Carwarp Solar Farm"
   },
   "CRWASF1": {
-    "capacity": 300,
+    "capacity": 36,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Crawney"
+    "station": "Corowa Solar Farm"
   },
   "CSPVPS1": {
     "capacity": 42,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Collinsville"
+    "station": "Collinsville Solar PV Power Station"
   },
   "CTHLWF1": {
-    "capacity": 66,
+    "capacity": 148,
     "fuel": "Wind",
-    "region": "SA1",
-    "station": "Cathedral Rocks"
+    "region": "TAS1",
+    "station": "Cattle Hill Wind Farm"
   },
   "CULLRGWF": {
     "capacity": 30,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "Cullerin Range"
+    "station": "Cullerin Range Wind Farm"
   },
   "CULLRGWF1": {
     "capacity": 30,
@@ -810,16 +978,16 @@
     "station": "Cullerin Range"
   },
   "CUSF1": {
-    "capacity": 250,
+    "capacity": 466,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Culcairn"
+    "station": "Culcairn Solar Farm"
   },
   "DALNTH1": {
-    "capacity": 50,
+    "capacity": 30,
     "fuel": "Battery",
-    "region": "NSW1",
-    "station": "Dalton Battery"
+    "region": "SA1",
+    "station": "Dalrymple North BESS"
   },
   "DARLPNT1": {
     "capacity": 275,
@@ -828,16 +996,16 @@
     "station": "Darlington Point"
   },
   "DARLSF1": {
-    "capacity": 275,
+    "capacity": 324,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Darlington Point"
+    "station": "Darlington Point Solar Farm"
   },
   "DARTM1": {
-    "capacity": 150,
+    "capacity": 185,
     "fuel": "Hydro",
     "region": "VIC1",
-    "station": "Dartmouth"
+    "station": "Dartmouth Power Station"
   },
   "DARTM2": {
     "capacity": 150,
@@ -858,28 +1026,28 @@
     "station": "Dartmouth"
   },
   "DAYDSF1": {
-    "capacity": 150,
+    "capacity": 167,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Daydream Solar"
+    "station": "Daydream Solar Farm"
   },
   "DDPS1": {
-    "capacity": 630,
+    "capacity": 644,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Darling Downs"
+    "station": "Darling Downs Power Station"
   },
   "DDSF1": {
-    "capacity": 110,
+    "capacity": 121,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Darling Downs Solar"
+    "station": "Darling Downs Solar Farm"
   },
   "DEVILS_G": {
     "capacity": 60,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Devils Gate"
+    "station": "Devils Gate Power Station"
   },
   "DEVILS_G1": {
     "capacity": 60,
@@ -924,40 +1092,40 @@
     "station": "Distrib Gen VIC"
   },
   "DIAPURWF1": {
-    "capacity": 180,
+    "capacity": 8,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Diapur"
+    "station": "Diapur Wind Farm"
   },
   "DPNTB1": {
-    "capacity": 50,
+    "capacity": 25,
     "fuel": "Battery",
-    "region": "VIC1",
-    "station": "Depot North BESS"
+    "region": "NSW1",
+    "station": "Darlington Point Energy Storage System"
   },
   "DRYCGT1": {
-    "capacity": 156,
+    "capacity": 52,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "Dry Creek"
+    "station": "Dry Creek Gas Turbine Station"
   },
   "DRYCGT2": {
-    "capacity": 156,
+    "capacity": 52,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "Dry Creek"
+    "station": "Dry Creek Gas Turbine Station"
   },
   "DRYCGT3": {
-    "capacity": 156,
+    "capacity": 52,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "Dry Creek"
+    "station": "Dry Creek Gas Turbine Station"
   },
   "DULAWF1": {
     "capacity": 180,
     "fuel": "Wind",
     "region": "QLD1",
-    "station": "Dulacca"
+    "station": "Dulacca Wind Farm"
   },
   "DUNDAS1": {
     "capacity": 132,
@@ -972,76 +1140,94 @@
     "station": "Dundonnell"
   },
   "DUNDWF1": {
-    "capacity": 336,
+    "capacity": 168,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Dundonnell"
+    "station": "Dundonnell Wind Farm"
   },
   "DUNDWF2": {
-    "capacity": 336,
+    "capacity": 46,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Dundonnell 2"
+    "station": "Dundonnell Wind Farm"
   },
   "DUNDWF3": {
-    "capacity": 336,
+    "capacity": 121,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Dundonnell"
+    "station": "Dundonnell Wind Farm"
+  },
+  "EASTCRK": {
+    "capacity": 5,
+    "fuel": "Gas",
+    "region": "NSW1",
+    "station": "Eastern Creek LFG PS Units 1-4"
+  },
+  "EASTCRK2": {
+    "capacity": 7,
+    "fuel": "Gas",
+    "region": "NSW1",
+    "station": "Eastern Creek 2 Gas Utilisation Facility"
   },
   "EDENVSF1": {
-    "capacity": 150,
-    "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Eden"
-  },
-  "EILDON1": {
-    "capacity": 65,
-    "fuel": "Hydro",
-    "region": "VIC1",
-    "station": "Eildon"
-  },
-  "EILDON2": {
-    "capacity": 65,
-    "fuel": "Hydro",
-    "region": "VIC1",
-    "station": "Eildon"
-  },
-  "ELAINWF1": {
-    "capacity": 150,
-    "fuel": "Wind",
-    "region": "VIC1",
-    "station": "Elaine"
-  },
-  "EMERASF1": {
     "capacity": 180,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Emerald"
+    "station": "Edenvale Solar Park"
+  },
+  "EILDON1": {
+    "capacity": 60,
+    "fuel": "Hydro",
+    "region": "VIC1",
+    "station": "Eildon Power Station"
+  },
+  "EILDON2": {
+    "capacity": 60,
+    "fuel": "Hydro",
+    "region": "VIC1",
+    "station": "Eildon Power Station"
+  },
+  "EILDON3": {
+    "capacity": 4,
+    "fuel": "Hydro",
+    "region": "VIC1",
+    "station": "Eildon Power Station"
+  },
+  "ELAINWF1": {
+    "capacity": 84,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Elaine Wind Farm"
+  },
+  "EMERASF1": {
+    "capacity": 88,
+    "fuel": "Solar",
+    "region": "QLD1",
+    "station": "Emerald Solar Park"
   },
   "ER01": {
     "capacity": 720,
     "fuel": "Black Coal",
     "region": "NSW1",
-    "station": "Eraring"
+    "station": "Eraring Power Station"
   },
   "ER02": {
     "capacity": 720,
     "fuel": "Black Coal",
     "region": "NSW1",
-    "station": "Eraring"
+    "station": "Eraring Power Station"
   },
   "ER03": {
     "capacity": 720,
     "fuel": "Black Coal",
     "region": "NSW1",
-    "station": "Eraring"
+    "station": "Eraring Power Station"
   },
   "ER04": {
     "capacity": 720,
     "fuel": "Black Coal",
     "region": "NSW1",
-    "station": "Eraring"
+    "station": "Eraring Power Station"
   },
   "ERARING1": {
     "capacity": 720,
@@ -1068,22 +1254,22 @@
     "station": "Eraring"
   },
   "ERB01": {
-    "capacity": 460,
+    "capacity": 615,
     "fuel": "Battery",
     "region": "NSW1",
-    "station": "Eraring Battery"
+    "station": "Eraring Battery Energy Storage System"
   },
   "ERGT01": {
-    "capacity": 50,
+    "capacity": 42,
     "fuel": "Liquid",
     "region": "NSW1",
-    "station": "Eraring"
+    "station": "Eraring Power Station"
   },
   "FINLYSF1": {
-    "capacity": 133,
+    "capacity": 162,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Finley"
+    "station": "Finley Solar Farm"
   },
   "FINNSF1": {
     "capacity": 100,
@@ -1095,7 +1281,7 @@
     "capacity": 43,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Fisher"
+    "station": "Fisher Power Station"
   },
   "FISHER1": {
     "capacity": 14,
@@ -1116,16 +1302,28 @@
     "station": "Fisher"
   },
   "FLYCRKWF": {
-    "capacity": 80,
+    "capacity": 145,
+    "fuel": "Wind",
+    "region": "NSW1",
+    "station": "Flyers Creek Wind Farm"
+  },
+  "FNWF1": {
+    "capacity": 4,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Fly Creek"
+    "station": "Ferguson North Wind Farm"
+  },
+  "FSWF1": {
+    "capacity": 8,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Ferguson South Wind Farm"
   },
   "GANGARR1": {
-    "capacity": 80,
-    "fuel": "Gas",
+    "capacity": 162,
+    "fuel": "Solar",
     "region": "QLD1",
-    "station": "Gangarra"
+    "station": "Gangarri Solar Farm"
   },
   "GANNAWARRA1": {
     "capacity": 25,
@@ -1134,40 +1332,40 @@
     "station": "Gannawarra Batt"
   },
   "GANNB1": {
-    "capacity": 50,
+    "capacity": 30,
     "fuel": "Battery",
     "region": "VIC1",
-    "station": "Gannawarra BESS"
+    "station": "Gannawarra Energy Storage System"
   },
   "GANNSF1": {
-    "capacity": 50,
+    "capacity": 55,
     "fuel": "Solar",
     "region": "VIC1",
-    "station": "Gannawarra Solar"
+    "station": "Gannawarra Solar Farm"
   },
   "GB01": {
     "capacity": 50,
-    "fuel": "Gas",
+    "fuel": "Liquid",
     "region": "NSW1",
-    "station": "Gas Backup"
+    "station": "Broken Hill Gas Turbines"
   },
   "GERMCRK": {
-    "capacity": 22,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "German Creek"
+    "capacity": 45,
+    "fuel": "Gas",
+    "region": "QLD1",
+    "station": "German Creek Power Station"
   },
   "GESF1": {
-    "capacity": 50,
+    "capacity": 264,
     "fuel": "Solar",
-    "region": "SA1",
-    "station": "Glenelg Solar"
+    "region": "NSW1",
+    "station": "Glenellen Solar Farm"
   },
   "GIRGSF": {
-    "capacity": 50,
+    "capacity": 93,
     "fuel": "Solar",
     "region": "VIC1",
-    "station": "Girgarre"
+    "station": "Girgarre Solar Farm"
   },
   "GLAD1": {
     "capacity": 280,
@@ -1205,35 +1403,53 @@
     "region": "QLD1",
     "station": "Gladstone"
   },
-  "GLENSF1": {
-    "capacity": 100,
-    "fuel": "Solar",
+  "GLBWNHYD": {
+    "capacity": 6,
+    "fuel": "Hydro",
     "region": "NSW1",
-    "station": "Glen Innes"
+    "station": "Glenbawn Hydro Power Station"
+  },
+  "GLENMAG1": {
+    "capacity": 4,
+    "fuel": "Hydro",
+    "region": "VIC1",
+    "station": "Glenmaggie Hydro Power Station"
+  },
+  "GLENNCRK": {
+    "capacity": 13,
+    "fuel": "Gas",
+    "region": "NSW1",
+    "station": "Glennies Creek Power Station"
+  },
+  "GLENSF1": {
+    "capacity": 126,
+    "fuel": "Solar",
+    "region": "VIC1",
+    "station": "Glenrowan Solar Farm"
   },
   "GLRWNSF1": {
-    "capacity": 90,
+    "capacity": 132,
     "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Glen Willow"
+    "region": "VIC1",
+    "station": "Glenrowan West Solar Farm"
   },
   "GNNDHSF1": {
-    "capacity": 50,
-    "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Gannawarra"
-  },
-  "GOESF1": {
-    "capacity": 50,
-    "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Goorambat"
-  },
-  "GOONSF1": {
-    "capacity": 100,
+    "capacity": 144,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Goonumbla"
+    "station": "Gunnedah Solar Farm"
+  },
+  "GOESF1": {
+    "capacity": 349,
+    "fuel": "Solar",
+    "region": "VIC1",
+    "station": "Goorambat East Solar Farm"
+  },
+  "GOONSF1": {
+    "capacity": 85,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Goonumbla Solar Farm"
   },
   "GOONWF1": {
     "capacity": 166,
@@ -1263,37 +1479,43 @@
     "capacity": 432,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Gordon"
+    "station": "Gordon Power Station"
   },
   "GPWFEST1": {
-    "capacity": 286,
+    "capacity": 248,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Golden Plains"
+    "station": "Golden Plains Wind Farm East"
   },
   "GPWFEST2": {
-    "capacity": 286,
+    "capacity": 260,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Golden Plains"
+    "station": "Golden Plains Wind Farm East"
   },
   "GPWFEST3": {
-    "capacity": 286,
+    "capacity": 248,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Golden Plains"
+    "station": "Golden Plains Wind Farm East"
   },
   "GPWFWST1": {
-    "capacity": 400,
+    "capacity": 266,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Golden Plains West"
+    "station": "Golden Plains Wind Farm West"
   },
   "GPWFWST2": {
-    "capacity": 400,
+    "capacity": 310,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Golden Plains West 2"
+    "station": "Golden Plains Wind Farm West"
+  },
+  "GRANGEAV": {
+    "capacity": 2,
+    "fuel": "Gas",
+    "region": "NSW1",
+    "station": "Grange Avenue Landfill Gas Power Station"
   },
   "GRANVILLE1": {
     "capacity": 112,
@@ -1302,58 +1524,70 @@
     "station": "Granville Harbour"
   },
   "GRANWF1": {
-    "capacity": 100,
+    "capacity": 110,
     "fuel": "Wind",
-    "region": "NSW1",
-    "station": "Granite Wind"
+    "region": "TAS1",
+    "station": "Granville Harbour Wind Farm"
   },
   "GREENB1": {
-    "capacity": 50,
+    "capacity": 259,
     "fuel": "Battery",
     "region": "QLD1",
     "station": "Greenbank BESS"
   },
   "GRIFSF1": {
-    "capacity": 130,
+    "capacity": 27,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Griffith"
+    "station": "Griffith Solar Farm"
+  },
+  "GROSV1": {
+    "capacity": 21,
+    "fuel": "Gas",
+    "region": "QLD1",
+    "station": "Grosvenor 1 Waste Coal Mine Gas Power Station"
+  },
+  "GROSV2": {
+    "capacity": 15,
+    "fuel": "Gas",
+    "region": "QLD1",
+    "station": "Grosvenor 2"
   },
   "GSTONE1": {
     "capacity": 280,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Gladstone"
+    "station": "Gladstone Power Station"
   },
   "GSTONE2": {
     "capacity": 280,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Gladstone"
+    "station": "Gladstone Power Station"
   },
   "GSTONE3": {
     "capacity": 280,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Gladstone"
+    "station": "Gladstone Power Station"
   },
   "GSTONE4": {
     "capacity": 280,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Gladstone"
+    "station": "Gladstone Power Station"
   },
   "GSTONE5": {
     "capacity": 280,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Gladstone"
+    "station": "Gladstone Power Station"
   },
   "GSTONE6": {
     "capacity": 280,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Gladstone"
+    "station": "Gladstone Power Station"
   },
   "GSWF1": {
     "capacity": 400,
@@ -1362,52 +1596,52 @@
     "station": "Golden Plains"
   },
   "GSWF1A": {
-    "capacity": 320,
+    "capacity": 209,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Goyder South"
+    "station": "Goyder South Wind Farm 1A"
   },
   "GSWF1B1": {
-    "capacity": 320,
+    "capacity": 203,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Goyder South"
+    "station": "Goyder South Wind Farm 1B"
   },
   "GULLRSF1": {
-    "capacity": 55,
+    "capacity": 10,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Gullen Range Solar"
+    "station": "Gullen Range Solar Farm"
   },
   "GULLRWF1": {
-    "capacity": 166,
+    "capacity": 165,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "Gullen Range"
+    "station": "Gullen Range Wind Farm"
   },
   "GULLRWF2": {
-    "capacity": 166,
+    "capacity": 110,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "Gullen Range 2"
+    "station": "Gullen Range Wind Farm"
   },
   "GUNNING1": {
     "capacity": 46,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "Gunning Wind"
+    "station": "Gunning Wind Farm"
   },
   "GUSF1": {
-    "capacity": 95,
+    "capacity": 123,
     "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Gullen Range"
+    "region": "QLD1",
+    "station": "Gunsynd Solar Farm"
   },
   "GUTHEGA": {
     "capacity": 60,
     "fuel": "Hydro",
     "region": "NSW1",
-    "station": "Guthega"
+    "station": "Guthega Power Station"
   },
   "GUTHEGA1": {
     "capacity": 60,
@@ -1415,17 +1649,23 @@
     "region": "NSW1",
     "station": "Guthega"
   },
+  "HALAMRD1": {
+    "capacity": 9,
+    "fuel": "Gas",
+    "region": "VIC1",
+    "station": "Hallam Road Renewable Energy Facility"
+  },
   "HALLWF1": {
-    "capacity": 95,
+    "capacity": 94,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Hallett"
+    "station": "Hallett 1 Wind Farm"
   },
   "HALLWF2": {
-    "capacity": 72,
+    "capacity": 71,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Hallett 2"
+    "station": "Hallett 2 Wind Farm"
   },
   "HALWF1": {
     "capacity": 100,
@@ -1434,70 +1674,100 @@
     "station": "Hallett Wind"
   },
   "HAMISF1": {
-    "capacity": 50,
+    "capacity": 58,
     "fuel": "Solar",
+    "region": "QLD1",
+    "station": "Hamilton Solar Farm"
+  },
+  "HASTING1": {
+    "capacity": 15,
+    "fuel": "Other",
     "region": "VIC1",
-    "station": "Hamilton"
+    "station": "Hastings Generation Site"
+  },
+  "HASTING2": {
+    "capacity": 15,
+    "fuel": "Other",
+    "region": "VIC1",
+    "station": "Hastings Generation Site"
+  },
+  "HASTING3": {
+    "capacity": 15,
+    "fuel": "Other",
+    "region": "VIC1",
+    "station": "Hastings Generation Site"
   },
   "HAUGHT11": {
-    "capacity": 102,
+    "capacity": 132,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Haughton Solar"
+    "station": "Haughton Solar Farm Stage 1"
   },
   "HAYMSF1": {
-    "capacity": 145,
+    "capacity": 58,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Hayman"
+    "station": "Hayman Solar Farm"
   },
   "HBESS1": {
-    "capacity": 150,
+    "capacity": 200,
     "fuel": "Battery",
-    "region": "SA1",
-    "station": "Hornsdale"
+    "region": "VIC1",
+    "station": "Hazelwood Battery Energy Storage System"
   },
   "HD1WF1": {
-    "capacity": 6,
+    "capacity": 97,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Hepburn"
+    "station": "Hawkesdale Wind Farm"
   },
   "HDWF1": {
     "capacity": 102,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Hornsdale Wind"
+    "station": "Hornsdale Wind Farm"
   },
   "HDWF2": {
     "capacity": 102,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Hornsdale Wind"
+    "station": "Hornsdale Wind Farm 2"
   },
   "HDWF3": {
-    "capacity": 102,
+    "capacity": 112,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Hornsdale Wind"
+    "station": "Hornsdale Wind Farm 3"
+  },
+  "HEPWIND1": {
+    "capacity": 4,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Hepburn Community Wind Farm"
   },
   "HEZ1": {
-    "capacity": 50,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Heytesbury"
+    "capacity": 28,
+    "fuel": "Liquid",
+    "region": "NSW1",
+    "station": "Hunter Economic Zone"
   },
   "HILLSTN1": {
-    "capacity": 150,
+    "capacity": 110,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Hillston"
+    "station": "Hillston Sun Farm"
+  },
+  "HLMSEW01": {
+    "capacity": 0,
+    "fuel": "Hydro",
+    "region": "VIC1",
+    "station": "South East Water - Halllam Hydro Plant"
   },
   "HPR1": {
-    "capacity": 50,
+    "capacity": 150,
     "fuel": "Battery",
     "region": "SA1",
-    "station": "Hawthorn Park BESS"
+    "station": "Hornsdale Power Reserve"
   },
   "HPRL1": {
     "capacity": 150,
@@ -1506,10 +1776,10 @@
     "station": "Hornsdale Reserve"
   },
   "HUGSF1": {
-    "capacity": 57,
+    "capacity": 21,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Hughenden"
+    "station": "Hughenden Solar Farm"
   },
   "HUME1": {
     "capacity": 29,
@@ -1524,28 +1794,28 @@
     "station": "Hume"
   },
   "HUMENSW": {
-    "capacity": 58,
+    "capacity": 29,
     "fuel": "Hydro",
     "region": "NSW1",
-    "station": "Hume"
+    "station": "Hume (NSW) Hydro Power Station"
   },
   "HUMEV": {
-    "capacity": 58,
+    "capacity": 29,
     "fuel": "Hydro",
     "region": "VIC1",
-    "station": "Hume VIC"
+    "station": "Hume (Vic) Hydro Power Station"
   },
   "HUNTER1": {
-    "capacity": 330,
+    "capacity": 375,
     "fuel": "Gas",
     "region": "NSW1",
-    "station": "Hunter"
+    "station": "Hunter Power Station"
   },
   "HUNTER2": {
-    "capacity": 330,
+    "capacity": 375,
     "fuel": "Gas",
     "region": "NSW1",
-    "station": "Hunter"
+    "station": "Hunter Power Station"
   },
   "HVGTS": {
     "capacity": 50,
@@ -1554,22 +1824,40 @@
     "station": "Hunter Valley GT"
   },
   "HVWWBA1": {
-    "capacity": 10,
+    "capacity": 5,
     "fuel": "Battery",
-    "region": "VIC1",
-    "station": "Hepburn Wind BESS"
+    "region": "SA1",
+    "station": "Happy Valley Water Treatment Plant"
   },
   "HVWWPV1": {
-    "capacity": 5,
+    "capacity": 11,
     "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Hepburn Wind Solar"
+    "region": "SA1",
+    "station": "Happy Valley Water Treatment Plant"
+  },
+  "ICSM": {
+    "capacity": 25,
+    "fuel": "Gas",
+    "region": "QLD1",
+    "station": "ISIS Central Sugar Mill Co-generation Plant"
+  },
+  "INVICTA": {
+    "capacity": 50,
+    "fuel": "Gas",
+    "region": "QLD1",
+    "station": "Invicta Sugar Mill"
+  },
+  "JACKSGUL": {
+    "capacity": 2,
+    "fuel": "Gas",
+    "region": "NSW1",
+    "station": "Jacks Gully Landfill Gas Power Station"
   },
   "JBUTTERS": {
-    "capacity": 22,
+    "capacity": 144,
     "fuel": "Hydro",
-    "region": "QLD1",
-    "station": "Julius"
+    "region": "TAS1",
+    "station": "John Butters Power Station"
   },
   "JBUTTONS1": {
     "capacity": 228,
@@ -1608,52 +1896,52 @@
     "station": "Jeeralang A"
   },
   "JEMALNG1": {
-    "capacity": 75,
-    "fuel": "Gas",
+    "capacity": 55,
+    "fuel": "Solar",
     "region": "NSW1",
-    "station": "Jemalong"
+    "station": "Jemalong Solar Project"
   },
   "JLA01": {
-    "capacity": 100,
-    "fuel": "Battery",
-    "region": "QLD1",
-    "station": "Junction Lake A"
+    "capacity": 51,
+    "fuel": "Gas",
+    "region": "VIC1",
+    "station": "Jeeralang \"A\" Power Station"
   },
   "JLA02": {
-    "capacity": 100,
-    "fuel": "Battery",
-    "region": "QLD1",
-    "station": "Junction Lake A"
+    "capacity": 51,
+    "fuel": "Gas",
+    "region": "VIC1",
+    "station": "Jeeralang \"A\" Power Station"
   },
   "JLA03": {
-    "capacity": 100,
-    "fuel": "Battery",
-    "region": "QLD1",
-    "station": "Junction Lake A"
+    "capacity": 51,
+    "fuel": "Gas",
+    "region": "VIC1",
+    "station": "Jeeralang \"A\" Power Station"
   },
   "JLA04": {
-    "capacity": 100,
-    "fuel": "Battery",
-    "region": "QLD1",
-    "station": "Junction Lake A"
+    "capacity": 51,
+    "fuel": "Gas",
+    "region": "VIC1",
+    "station": "Jeeralang \"A\" Power Station"
   },
   "JLB01": {
-    "capacity": 100,
-    "fuel": "Battery",
-    "region": "QLD1",
-    "station": "Junction Lake B"
+    "capacity": 76,
+    "fuel": "Gas",
+    "region": "VIC1",
+    "station": "Jeeralang \"B\" Power Station"
   },
   "JLB02": {
-    "capacity": 100,
-    "fuel": "Battery",
-    "region": "QLD1",
-    "station": "Junction Lake B"
+    "capacity": 76,
+    "fuel": "Gas",
+    "region": "VIC1",
+    "station": "Jeeralang \"B\" Power Station"
   },
   "JLB03": {
-    "capacity": 100,
-    "fuel": "Battery",
-    "region": "QLD1",
-    "station": "Junction Lake B"
+    "capacity": 76,
+    "fuel": "Gas",
+    "region": "VIC1",
+    "station": "Jeeralang \"B\" Power Station"
   },
   "JLBGT1": {
     "capacity": 228,
@@ -1673,17 +1961,29 @@
     "region": "VIC1",
     "station": "Jeeralang B"
   },
+  "JNDABNE1": {
+    "capacity": 1,
+    "fuel": "Hydro",
+    "region": "NSW1",
+    "station": "Jindabyne Small Hydro Power Station"
+  },
+  "JOUNAMA1": {
+    "capacity": 14,
+    "fuel": "Hydro",
+    "region": "NSW1",
+    "station": "Jounama Small Hydro Power Station"
+  },
   "JUNEESF1": {
-    "capacity": 55,
+    "capacity": 36,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Junee"
+    "station": "Junee Solar Farm"
   },
   "KABANWF1": {
-    "capacity": 157,
+    "capacity": 156,
     "fuel": "Wind",
     "region": "QLD1",
-    "station": "Kaban"
+    "station": "Kaban Wind Farm"
   },
   "KANGAROO1": {
     "capacity": 160,
@@ -1704,82 +2004,100 @@
     "station": "Kangaroo Valley"
   },
   "KAREEYA1": {
-    "capacity": 43,
+    "capacity": 21,
     "fuel": "Hydro",
     "region": "QLD1",
-    "station": "Kareeya"
+    "station": "Kareeya Power Station"
   },
   "KAREEYA2": {
-    "capacity": 43,
+    "capacity": 21,
     "fuel": "Hydro",
     "region": "QLD1",
-    "station": "Kareeya"
+    "station": "Kareeya Power Station"
   },
   "KAREEYA3": {
-    "capacity": 43,
+    "capacity": 21,
     "fuel": "Hydro",
     "region": "QLD1",
-    "station": "Kareeya"
+    "station": "Kareeya Power Station"
   },
   "KAREEYA4": {
-    "capacity": 43,
+    "capacity": 21,
     "fuel": "Hydro",
     "region": "QLD1",
-    "station": "Kareeya"
+    "station": "Kareeya Power Station"
+  },
+  "KAREEYA5": {
+    "capacity": 7,
+    "fuel": "Hydro",
+    "region": "QLD1",
+    "station": "Kareeya Power Station"
   },
   "KARSF1": {
-    "capacity": 50,
+    "capacity": 104,
     "fuel": "Solar",
-    "region": "QLD1",
-    "station": "Kariboe"
+    "region": "VIC1",
+    "station": "Karadoc Solar Farm"
+  },
+  "KEEPIT": {
+    "capacity": 6,
+    "fuel": "Hydro",
+    "region": "NSW1",
+    "station": "Keepit Hydro Power Station"
   },
   "KEPBG1": {
-    "capacity": 50,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Kepco Gas"
+    "capacity": 2,
+    "fuel": "Battery",
+    "region": "QLD1",
+    "station": "Kennedy Energy Park Battery"
+  },
+  "KEPBL1": {
+    "capacity": 2,
+    "fuel": "Battery",
+    "region": "QLD1",
+    "station": "Kennedy Energy Park Battery"
   },
   "KEPSF1": {
-    "capacity": 150,
+    "capacity": 16,
     "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Kepco Solar"
+    "region": "QLD1",
+    "station": "Kennedy Energy Park"
   },
   "KEPWF1": {
-    "capacity": 140,
+    "capacity": 43,
     "fuel": "Wind",
-    "region": "VIC1",
-    "station": "Kepco"
+    "region": "QLD1",
+    "station": "Kennedy Energy Park"
   },
   "KERNGSP1": {
-    "capacity": 40,
-    "fuel": "Hydro",
+    "capacity": 37,
+    "fuel": "Solar",
     "region": "VIC1",
-    "station": "Kiewa"
+    "station": "Kerang Solar Plant"
   },
   "KESSB1": {
-    "capacity": 50,
+    "capacity": 185,
     "fuel": "Battery",
-    "region": "SA1",
-    "station": "Keswick Battery"
+    "region": "VIC1",
+    "station": "Koorangie Energy Storage System"
   },
   "KIAMSF1": {
-    "capacity": 30,
+    "capacity": 239,
     "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Kiama"
+    "region": "VIC1",
+    "station": "Kiamal Solar Farm"
   },
   "KIATAWF1": {
     "capacity": 31,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Kiata"
+    "station": "Kiata Wind Farm"
   },
   "KIDSPHG1": {
-    "capacity": 250,
+    "capacity": 126,
     "fuel": "Hydro",
     "region": "QLD1",
-    "station": "Kidston Hydro"
+    "station": "Kidston Hydro Project"
   },
   "KIDSPHG2": {
     "capacity": 250,
@@ -1812,16 +2130,16 @@
     "station": "King River"
   },
   "KINGASF1": {
-    "capacity": 100,
+    "capacity": 47,
     "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Kingsvale"
+    "region": "QLD1",
+    "station": "Kingaroy Solar Farm"
   },
   "KPP_1": {
-    "capacity": 750,
+    "capacity": 744,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Kogan Creek"
+    "station": "Kogan Creek Power Station"
   },
   "KSG1": {
     "capacity": 750,
@@ -1830,22 +2148,22 @@
     "station": "Kogan Creek"
   },
   "KSP1": {
-    "capacity": 88,
-    "fuel": "Hydro",
+    "capacity": 50,
+    "fuel": "Solar",
     "region": "QLD1",
-    "station": "Kareeya"
+    "station": "Kidston Solar Project Phase One"
   },
   "LADBROK1": {
-    "capacity": 80,
+    "capacity": 40,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "Ladbroke Grove"
+    "station": "Ladbroke Grove Power Station"
   },
   "LADBROK2": {
-    "capacity": 80,
+    "capacity": 40,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "Ladbroke Grove"
+    "station": "Ladbroke Grove Power Station"
   },
   "LADBROKE1": {
     "capacity": 80,
@@ -1860,10 +2178,10 @@
     "station": "Ladbroke Grove"
   },
   "LANCSF1": {
-    "capacity": 161,
+    "capacity": 94,
     "fuel": "Solar",
     "region": "VIC1",
-    "station": "Lancaster"
+    "station": "Lancaster Solar Farm"
   },
   "LAVERTON1": {
     "capacity": 316,
@@ -1881,7 +2199,7 @@
     "capacity": 25,
     "fuel": "Battery",
     "region": "SA1",
-    "station": "Lake Bonney BESS"
+    "station": "Lake Bonney BESS1"
   },
   "LD01": {
     "capacity": 500,
@@ -1908,10 +2226,10 @@
     "station": "Liddell"
   },
   "LDBESS1": {
-    "capacity": 50,
+    "capacity": 755,
     "fuel": "Battery",
     "region": "NSW1",
-    "station": "Liddell BESS"
+    "station": "Liddell Battery Energy Storage System"
   },
   "LEMONTHYME1": {
     "capacity": 51,
@@ -1926,28 +2244,28 @@
     "station": "Lemonthyme"
   },
   "LEM_WIL": {
-    "capacity": 51,
+    "capacity": 82,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Lemonthyme"
+    "station": "Lemonthyme / Wilmot Power Station"
   },
   "LGAPBS1": {
-    "capacity": 50,
+    "capacity": 11,
     "fuel": "Battery",
-    "region": "NSW1",
-    "station": "Lake George BESS"
+    "region": "SA1",
+    "station": "Lincoln Gap Wind Farm Battery"
   },
   "LGAPWF1": {
-    "capacity": 140,
+    "capacity": 126,
     "fuel": "Wind",
-    "region": "NSW1",
-    "station": "Lake George"
+    "region": "SA1",
+    "station": "Lincoln Gap Wind Farm"
   },
   "LGAPWF2": {
-    "capacity": 140,
+    "capacity": 86,
     "fuel": "Wind",
-    "region": "NSW1",
-    "station": "Lake George"
+    "region": "SA1",
+    "station": "Lincoln Gap Wind Farm"
   },
   "LIAPVALE1": {
     "capacity": 228,
@@ -1956,10 +2274,10 @@
     "station": "Lal Lal Wind"
   },
   "LILYSF1": {
-    "capacity": 100,
+    "capacity": 118,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Lilyvale"
+    "station": "Lilyvale Solar Farm"
   },
   "LILYVALE1": {
     "capacity": 119,
@@ -1968,46 +2286,46 @@
     "station": "Lilyvale Solar"
   },
   "LIMBESS1": {
-    "capacity": 50,
+    "capacity": 141,
     "fuel": "Battery",
     "region": "NSW1",
-    "station": "Limeburners BESS"
+    "station": "Limondale Battery"
   },
   "LIMOSF11": {
-    "capacity": 249,
+    "capacity": 275,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Limondale Solar"
+    "station": "Limondale Solar Farm 1"
   },
   "LIMOSF21": {
-    "capacity": 249,
+    "capacity": 38,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Limondale"
+    "station": "Limondale Solar Farm 2"
   },
   "LI_WY_CA": {
-    "capacity": 50,
-    "fuel": "Gas",
-    "region": "NSW1",
-    "station": "Liddell Gas"
+    "capacity": 174,
+    "fuel": "Hydro",
+    "region": "TAS1",
+    "station": "Catagunya / Liapootah / Wayatinah Power Station"
   },
   "LKBONNY1": {
     "capacity": 80,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Lake Bonney 1"
+    "station": "Lake Bonney Wind Farm Stage 1"
   },
   "LKBONNY2": {
     "capacity": 159,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Lake Bonney 2"
+    "station": "Lake Bonney Stage 2 Windfarm"
   },
   "LKBONNY3": {
     "capacity": 39,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Lake Bonney 3"
+    "station": "Lake Bonney Stage 3 Wind Farm"
   },
   "LKBONNY4": {
     "capacity": 60,
@@ -2016,10 +2334,10 @@
     "station": "Lake Bonney 4"
   },
   "LK_ECHO": {
-    "capacity": 27,
+    "capacity": 32,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Lake Echo"
+    "station": "Lake Echo Power Station"
   },
   "LLEWWF1": {
     "capacity": 80,
@@ -2028,22 +2346,22 @@
     "station": "Crowlands"
   },
   "LNGS1": {
-    "capacity": 60,
+    "capacity": 156,
     "fuel": "Gas",
     "region": "VIC1",
-    "station": "Loy Yang Gas"
+    "station": "Laverton North Power Station"
   },
   "LNGS2": {
-    "capacity": 60,
+    "capacity": 156,
     "fuel": "Gas",
     "region": "VIC1",
-    "station": "Loy Yang Gas 2"
+    "station": "Laverton North Power Station"
   },
   "LONSDALE": {
-    "capacity": 94,
-    "fuel": "Gas",
+    "capacity": 20,
+    "fuel": "Liquid",
     "region": "SA1",
-    "station": "Lonsdale"
+    "station": "Lonsdale Power Station"
   },
   "LOYNB1": {
     "capacity": 82,
@@ -2055,55 +2373,67 @@
     "capacity": 500,
     "fuel": "Brown Coal",
     "region": "VIC1",
-    "station": "Loy Yang B"
+    "station": "Loy Yang B Power Station"
   },
   "LOYYB2": {
     "capacity": 500,
     "fuel": "Brown Coal",
     "region": "VIC1",
-    "station": "Loy Yang B"
+    "station": "Loy Yang B Power Station"
   },
   "LRSF1": {
-    "capacity": 75,
+    "capacity": 17,
     "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Lake Rowan"
+    "region": "QLD1",
+    "station": "Longreach Solar Farm"
+  },
+  "LUCAS2S2": {
+    "capacity": 5,
+    "fuel": "Gas",
+    "region": "NSW1",
+    "station": "Lucas Heights 2 Power Station"
+  },
+  "LUCASHGT": {
+    "capacity": 13,
+    "fuel": "Gas",
+    "region": "NSW1",
+    "station": "Lucas Heights 2 Power Station"
   },
   "LVES1": {
-    "capacity": 50,
+    "capacity": 140,
     "fuel": "Battery",
-    "region": "SA1",
-    "station": "Laves BESS"
+    "region": "VIC1",
+    "station": "Latrobe Valley BESS"
   },
   "LYA1": {
     "capacity": 560,
     "fuel": "Brown Coal",
     "region": "VIC1",
-    "station": "Loy Yang A"
+    "station": "Loy Yang A Power Station"
   },
   "LYA2": {
-    "capacity": 560,
+    "capacity": 530,
     "fuel": "Brown Coal",
     "region": "VIC1",
-    "station": "Loy Yang A"
+    "station": "Loy Yang A Power Station"
   },
   "LYA3": {
     "capacity": 560,
     "fuel": "Brown Coal",
     "region": "VIC1",
-    "station": "Loy Yang A"
+    "station": "Loy Yang A Power Station"
   },
   "LYA4": {
     "capacity": 560,
     "fuel": "Brown Coal",
     "region": "VIC1",
-    "station": "Loy Yang A"
+    "station": "Loy Yang A Power Station"
   },
   "MACARTH1": {
     "capacity": 420,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "MacArthur Wind"
+    "station": "Macarthur Wind Farm"
   },
   "MACKAYGT1": {
     "capacity": 34,
@@ -2115,7 +2445,7 @@
     "capacity": 80,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Mackintosh"
+    "station": "Mackintosh Power Station"
   },
   "MACKNTSH1": {
     "capacity": 80,
@@ -2136,52 +2466,58 @@
     "station": "Mancala Solar"
   },
   "MANNSF2": {
-    "capacity": 55,
+    "capacity": 37,
     "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Manildra 2"
+    "region": "SA1",
+    "station": "Mannum 2 Solar Farm"
   },
   "MANNUMB1": {
-    "capacity": 50,
+    "capacity": 132,
     "fuel": "Battery",
     "region": "SA1",
-    "station": "Mannum Battery"
+    "station": "Mannum Battery Energy Storage System"
   },
   "MANSLR1": {
     "capacity": 50,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Mansfield"
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Manildra solar Farm"
   },
   "MAPS2PV1": {
-    "capacity": 50,
+    "capacity": 16,
     "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Murra Warra PV2"
+    "region": "SA1",
+    "station": "Mannum - Adelaide Pipeline Pumping Station No 2, PV Units 1-6"
   },
   "MAPS3PV1": {
-    "capacity": 50,
+    "capacity": 16,
     "fuel": "Solar",
+    "region": "SA1",
+    "station": "Mannum - Adelaide Pipeline Pumping Station No 3, PV Units 1-6"
+  },
+  "MAROOWF1": {
+    "capacity": 7,
+    "fuel": "Wind",
     "region": "VIC1",
-    "station": "Murra Warra PV3"
+    "station": "Maroona Wind Farm"
   },
   "MARYRSF1": {
-    "capacity": 100,
+    "capacity": 33,
     "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Maryvale"
+    "region": "QLD1",
+    "station": "Maryrorough Solar Farm"
   },
   "MBAHNTH": {
-    "capacity": 45,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Mbalah North"
+    "capacity": 63,
+    "fuel": "Gas",
+    "region": "QLD1",
+    "station": "Moranbah North Waste Coal Mine Gas Power Station"
   },
   "MBPS2PV1": {
-    "capacity": 50,
+    "capacity": 14,
     "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Moorabool PV2"
+    "region": "SA1",
+    "station": "Murray Bridge-Onkaparinga Pipeline Pumping Station No 2"
   },
   "MCINTYR1": {
     "capacity": 923,
@@ -2190,10 +2526,10 @@
     "station": "MacIntyre Wind Farm"
   },
   "MCKAY1": {
-    "capacity": 75,
+    "capacity": 300,
     "fuel": "Hydro",
     "region": "VIC1",
-    "station": "McKay Creek"
+    "station": "Bogong / Mackay Power Station"
   },
   "MCKAY2": {
     "capacity": 75,
@@ -2205,31 +2541,31 @@
     "capacity": 40,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Meadowbank"
+    "station": "Meadowbank Power Station"
   },
   "MERCER01": {
-    "capacity": 200,
-    "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Mercer"
+    "capacity": 131,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Mt Mercer Wind Farm"
   },
   "METZSF1": {
-    "capacity": 50,
+    "capacity": 135,
     "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Metung"
+    "region": "NSW1",
+    "station": "Metz Solar Farm"
   },
   "MEWF1": {
     "capacity": 180,
     "fuel": "Wind",
     "region": "QLD1",
-    "station": "Mount Emerald Wind"
+    "station": "Mount Emerald Wind Farm"
   },
   "MIDDLSF1": {
-    "capacity": 58,
+    "capacity": 30,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Middlemount"
+    "station": "Middlemount Solar Farm"
   },
   "MILLMERRAN1": {
     "capacity": 432,
@@ -2247,7 +2583,7 @@
     "capacity": 90,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "Mintaro"
+    "station": "Mintaro Gas Turbine Station"
   },
   "MINTARO1": {
     "capacity": 90,
@@ -2256,34 +2592,34 @@
     "station": "Mintaro"
   },
   "MLB01": {
-    "capacity": 50,
+    "capacity": 440,
     "fuel": "Battery",
-    "region": "VIC1",
-    "station": "Melbourne Battery"
+    "region": "NSW1",
+    "station": "Mortlake Battery Energy Storage System"
   },
   "MLSP1": {
-    "capacity": 57,
+    "capacity": 12,
     "fuel": "Solar",
-    "region": "QLD1",
-    "station": "Malanda Solar"
+    "region": "NSW1",
+    "station": "Mugga Lane Solar Park"
   },
   "MLWF1": {
-    "capacity": 420,
+    "capacity": 20,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Macarthur"
+    "station": "Mortons Lane Wind Farm"
   },
   "MOKOSF1": {
-    "capacity": 100,
+    "capacity": 58,
     "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Mokoreta"
+    "region": "VIC1",
+    "station": "Mokoan Solar Farm"
   },
   "MOLNGSF1": {
-    "capacity": 70,
+    "capacity": 36,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Molong"
+    "station": "Molong Solar Farm"
   },
   "MOORABOOL1": {
     "capacity": 227,
@@ -2291,11 +2627,17 @@
     "region": "VIC1",
     "station": "Moorabool Wind"
   },
+  "MOORABS1": {
+    "capacity": 2,
+    "fuel": "Battery",
+    "region": "VIC1",
+    "station": "Moorabool Wind Farm"
+  },
   "MOORAWF1": {
-    "capacity": 56,
-    "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Moree Solar"
+    "capacity": 312,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Moorabool Wind Farm"
   },
   "MOORPVF1": {
     "capacity": 100,
@@ -2303,113 +2645,119 @@
     "region": "VIC1",
     "station": "Moorabool Solar"
   },
+  "MORANBAH": {
+    "capacity": 13,
+    "fuel": "Gas",
+    "region": "QLD1",
+    "station": "Moranbah Generation Project"
+  },
   "MOREESF1": {
-    "capacity": 56,
+    "capacity": 57,
     "fuel": "Solar",
     "region": "NSW1",
     "station": "Moree Solar Farm"
   },
   "MORTLK11": {
-    "capacity": 282,
+    "capacity": 283,
     "fuel": "Gas",
     "region": "VIC1",
-    "station": "Mortlake"
+    "station": "Mortlake Power Station"
   },
   "MORTLK12": {
-    "capacity": 282,
+    "capacity": 283,
     "fuel": "Gas",
     "region": "VIC1",
-    "station": "Mortlake"
+    "station": "Mortlake Power Station"
   },
   "MOUSF1": {
-    "capacity": 57,
+    "capacity": 99,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Moura"
+    "station": "Moura Solar Farm"
   },
   "MP1": {
     "capacity": 700,
     "fuel": "Black Coal",
     "region": "NSW1",
-    "station": "Mt Piper"
+    "station": "Mt Piper Power Station"
   },
   "MP2": {
     "capacity": 700,
     "fuel": "Black Coal",
     "region": "NSW1",
-    "station": "Mt Piper"
+    "station": "Mt Piper Power Station"
   },
   "MPP_1": {
-    "capacity": 700,
+    "capacity": 426,
     "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Mt Piper"
+    "region": "QLD1",
+    "station": "Millmerran Power Plant"
   },
   "MPP_2": {
-    "capacity": 700,
+    "capacity": 426,
     "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Mt Piper"
+    "region": "QLD1",
+    "station": "Millmerran Power Plant"
   },
   "MREHA1": {
-    "capacity": 50,
+    "capacity": 216,
     "fuel": "Battery",
-    "region": "NSW1",
-    "station": "Merredin BESS"
+    "region": "VIC1",
+    "station": "Melbourne Renewable Energy Hub Connection A1"
   },
   "MREHA2": {
-    "capacity": 50,
+    "capacity": 216,
     "fuel": "Battery",
-    "region": "NSW1",
-    "station": "Merredin BESS 2"
+    "region": "VIC1",
+    "station": "Melbourne Renewable Energy Hub Connection A2"
   },
   "MREHA3": {
-    "capacity": 50,
+    "capacity": 215,
     "fuel": "Battery",
-    "region": "NSW1",
-    "station": "Merredin BESS 3"
+    "region": "VIC1",
+    "station": "Melbourne Renewable Energy Hub Connection A3"
   },
   "MRNBESS1": {
-    "capacity": 50,
+    "capacity": 336,
     "fuel": "Battery",
     "region": "VIC1",
-    "station": "Merino BESS"
+    "station": "Mornington BESS"
   },
   "MRTLSWF1": {
-    "capacity": 157,
+    "capacity": 158,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Mortlake South"
+    "station": "Mortlake South Wind Farm"
   },
   "MSTUART1": {
     "capacity": 144,
-    "fuel": "Gas",
+    "fuel": "Liquid",
     "region": "QLD1",
-    "station": "Mt Stuart"
+    "station": "Mt Stuart Power Station"
   },
   "MSTUART2": {
     "capacity": 144,
-    "fuel": "Gas",
+    "fuel": "Liquid",
     "region": "QLD1",
-    "station": "Mt Stuart"
+    "station": "Mt Stuart Power Station"
   },
   "MSTUART3": {
-    "capacity": 144,
-    "fuel": "Gas",
+    "capacity": 131,
+    "fuel": "Liquid",
     "region": "QLD1",
-    "station": "Mt Stuart"
+    "station": "Mt Stuart Power Station"
   },
   "MTGELWF1": {
-    "capacity": 132,
+    "capacity": 138,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Mt Gellibrand"
+    "station": "Mt Gellibrand Wind Farm"
   },
   "MTMILLAR": {
     "capacity": 70,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Mt Millar"
+    "station": "Mt Millar Wind Farm"
   },
   "MTPIPER1": {
     "capacity": 700,
@@ -2424,10 +2772,10 @@
     "station": "Mt Piper"
   },
   "MUCRKSF1": {
-    "capacity": 150,
+    "capacity": 154,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Muckaty Creek"
+    "station": "Munna Creek Solar Farm"
   },
   "MURRA3WF1": {
     "capacity": 158,
@@ -2438,8 +2786,8 @@
   "MURRAY": {
     "capacity": 1500,
     "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Murray"
+    "region": "VIC1",
+    "station": "Murray Power Station"
   },
   "MURRAY1": {
     "capacity": 256,
@@ -2463,7 +2811,7 @@
     "capacity": 168,
     "fuel": "Wind",
     "region": "TAS1",
-    "station": "Musselroe"
+    "station": "Musselroe Wind Farm"
   },
   "MUSSELROE1": {
     "capacity": 168,
@@ -2478,46 +2826,52 @@
     "station": "Musselroe Wind"
   },
   "MUWAWF1": {
-    "capacity": 226,
+    "capacity": 232,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Murra Warra"
+    "station": "Murra Warra Wind Farm"
   },
   "MUWAWF2": {
     "capacity": 209,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Murra Warra 2"
+    "station": "Murra Warra Wind Farm Stage 2"
   },
   "MWPS1PV1": {
-    "capacity": 50,
+    "capacity": 6,
     "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Murra Warra Solar 1"
+    "region": "SA1",
+    "station": "Morgan-Whyalla Pipeline Pumping Station No 1"
   },
   "MWPS2PV1": {
-    "capacity": 50,
+    "capacity": 6,
     "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Murra Warra Solar 2"
+    "region": "SA1",
+    "station": "Morgan-Whyalla Pipeline Pumping Station No 2"
   },
   "MWPS3PV1": {
-    "capacity": 50,
+    "capacity": 8,
     "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Murra Warra Solar"
+    "region": "SA1",
+    "station": "Morgan-Whyalla Pipeline Pumping Station No 3"
   },
   "MWPS4PV1": {
-    "capacity": 50,
+    "capacity": 6,
     "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Murra Warra Solar 4"
+    "region": "SA1",
+    "station": "Morgan-Whyalla Pipeline Pumping Station No 4"
+  },
+  "NASF1": {
+    "capacity": 10,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Narromine Solar Farm"
   },
   "NBHWF1": {
-    "capacity": 180,
+    "capacity": 132,
     "fuel": "Wind",
-    "region": "VIC1",
-    "station": "Nhill"
+    "region": "SA1",
+    "station": "North Brown Hill Wind Farm"
   },
   "NEOEN_SA": {
     "capacity": 150,
@@ -2532,22 +2886,22 @@
     "station": "Victorian Big Batt"
   },
   "NESBESS1": {
-    "capacity": 50,
+    "capacity": 126,
     "fuel": "Battery",
-    "region": "VIC1",
-    "station": "Nestle BESS"
+    "region": "NSW1",
+    "station": "New England BESS"
   },
   "NESBESS2": {
-    "capacity": 50,
+    "capacity": 126,
     "fuel": "Battery",
-    "region": "VIC1",
-    "station": "Nestle BESS 2"
+    "region": "NSW1",
+    "station": "New England BESS"
   },
   "NEVERSF1": {
-    "capacity": 208,
+    "capacity": 132,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Neverire"
+    "station": "Nevertire Solar Farm"
   },
   "NEVERTIRE1": {
     "capacity": 120,
@@ -2556,16 +2910,16 @@
     "station": "Nevertire Solar"
   },
   "NEWENSF1": {
-    "capacity": 720,
+    "capacity": 235,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "New England"
+    "station": "New England Solar Farm"
   },
   "NEWENSF2": {
-    "capacity": 720,
+    "capacity": 235,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "New England 2"
+    "station": "New England Solar Farm"
   },
   "NEWPORT": {
     "capacity": 500,
@@ -2574,10 +2928,10 @@
     "station": "Newport"
   },
   "NPS": {
-    "capacity": 22,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Nive"
+    "capacity": 500,
+    "fuel": "Gas",
+    "region": "VIC1",
+    "station": "Newport Power Station"
   },
   "NUMURKH1": {
     "capacity": 128,
@@ -2586,40 +2940,40 @@
     "station": "Numurkah Solar"
   },
   "NUMURSF1": {
-    "capacity": 128,
+    "capacity": 112,
     "fuel": "Solar",
-    "region": "NSW1",
-    "station": "Numeralla"
+    "region": "VIC1",
+    "station": "Numurkah Solar Farm"
   },
   "NYNGAN1": {
     "capacity": 102,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Nyngan"
+    "station": "Nyngan Solar Plant"
   },
   "OAKEY1": {
-    "capacity": 282,
+    "capacity": 141,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Oakey"
+    "station": "Oakey Power Station"
   },
   "OAKEY1SF": {
-    "capacity": 25,
+    "capacity": 30,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Oakey 1"
+    "station": "Oakey 1 Solar Farm"
   },
   "OAKEY2": {
-    "capacity": 282,
+    "capacity": 141,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Oakey"
+    "station": "Oakey Power Station"
   },
   "OAKEY2SF": {
-    "capacity": 100,
+    "capacity": 65,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Oakey 2"
+    "station": "Oakey 2 Solar Farm"
   },
   "OAKHNWF1": {
     "capacity": 67,
@@ -2628,13 +2982,25 @@
     "station": "Oakland Hill"
   },
   "OAKLAND1": {
-    "capacity": 65,
-    "fuel": "Hydro",
+    "capacity": 67,
+    "fuel": "Wind",
     "region": "VIC1",
-    "station": "Oakland Hills"
+    "station": "Oaklands Hill Wind Farm"
+  },
+  "OAKY2": {
+    "capacity": 15,
+    "fuel": "Gas",
+    "region": "QLD1",
+    "station": "Oaky Creek 2"
+  },
+  "OAKYCREK": {
+    "capacity": 20,
+    "fuel": "Gas",
+    "region": "QLD1",
+    "station": "Oaky Creek Power Station"
   },
   "ORABESS1": {
-    "capacity": 50,
+    "capacity": 439,
     "fuel": "Battery",
     "region": "NSW1",
     "station": "Orana BESS"
@@ -2643,7 +3009,7 @@
     "capacity": 180,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "Osborne Cogen"
+    "station": "Osborne Power Station"
   },
   "OSBOROPS": {
     "capacity": 180,
@@ -2655,25 +3021,25 @@
     "capacity": 28,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Paloona"
+    "station": "Paloona Power Station"
   },
   "PAREPS1": {
-    "capacity": 30,
+    "capacity": 99,
     "fuel": "Solar",
-    "region": "TAS1",
-    "station": "Paretana"
+    "region": "SA1",
+    "station": "Port Augusta Renewable Energy Park"
   },
   "PAREPW1": {
-    "capacity": 30,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Paretana"
+    "capacity": 210,
+    "fuel": "Wind",
+    "region": "SA1",
+    "station": "Port Augusta Renewable Energy Park"
   },
   "PARSF1": {
-    "capacity": 100,
+    "capacity": 55,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Parkes"
+    "station": "Parkes Solar Farm"
   },
   "PELICAN1": {
     "capacity": 480,
@@ -2682,10 +3048,16 @@
     "station": "Pelican Point"
   },
   "PIBESS1": {
-    "capacity": 50,
+    "capacity": 7,
     "fuel": "Battery",
     "region": "VIC1",
-    "station": "Pines BESS"
+    "station": "Phillip Island BESS"
+  },
+  "PINDARI": {
+    "capacity": 7,
+    "fuel": "Hydro",
+    "region": "NSW1",
+    "station": "Pindari Hydro Power Station"
   },
   "PIONEER": {
     "capacity": 50,
@@ -2694,16 +3066,16 @@
     "station": "Pioneer Battery"
   },
   "POAT110": {
-    "capacity": 300,
+    "capacity": 100,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Poatina"
+    "station": "Poatina Power Station"
   },
   "POAT220": {
-    "capacity": 90,
+    "capacity": 200,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Poatina 2"
+    "station": "Poatina Power Station"
   },
   "POATINA1": {
     "capacity": 75,
@@ -2743,15 +3115,15 @@
   },
   "POR01": {
     "capacity": 50,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Portland"
+    "fuel": "Liquid",
+    "region": "SA1",
+    "station": "Port Lincoln Gas Turbine"
   },
   "POR03": {
-    "capacity": 50,
-    "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Portland 3"
+    "capacity": 24,
+    "fuel": "Liquid",
+    "region": "SA1",
+    "station": "Port Lincoln Gas Turbine"
   },
   "PORTWF": {
     "capacity": 22,
@@ -2763,73 +3135,79 @@
     "capacity": 478,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "Pelican Point"
+    "station": "Pelican Point Power Station"
   },
   "PTSTAN1": {
-    "capacity": 50,
-    "fuel": "Gas",
+    "capacity": 58,
+    "fuel": "Liquid",
     "region": "SA1",
-    "station": "Port Stanvac"
+    "station": "Pt Stanvac Power Station"
   },
   "PUMP1": {
-    "capacity": 50,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Pump 1"
+    "capacity": 240,
+    "fuel": "Other",
+    "region": "QLD1",
+    "station": "Wivenhoe Power Station"
   },
   "PUMP2": {
-    "capacity": 50,
-    "fuel": "Hydro",
-    "region": "NSW1",
-    "station": "Pump 2"
+    "capacity": 240,
+    "fuel": "Other",
+    "region": "QLD1",
+    "station": "Wivenhoe Power Station"
   },
   "QBYNB1": {
-    "capacity": 50,
+    "capacity": 10,
     "fuel": "Battery",
-    "region": "SA1",
-    "station": "Quarantine BESS"
+    "region": "NSW1",
+    "station": "Queanbeyan BESS"
   },
   "QPS1": {
-    "capacity": 60,
+    "capacity": 29,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "Quarantine"
+    "station": "Quarantine Power Station"
   },
   "QPS2": {
-    "capacity": 60,
+    "capacity": 24,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "Quarantine"
+    "station": "Quarantine Power Station"
   },
   "QPS3": {
-    "capacity": 60,
+    "capacity": 24,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "Quarantine"
+    "station": "Quarantine Power Station"
   },
   "QPS4": {
-    "capacity": 60,
+    "capacity": 24,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "Quarantine"
+    "station": "Quarantine Power Station"
   },
   "QPS5": {
-    "capacity": 60,
+    "capacity": 128,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "Quarantine"
+    "station": "Quarantine Power Station"
   },
   "QPSFB1": {
-    "capacity": 30,
-    "fuel": "Gas",
-    "region": "QLD1",
-    "station": "QPS FB 1"
+    "capacity": 96,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Quorn Park Solar Hybrid"
   },
   "QPSFB2": {
-    "capacity": 30,
+    "capacity": 27,
+    "fuel": "Battery",
+    "region": "NSW1",
+    "station": "Quorn Park Solar Hybrid"
+  },
+  "RACOMIL1": {
+    "capacity": 48,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "QPS FB 2"
+    "station": "Racecourse Mill Power Station"
   },
   "RALPHS_BAY1": {
     "capacity": 60,
@@ -2838,28 +3216,28 @@
     "station": "Ralphs Bay Wind"
   },
   "RANGEB1": {
-    "capacity": 50,
+    "capacity": 260,
     "fuel": "Battery",
-    "region": "SA1",
-    "station": "Range Battery"
+    "region": "VIC1",
+    "station": "Rangebank BESS"
   },
   "REECE1": {
-    "capacity": 231,
+    "capacity": 116,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Reece"
+    "station": "Reece Power Station"
   },
   "REECE2": {
-    "capacity": 231,
+    "capacity": 116,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Reece"
+    "station": "Reece Power Station"
   },
   "REPULSE": {
-    "capacity": 22,
+    "capacity": 28,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Repulse"
+    "station": "Repulse Power Station"
   },
   "REPULSE1": {
     "capacity": 33,
@@ -2874,28 +3252,28 @@
     "station": "Repulse"
   },
   "RESS1": {
-    "capacity": 50,
-    "fuel": "Battery",
-    "region": "VIC1",
-    "station": "Reservoir BESS"
-  },
-  "RIVNB2": {
-    "capacity": 50,
+    "capacity": 80,
     "fuel": "Battery",
     "region": "NSW1",
-    "station": "Riverina BESS 2"
+    "station": "Riverina Energy Storage System 1"
+  },
+  "RIVNB2": {
+    "capacity": 65,
+    "fuel": "Battery",
+    "region": "NSW1",
+    "station": "Riverena Energy Storage System 2"
   },
   "ROMA_7": {
-    "capacity": 80,
+    "capacity": 40,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Roma"
+    "station": "Roma Gas Turbine Station"
   },
   "ROMA_8": {
     "capacity": 40,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Roma Gas 8"
+    "station": "Roma Gas Turbine Station"
   },
   "ROOFTOP_NSW1": {
     "capacity": 3000,
@@ -2928,28 +3306,28 @@
     "station": "Rooftop Solar VIC"
   },
   "ROWALLAN": {
-    "capacity": 40,
+    "capacity": 10,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Rowallan"
+    "station": "Rowallan Power Station"
   },
   "ROYALLA1": {
     "capacity": 20,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Royalla"
+    "station": "Royalla Solar Farm"
   },
   "RPCG": {
-    "capacity": 45,
+    "capacity": 30,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Roma"
+    "station": "Rocky Point Cogeneration Plant"
   },
   "RRSF1": {
-    "capacity": 153,
+    "capacity": 128,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Ross River Solar"
+    "station": "Ross River Solar Farm"
   },
   "RT_NSW1": {
     "capacity": 0,
@@ -3012,34 +3390,34 @@
     "station": "Rooftop VIC 1"
   },
   "RUBICON": {
-    "capacity": 41,
+    "capacity": 13,
     "fuel": "Hydro",
     "region": "VIC1",
-    "station": "Rubicon"
+    "station": "Rubicon Mountain Streams Station"
   },
   "RUGBYR1": {
-    "capacity": 78,
+    "capacity": 83,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Rugby Run Solar"
+    "station": "Rugby Run Solar Farm"
   },
   "RYANCWF1": {
-    "capacity": 132,
+    "capacity": 218,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Ryan Corner"
+    "station": "Ryan Corner Wind Farm"
   },
   "RYEPARK1": {
     "capacity": 396,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "Rye Park"
+    "station": "Rye Park Renewable Energy"
   },
   "SALTCRK1": {
-    "capacity": 55,
+    "capacity": 54,
     "fuel": "Wind",
-    "region": "SA1",
-    "station": "Salt Creek"
+    "region": "VIC1",
+    "station": "Salt Creek Wind Farm"
   },
   "SAPHIRE1": {
     "capacity": 270,
@@ -3051,19 +3429,25 @@
     "capacity": 270,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "Sapphire Wind"
+    "station": "Sapphire Wind Farm"
   },
   "SEBSF1": {
-    "capacity": 120,
+    "capacity": 110,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Sebastopol"
+    "station": "Sebastopol Solar Farm"
+  },
+  "SHEP1": {
+    "capacity": 1,
+    "fuel": "Other",
+    "region": "VIC1",
+    "station": "Shepparton Wastewater Treatment Facility"
   },
   "SHGEN": {
     "capacity": 240,
     "fuel": "Hydro",
     "region": "NSW1",
-    "station": "Shoalhaven"
+    "station": "Shoalhaven Power Station (Bendeela And Kangaroo Valley Power Station And Pumps)"
   },
   "SHNGEN": {
     "capacity": 240,
@@ -3072,88 +3456,112 @@
     "station": "Shoalhaven"
   },
   "SHOAL1": {
-    "capacity": 240,
-    "fuel": "Hydro",
+    "capacity": 54,
+    "fuel": "Gas",
     "region": "NSW1",
-    "station": "Shoalhaven"
+    "station": "Shoalhaven Starches Cogeneration Plant"
   },
   "SHPUMP": {
     "capacity": 240,
-    "fuel": "Hydro",
+    "fuel": "Other",
     "region": "NSW1",
-    "station": "Shoalhaven Pump"
+    "station": "Shoalhaven Power Station (Bendeela And Kangaroo Valley Power Station And Pumps)"
   },
   "SITHE01": {
-    "capacity": 180,
+    "capacity": 125,
     "fuel": "Gas",
     "region": "NSW1",
-    "station": "Sithe"
+    "station": "Smithfield Energy Facility"
+  },
+  "SKSF1": {
+    "capacity": 15,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "South Keswick Solar Farm"
   },
   "SMCSF1": {
-    "capacity": 58,
+    "capacity": 143,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Smithfield"
+    "station": "Sun Metals Solar Farm"
   },
   "SMTHBES1": {
-    "capacity": 50,
+    "capacity": 69,
     "fuel": "Battery",
-    "region": "QLD1",
-    "station": "Smithfield BESS"
+    "region": "NSW1",
+    "station": "Smithfield Battery Energy Storage System, Units 1 - 36"
   },
   "SNAPPER1": {
-    "capacity": 319,
-    "fuel": "Gas",
+    "capacity": 154,
+    "fuel": "Liquid",
     "region": "SA1",
-    "station": "Snapper Point"
+    "station": "Snapper Point Power Station"
   },
   "SNB01": {
-    "capacity": 520,
+    "capacity": 337,
     "fuel": "Battery",
     "region": "QLD1",
-    "station": "Supernode Battery"
+    "station": "Supernode BESS"
   },
   "SNB02": {
-    "capacity": 50,
+    "capacity": 337,
     "fuel": "Battery",
-    "region": "SA1",
-    "station": "Supernode Batt 2"
+    "region": "QLD1",
+    "station": "Supernode BESS"
   },
   "SNOWNTH1": {
-    "capacity": 99,
+    "capacity": 144,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Snowtown 1"
+    "station": "Snowtown Wind Farm Stage 2 North"
   },
   "SNOWSTH1": {
-    "capacity": 270,
+    "capacity": 126,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Snowtown 2"
+    "station": "Snowtown South Wind Farm"
   },
   "SNOWTWN1": {
     "capacity": 99,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Snowtown"
+    "station": "Snowtown Wind Farm Units 1 And 47"
   },
   "SNOWYP": {
-    "capacity": 360,
+    "capacity": 600,
     "fuel": "Hydro",
     "region": "NSW1",
-    "station": "Snowy Pump"
+    "station": "Tumut 3 Pumps"
   },
   "SNUG1": {
-    "capacity": 16,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Snug"
+    "capacity": 63,
+    "fuel": "Liquid",
+    "region": "SA1",
+    "station": "Snuggery Power Station"
+  },
+  "SNUG2": {
+    "capacity": 21,
+    "fuel": "Liquid",
+    "region": "SA1",
+    "station": "Snuggery Power Station"
+  },
+  "SNUG3": {
+    "capacity": 21,
+    "fuel": "Liquid",
+    "region": "SA1",
+    "station": "Snuggery Power Station"
   },
   "SNUGGERY1": {
     "capacity": 72,
     "fuel": "Liquid",
     "region": "SA1",
     "station": "Snuggery"
+  },
+  "SNUGNL1": {
+    "capacity": 21,
+    "fuel": "Liquid",
+    "region": "SA1",
+    "station": "Snuggery Power Station"
   },
   "SOMERTON": {
     "capacity": 160,
@@ -3162,76 +3570,82 @@
     "station": "Somerton"
   },
   "SRSF1": {
-    "capacity": 255,
+    "capacity": 85,
     "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Sunraysia"
+    "region": "QLD1",
+    "station": "Susan River Solar Farm"
   },
   "STAN-1": {
     "capacity": 365,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Stanwell"
+    "station": "Stanwell Power Station"
   },
   "STAN-2": {
     "capacity": 365,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Stanwell"
+    "station": "Stanwell Power Station"
   },
   "STAN-3": {
     "capacity": 365,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Stanwell"
+    "station": "Stanwell Power Station"
   },
   "STAN-4": {
     "capacity": 365,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Stanwell"
+    "station": "Stanwell Power Station"
+  },
+  "STAPYLTON1": {
+    "capacity": 3,
+    "fuel": "Gas",
+    "region": "QLD1",
+    "station": "Stapylton Renewable Energy Facility"
   },
   "STARHLWF": {
     "capacity": 34,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Starfish Hill 2"
+    "station": "Starfish Hill Wind Farm"
   },
   "STOCKYD1": {
-    "capacity": 530,
+    "capacity": 531,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Stockyard Hill"
+    "station": "Stockyard Hill Wind Farm"
   },
   "STUBSF1": {
-    "capacity": 200,
+    "capacity": 255,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Stubbo"
+    "station": "Stubbo Solar Farm 1"
   },
   "STUBSF2": {
-    "capacity": 200,
+    "capacity": 248,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Stubbo 2"
+    "station": "Stubbo Solar Farm 2"
   },
   "STWF1": {
-    "capacity": 34,
+    "capacity": 199,
     "fuel": "Wind",
-    "region": "SA1",
-    "station": "Starfish Hill"
+    "region": "NSW1",
+    "station": "Silverton Wind Farm"
   },
   "SUNRSF1": {
-    "capacity": 255,
+    "capacity": 228,
     "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Sunraysia"
+    "region": "NSW1",
+    "station": "SUNRAYSIA SF"
   },
   "SUNTPSF1": {
-    "capacity": 255,
+    "capacity": 175,
     "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Sunraysia"
+    "region": "NSW1",
+    "station": "Suntop Solar Farm"
   },
   "SW1": {
     "capacity": 365,
@@ -3258,16 +3672,28 @@
     "station": "Stanwell"
   },
   "SWANBBF1": {
-    "capacity": 50,
+    "capacity": 331,
     "fuel": "Battery",
     "region": "QLD1",
-    "station": "Swan Bank Battery"
+    "station": "Swanbank BESS"
   },
   "SWAN_E": {
     "capacity": 385,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Swanbank E"
+    "station": "Swanbank E Power Station"
+  },
+  "TABMILL2": {
+    "capacity": 24,
+    "fuel": "Gas",
+    "region": "QLD1",
+    "station": "Tableland Mill Unit 2"
+  },
+  "TAHMOOR1": {
+    "capacity": 7,
+    "fuel": "Gas",
+    "region": "NSW1",
+    "station": "Tahmoor Waste Coal Mine Gas Power Station"
   },
   "TALBINGO": {
     "capacity": 250,
@@ -3300,16 +3726,16 @@
     "station": "Tallawarra B"
   },
   "TALWA1": {
-    "capacity": 90,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Tarraleah A"
+    "capacity": 440,
+    "fuel": "Gas",
+    "region": "NSW1",
+    "station": "Tallawarra Power Station"
   },
   "TALWB1": {
-    "capacity": 90,
-    "fuel": "Hydro",
-    "region": "TAS1",
-    "station": "Tarraleah B"
+    "capacity": 320,
+    "fuel": "Gas",
+    "region": "NSW1",
+    "station": "Tallawarra Power Station"
   },
   "TAMAR_GT1": {
     "capacity": 208,
@@ -3318,13 +3744,13 @@
     "station": "Tamar Valley GT"
   },
   "TARALGA1": {
-    "capacity": 106,
+    "capacity": 107,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "Taralga Wind"
+    "station": "Taralga Wind Farm"
   },
   "TARBESS1": {
-    "capacity": 100,
+    "capacity": 393,
     "fuel": "Battery",
     "region": "QLD1",
     "station": "Tarong BESS"
@@ -3333,25 +3759,25 @@
     "capacity": 350,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Tarong"
+    "station": "Tarong Power Station"
   },
   "TARONG#2": {
     "capacity": 350,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Tarong"
+    "station": "Tarong Power Station"
   },
   "TARONG#3": {
     "capacity": 350,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Tarong"
+    "station": "Tarong Power Station"
   },
   "TARONG#4": {
     "capacity": 350,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Tarong"
+    "station": "Tarong Power Station"
   },
   "TARONG1": {
     "capacity": 350,
@@ -3378,10 +3804,10 @@
     "station": "Tarong"
   },
   "TARRALEA": {
-    "capacity": 104,
+    "capacity": 90,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Tarraleah"
+    "station": "Tarraleah Power Station"
   },
   "TAS1BES1": {
     "capacity": 150,
@@ -3389,41 +3815,83 @@
     "region": "TAS1",
     "station": "TAS Battery"
   },
+  "TATIARA1": {
+    "capacity": 0,
+    "fuel": "Liquid",
+    "region": "SA1",
+    "station": "Tataria Bordertown Plant"
+  },
+  "TATURA01": {
+    "capacity": 1,
+    "fuel": "Other",
+    "region": "VIC1",
+    "station": "Tatura Biomass Generator"
+  },
   "TB2B1": {
-    "capacity": 25,
+    "capacity": 50,
     "fuel": "Battery",
-    "region": "TAS1",
-    "station": "Turners Beach BESS"
+    "region": "SA1",
+    "station": "Tailem Bend 2 Hybrid Renewable Power Station"
   },
   "TB2SF1": {
-    "capacity": 12,
+    "capacity": 105,
     "fuel": "Solar",
-    "region": "TAS1",
-    "station": "Turners Beach"
+    "region": "SA1",
+    "station": "Tailem Bend 2 Hybrid Renewable Power Station"
   },
   "TBSF1": {
-    "capacity": 50,
+    "capacity": 108,
     "fuel": "Solar",
-    "region": "VIC1",
-    "station": "Toora"
+    "region": "SA1",
+    "station": "Tailem Bend Solar Project 1"
   },
   "TEMPB1": {
-    "capacity": 50,
+    "capacity": 138,
     "fuel": "Battery",
+    "region": "SA1",
+    "station": "Templers Battery Energy Storage System"
+  },
+  "TGNSS1": {
+    "capacity": 10,
+    "fuel": "Gas",
+    "region": "VIC1",
+    "station": "Traralgon Network Support Station"
+  },
+  "THEDROP1": {
+    "capacity": 2,
+    "fuel": "Hydro",
     "region": "NSW1",
-    "station": "Template Battery"
+    "station": "The Drop Power Station"
   },
   "TIB1": {
-    "capacity": 50,
+    "capacity": 250,
     "fuel": "Battery",
-    "region": "NSW1",
-    "station": "Tibooburra"
+    "region": "SA1",
+    "station": "Torrens Island BESS"
+  },
+  "TIMWEST": {
+    "capacity": 7,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Timboon West Wind Farm"
+  },
+  "TITREE": {
+    "capacity": 2,
+    "fuel": "Gas",
+    "region": "QLD1",
+    "station": "Veolia Ti Tree Bio Reactor"
   },
   "TNPS1": {
     "capacity": 443,
     "fuel": "Black Coal",
     "region": "QLD1",
-    "station": "Tarong North"
+    "station": "Tarong North Power Station"
+  },
+  "TOORAWF": {
+    "capacity": 21,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Toora Wind Farm"
   },
   "TORRA1": {
     "capacity": 200,
@@ -3453,25 +3921,25 @@
     "capacity": 200,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "Torrens Island B"
+    "station": "Torrens Island Power Station"
   },
   "TORRB2": {
     "capacity": 200,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "Torrens Island B"
+    "station": "Torrens Island Power Station"
   },
   "TORRB3": {
     "capacity": 200,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "Torrens Island B"
+    "station": "Torrens Island Power Station"
   },
   "TORRB4": {
     "capacity": 200,
     "fuel": "Gas",
     "region": "SA1",
-    "station": "Torrens Island B"
+    "station": "Torrens Island Power Station"
   },
   "TORRSA1": {
     "capacity": 120,
@@ -3521,6 +3989,12 @@
     "region": "SA1",
     "station": "Torrens Island B"
   },
+  "TOWER": {
+    "capacity": 41,
+    "fuel": "Gas",
+    "region": "NSW1",
+    "station": "Tower Power Plant"
+  },
   "TOWNSVILLE": {
     "capacity": 180,
     "fuel": "Gas",
@@ -3531,7 +4005,7 @@
     "capacity": 93,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Trevallyn"
+    "station": "Trevallyn Power Station"
   },
   "TREVALLYN1": {
     "capacity": 23,
@@ -3558,16 +4032,16 @@
     "station": "Trevallyn"
   },
   "TRGBESS1": {
-    "capacity": 50,
+    "capacity": 144,
     "fuel": "Battery",
-    "region": "SA1",
-    "station": "Torrens BESS"
+    "region": "VIC1",
+    "station": "Terang BESS"
   },
   "TRIBUTE": {
-    "capacity": 84,
+    "capacity": 83,
     "fuel": "Hydro",
     "region": "TAS1",
-    "station": "Tribute"
+    "station": "Tribute Power Station"
   },
   "TRIBUTE1": {
     "capacity": 80,
@@ -3582,10 +4056,10 @@
     "station": "Tribute"
   },
   "TULLYSM1": {
-    "capacity": 50,
-    "fuel": "Battery",
+    "capacity": 32,
+    "fuel": "Gas",
     "region": "QLD1",
-    "station": "Tully BESS"
+    "station": "Tully Sugar Mill"
   },
   "TUMUT1": {
     "capacity": 160,
@@ -3600,10 +4074,10 @@
     "station": "Tumut 2"
   },
   "TUMUT3": {
-    "capacity": 250,
+    "capacity": 1500,
     "fuel": "Hydro",
     "region": "NSW1",
-    "station": "Tumut 3"
+    "station": "Tumut 3 Power Station"
   },
   "TUMUT3A": {
     "capacity": 250,
@@ -3612,10 +4086,10 @@
     "station": "Tumut 3"
   },
   "TUNGATIN": {
-    "capacity": 22,
+    "capacity": 125,
     "fuel": "Hydro",
-    "region": "QLD1",
-    "station": "Tinaroo"
+    "region": "TAS1",
+    "station": "Tungatinah Power Station"
   },
   "TUNGATINAH1": {
     "capacity": 30,
@@ -3648,16 +4122,16 @@
     "station": "Tungatinah"
   },
   "TVCC201": {
-    "capacity": 50,
+    "capacity": 209,
     "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Traralgon"
+    "region": "TAS1",
+    "station": "Tamar Valley Combined Cycle Power Station"
   },
   "TVPP104": {
-    "capacity": 50,
+    "capacity": 58,
     "fuel": "Gas",
-    "region": "VIC1",
-    "station": "Traralgon PP"
+    "region": "TAS1",
+    "station": "Bell Bay Three Power Station"
   },
   "TYNDALL1": {
     "capacity": 50,
@@ -3672,16 +4146,16 @@
     "station": "Tyndall"
   },
   "ULPBESS1": {
-    "capacity": 50,
+    "capacity": 197,
     "fuel": "Battery",
-    "region": "NSW1",
-    "station": "Ultimo"
+    "region": "QLD1",
+    "station": "Ulinda Park BESS"
   },
   "UPPTUMUT": {
     "capacity": 616,
     "fuel": "Hydro",
     "region": "NSW1",
-    "station": "Upper Tumut"
+    "station": "Tumut Power Station"
   },
   "URANQ1": {
     "capacity": 160,
@@ -3690,28 +4164,28 @@
     "station": "Uranquinty"
   },
   "URANQ11": {
-    "capacity": 160,
+    "capacity": 166,
     "fuel": "Gas",
     "region": "NSW1",
-    "station": "Uranquinty"
+    "station": "Uranquinty Power Station"
   },
   "URANQ12": {
-    "capacity": 160,
+    "capacity": 166,
     "fuel": "Gas",
     "region": "NSW1",
-    "station": "Uranquinty"
+    "station": "Uranquinty Power Station"
   },
   "URANQ13": {
-    "capacity": 160,
+    "capacity": 166,
     "fuel": "Gas",
     "region": "NSW1",
-    "station": "Uranquinty"
+    "station": "Uranquinty Power Station"
   },
   "URANQ14": {
-    "capacity": 160,
+    "capacity": 166,
     "fuel": "Gas",
     "region": "NSW1",
-    "station": "Uranquinty"
+    "station": "Uranquinty Power Station"
   },
   "URANQ2": {
     "capacity": 160,
@@ -3730,6 +4204,12 @@
     "fuel": "Gas",
     "region": "NSW1",
     "station": "Uranquinty"
+  },
+  "VALDORA1": {
+    "capacity": 15,
+    "fuel": "Solar",
+    "region": "QLD1",
+    "station": "Valdora Solar Farm"
   },
   "VALUNIT1": {
     "capacity": 300,
@@ -3768,70 +4248,70 @@
     "station": "Valley Power"
   },
   "VBB1": {
-    "capacity": 300,
+    "capacity": 360,
     "fuel": "Battery",
     "region": "VIC1",
-    "station": "Victorian Big Batt"
+    "station": "Victorian Big Battery"
   },
   "VP5": {
     "capacity": 660,
     "fuel": "Black Coal",
     "region": "NSW1",
-    "station": "Vales Point B"
+    "station": "Vales Point \"B\" Power Station"
   },
   "VP6": {
     "capacity": 660,
     "fuel": "Black Coal",
     "region": "NSW1",
-    "station": "Vales Point B"
+    "station": "Vales Point \"B\" Power Station"
   },
   "VPGS1": {
-    "capacity": 51,
+    "capacity": 50,
     "fuel": "Gas",
     "region": "VIC1",
-    "station": "Valley Power"
+    "station": "Valley Power Peaking Facility"
   },
   "VPGS2": {
-    "capacity": 51,
+    "capacity": 50,
     "fuel": "Gas",
     "region": "VIC1",
-    "station": "Valley Power"
+    "station": "Valley Power Peaking Facility"
   },
   "VPGS3": {
-    "capacity": 51,
+    "capacity": 50,
     "fuel": "Gas",
     "region": "VIC1",
-    "station": "Valley Power"
+    "station": "Valley Power Peaking Facility"
   },
   "VPGS4": {
-    "capacity": 51,
+    "capacity": 50,
     "fuel": "Gas",
     "region": "VIC1",
-    "station": "Valley Power"
+    "station": "Valley Power Peaking Facility"
   },
   "VPGS5": {
-    "capacity": 51,
+    "capacity": 50,
     "fuel": "Gas",
     "region": "VIC1",
-    "station": "Valley Power"
+    "station": "Valley Power Peaking Facility"
   },
   "VPGS6": {
-    "capacity": 51,
+    "capacity": 50,
     "fuel": "Gas",
     "region": "VIC1",
-    "station": "Valley Power"
+    "station": "Valley Power Peaking Facility"
   },
   "W/HOE#1": {
-    "capacity": 500,
+    "capacity": 285,
     "fuel": "Hydro",
     "region": "QLD1",
-    "station": "Wivenhoe"
+    "station": "Wivenhoe Power Station"
   },
   "W/HOE#2": {
-    "capacity": 500,
+    "capacity": 285,
     "fuel": "Hydro",
     "region": "QLD1",
-    "station": "Wivenhoe"
+    "station": "Wivenhoe Power Station"
   },
   "W/HOE_1": {
     "capacity": 285,
@@ -3846,28 +4326,28 @@
     "station": "Wivenhoe"
   },
   "WAGGNSF1": {
-    "capacity": 100,
+    "capacity": 55,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Wagga North"
+    "station": "Wagga North Solar Farm"
   },
   "WALGRV1": {
     "capacity": 50,
     "fuel": "Battery",
     "region": "NSW1",
-    "station": "Walgrove BESS"
+    "station": "Wallgrove BESS 1"
   },
   "WAMBOWF1": {
-    "capacity": 243,
+    "capacity": 252,
     "fuel": "Wind",
     "region": "QLD1",
-    "station": "Wambo"
+    "station": "Wambo Wind Farm 1"
   },
   "WANDB1": {
-    "capacity": 50,
+    "capacity": 123,
     "fuel": "Battery",
     "region": "QLD1",
-    "station": "Wandoan Battery"
+    "station": "Wandoan Battery Energy Storage System (BESS)"
   },
   "WANDBG1": {
     "capacity": 100,
@@ -3876,34 +4356,34 @@
     "station": "Wandoan Battery"
   },
   "WANDSF1": {
-    "capacity": 125,
+    "capacity": 159,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Wandoan"
+    "station": "Wandoan Solar Farm 1"
   },
   "WARWSF1": {
-    "capacity": 80,
+    "capacity": 39,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Warwick"
+    "station": "Warwick Solar Farm 1"
   },
   "WARWSF2": {
-    "capacity": 80,
+    "capacity": 39,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Warwick 2"
+    "station": "Warwick Solar Farm 2"
   },
   "WATERLWF": {
-    "capacity": 111,
+    "capacity": 131,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Waterloo"
+    "station": "Waterloo Wind Farm"
   },
   "WAUBRAWF": {
     "capacity": 192,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Waubra"
+    "station": "Waubra Wind Farm"
   },
   "WAUBRAWF1": {
     "capacity": 192,
@@ -3912,40 +4392,52 @@
     "station": "Waubra"
   },
   "WDBESS1": {
-    "capacity": 50,
+    "capacity": 272,
     "fuel": "Battery",
     "region": "QLD1",
-    "station": "Wandoan BESS"
+    "station": "Western Downs Battery Energy Storage System"
   },
   "WDBESS2": {
-    "capacity": 50,
+    "capacity": 270,
     "fuel": "Battery",
     "region": "QLD1",
-    "station": "Wandoan BESS 2"
+    "station": "Western Downs Battery Energy Storage System (BESS)"
   },
   "WDGPH1": {
-    "capacity": 320,
-    "fuel": "Black Coal",
-    "region": "NSW1",
-    "station": "Wallerawang D"
-  },
-  "WELLSF1": {
-    "capacity": 65,
+    "capacity": 501,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Wellcamp"
+    "station": "Western Downs GPH"
+  },
+  "WDLNGN01": {
+    "capacity": 7,
+    "fuel": "Gas",
+    "region": "NSW1",
+    "station": "Woodlawn Bioreactor Energy Generation Station"
+  },
+  "WELLSF1": {
+    "capacity": 216,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Wellington Solar Farm"
   },
   "WELNSF1": {
-    "capacity": 176,
-    "fuel": "Wind",
-    "region": "SA1",
-    "station": "Wellington North"
+    "capacity": 436,
+    "fuel": "Solar",
+    "region": "NSW1",
+    "station": "Wellington North Solar Farm"
   },
   "WEMENSF1": {
-    "capacity": 221,
+    "capacity": 98,
     "fuel": "Solar",
     "region": "VIC1",
-    "station": "Wemen Solar"
+    "station": "Wemen Solar Farm"
+  },
+  "WESTILL1": {
+    "capacity": 1,
+    "fuel": "Liquid",
+    "region": "NSW1",
+    "station": "West Illawarra Leagues Club Plant"
   },
   "WGSA1": {
     "capacity": 111,
@@ -3954,16 +4446,46 @@
     "station": "Waterloo Wind"
   },
   "WGWF1": {
-    "capacity": 20,
+    "capacity": 122,
+    "fuel": "Wind",
+    "region": "SA1",
+    "station": "Willogoleche Wind Farm"
+  },
+  "WHILL1": {
+    "capacity": 12,
     "fuel": "Wind",
     "region": "QLD1",
-    "station": "Windy Hill"
+    "station": "Windy Hill Wind Farm"
+  },
+  "WHIT1": {
+    "capacity": 1,
+    "fuel": "Gas",
+    "region": "QLD1",
+    "station": "Whitwood Road Renewable Energy Facility"
   },
   "WHITSF1": {
     "capacity": 58,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Whitsunday"
+    "station": "Whitsunday Solar Farm"
+  },
+  "WILGAPK": {
+    "capacity": 10,
+    "fuel": "Gas",
+    "region": "NSW1",
+    "station": "Wilga Park Power Station"
+  },
+  "WILGB01": {
+    "capacity": 12,
+    "fuel": "Gas",
+    "region": "NSW1",
+    "station": "Wilga Park B"
+  },
+  "WILLHOV1": {
+    "capacity": 2,
+    "fuel": "Hydro",
+    "region": "VIC1",
+    "station": "William Hovell Power Station"
   },
   "WILLOGWF1": {
     "capacity": 119,
@@ -3971,11 +4493,23 @@
     "region": "SA1",
     "station": "Willogoleche Wind"
   },
+  "WINGF1_1": {
+    "capacity": 4,
+    "fuel": "Gas",
+    "region": "SA1",
+    "station": "Wingfield 1 Landfill Gas Power Station"
+  },
+  "WINGF2_1": {
+    "capacity": 4,
+    "fuel": "Gas",
+    "region": "SA1",
+    "station": "Wingfield 2 Landfill Gas Power Station"
+  },
   "WINTSF1": {
-    "capacity": 55,
+    "capacity": 107,
     "fuel": "Solar",
-    "region": "QLD1",
-    "station": "Winton"
+    "region": "VIC1",
+    "station": "Winton Solar Farm"
   },
   "WIVENHOE1": {
     "capacity": 275,
@@ -4002,52 +4536,64 @@
     "station": "Wivenhoe"
   },
   "WKIEWA1": {
-    "capacity": 40,
+    "capacity": 31,
     "fuel": "Hydro",
     "region": "VIC1",
-    "station": "West Kiewa"
+    "station": "West Kiewa Power Station"
   },
   "WKIEWA2": {
-    "capacity": 40,
+    "capacity": 31,
     "fuel": "Hydro",
     "region": "VIC1",
-    "station": "West Kiewa"
+    "station": "West Kiewa Power Station"
   },
   "WLWLSF1": {
-    "capacity": 100,
+    "capacity": 202,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Wollongong 1"
+    "station": "Walla Walla Solar Farm 1"
   },
   "WLWLSF2": {
-    "capacity": 100,
+    "capacity": 202,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Wollongong"
+    "station": "Walla Walla Solar Farm 2"
   },
   "WNSF1": {
-    "capacity": 100,
+    "capacity": 26,
     "fuel": "Solar",
-    "region": "QLD1",
-    "station": "Wandoan North"
+    "region": "VIC1",
+    "station": "Wangaratta Solar Farm"
   },
   "WOLARSF1": {
-    "capacity": 130,
+    "capacity": 324,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Wolar"
+    "station": "Wollar Solar Farm"
+  },
+  "WOLLERT1": {
+    "capacity": 7,
+    "fuel": "Gas",
+    "region": "VIC1",
+    "station": "Wollert Renewable Energy Facility"
+  },
+  "WONWP": {
+    "capacity": 12,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Wonthaggi Wind Farm"
   },
   "WOODLWN1": {
     "capacity": 48,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "Woodlawn"
+    "station": "Woodlawn Wind Farm"
   },
   "WOOLGSF1": {
-    "capacity": 150,
+    "capacity": 222,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Woolooga"
+    "station": "Woolooga Solar Farm"
   },
   "WOOLNORTH_WF1H": {
     "capacity": 65,
@@ -4062,16 +4608,16 @@
     "station": "Woolnorth"
   },
   "WOOLNTH1": {
-    "capacity": 65,
-    "fuel": "Hydro",
+    "capacity": 140,
+    "fuel": "Wind",
     "region": "TAS1",
-    "station": "Woolnorth"
+    "station": "Woolnorth Studland Bay / Bluff Point Wind Farm"
   },
   "WPWF": {
-    "capacity": 10,
+    "capacity": 91,
     "fuel": "Wind",
     "region": "SA1",
-    "station": "Windy Point"
+    "station": "Wattle Point Wind Farm"
   },
   "WPWF1": {
     "capacity": 119,
@@ -4080,58 +4626,70 @@
     "station": "Willogoleche Wind"
   },
   "WRSF1": {
-    "capacity": 175,
+    "capacity": 22,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "White Rock Solar"
+    "station": "White Rock Solar Farm"
   },
   "WRWF1": {
     "capacity": 175,
     "fuel": "Wind",
     "region": "NSW1",
-    "station": "White Rock"
+    "station": "White Rock Wind Farm"
   },
   "WSTWYSF1": {
-    "capacity": 200,
+    "capacity": 105,
     "fuel": "Solar",
-    "region": "QLD1",
-    "station": "Westway"
+    "region": "NSW1",
+    "station": "West Wyalong Solar Farm"
   },
   "WTAHB1": {
-    "capacity": 50,
+    "capacity": 1096,
     "fuel": "Battery",
-    "region": "SA1",
-    "station": "Watarrka"
+    "region": "NSW1",
+    "station": "Waratah Super Battery"
   },
   "WUNUSF1": {
-    "capacity": 100,
+    "capacity": 94,
     "fuel": "Solar",
+    "region": "VIC1",
+    "station": "Wunghnu Solar Farm"
+  },
+  "WYANGALA": {
+    "capacity": 20,
+    "fuel": "Hydro",
     "region": "NSW1",
-    "station": "Wunula"
+    "station": "Wyangala A Power Station"
+  },
+  "WYANGALB": {
+    "capacity": 4,
+    "fuel": "Hydro",
+    "region": "NSW1",
+    "station": "Wyangala B Power Station"
   },
   "WYASF1": {
-    "capacity": 200,
+    "capacity": 62,
     "fuel": "Solar",
     "region": "NSW1",
-    "station": "Wyalong"
+    "station": "Wyalong Solar Farm"
   },
   "YABULU": {
-    "capacity": 242,
+    "capacity": 160,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Yabulu"
+    "station": "Townsville Gas Turbine"
   },
   "YABULU2": {
-    "capacity": 242,
+    "capacity": 82,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Yabulu"
+    "station": "Townsville Gas Turbine"
   },
   "YAMBUKWF": {
     "capacity": 30,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Yambuk"
+    "station": "Yambuk Wind Farm"
   },
   "YAMBUKWF1": {
     "capacity": 30,
@@ -4140,57 +4698,69 @@
     "station": "Yambuk"
   },
   "YARANSF1": {
-    "capacity": 100,
+    "capacity": 121,
     "fuel": "Solar",
     "region": "QLD1",
-    "station": "Yarranlea"
+    "station": "Yarranlea Solar Farm"
   },
   "YARWUN_1": {
-    "capacity": 165,
+    "capacity": 154,
     "fuel": "Gas",
     "region": "QLD1",
-    "station": "Yarwun"
+    "station": "Yarwun Power Station"
   },
   "YATSF1": {
-    "capacity": 220,
+    "capacity": 94,
     "fuel": "Solar",
     "region": "VIC1",
-    "station": "Yatpool"
+    "station": "Yatpool Solar Farm"
   },
-  "YENDWF1": {
-    "capacity": 180,
+  "YAWWF1": {
+    "capacity": 7,
     "fuel": "Wind",
     "region": "VIC1",
-    "station": "Yendon"
+    "station": "Yawong Wind Farm"
+  },
+  "YENDWF1": {
+    "capacity": 144,
+    "fuel": "Wind",
+    "region": "VIC1",
+    "station": "Yendon Wind Farm"
   },
   "YSWF1": {
-    "capacity": 100,
+    "capacity": 29,
     "fuel": "Wind",
-    "region": "NSW1",
-    "station": "Yass"
+    "region": "VIC1",
+    "station": "Yaloak South Wind Farm"
+  },
+  "YWNGAHYD": {
+    "capacity": 9,
+    "fuel": "Hydro",
+    "region": "VIC1",
+    "station": "Yarrawonga Hydro Power Station"
   },
   "YWPS1": {
     "capacity": 360,
     "fuel": "Brown Coal",
     "region": "VIC1",
-    "station": "Yallourn W"
+    "station": "Yallourn 'W' Power Station"
   },
   "YWPS2": {
     "capacity": 360,
     "fuel": "Brown Coal",
     "region": "VIC1",
-    "station": "Yallourn W"
+    "station": "Yallourn 'W' Power Station"
   },
   "YWPS3": {
-    "capacity": 360,
+    "capacity": 380,
     "fuel": "Brown Coal",
     "region": "VIC1",
-    "station": "Yallourn W"
+    "station": "Yallourn 'W' Power Station"
   },
   "YWPS4": {
-    "capacity": 360,
+    "capacity": 380,
     "fuel": "Brown Coal",
     "region": "VIC1",
-    "station": "Yallourn W"
+    "station": "Yallourn 'W' Power Station"
   }
 }

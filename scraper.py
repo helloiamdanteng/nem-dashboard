@@ -2538,24 +2538,20 @@ def scrape_mtpasa_outages() -> list:
     from concurrent.futures import ThreadPoolExecutor
 
     # Fetch all three sources in parallel
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=3) as ex:
         f_stpasa = ex.submit(scrape_pasa_duid_availability, "STPASA")
         f_pdpasa = ex.submit(scrape_pasa_duid_availability, "PDPASA")
         f_mtpasa_files = ex.submit(_list_hrefs, MTPASA_DUID_URL)
-        f_scada = ex.submit(_fetch_full_scada)
 
     stpasa_result = {}
     pdpasa_result = {}
     mtpasa_files = []
-    scada_now = {}
     try: stpasa_result = f_stpasa.result(timeout=25)
     except Exception as e: logger.warning(f"STPASA fetch failed: {e}")
     try: pdpasa_result = f_pdpasa.result(timeout=25)
     except Exception as e: logger.warning(f"PDPASA fetch failed: {e}")
     try: mtpasa_files = f_mtpasa_files.result(timeout=25)
     except Exception as e: logger.warning(f"MTPASA listing failed: {e}")
-    try: scada_now = f_scada.result(timeout=25)
-    except Exception as e: logger.warning(f"SCADA fetch failed: {e}")
 
     # Unpack slots and max_avail from new return format
     stpasa_avail = stpasa_result.get("slots", {}) if isinstance(stpasa_result, dict) and "slots" in stpasa_result else stpasa_result
@@ -2643,17 +2639,15 @@ def scrape_mtpasa_outages() -> list:
         stpasa_slots = stpasa_avail.get(duid, {})
 
         # ── Current availability ───────────────────────────────────────────────
-        # Priority:
-        #  1. SCADA — actual MW right now (catches unplanned/forced outages)
-        #  2. PDPASA first interval — covers next 36h (catches outages SCADA misses)
-        #  3. STPASA first interval — covers next 7d
-        #  4. MTPASA — planned outages further out
-        # For availability we take the LOWEST across all sources — most conservative
+        # Priority (lowest value wins — most conservative):
+        #  1. PDPASA first interval — coal units only (30-min, next 36h)
+        #  2. STPASA first interval — all fuel types (next 7d)
+        #  3. MTPASA most recent change-point — all fuel types (full horizon)
         avail_now = None
         state_now = "Unknown"
         avail_source = None
 
-        # MTPASA: use most recent past change-point as baseline
+        # MTPASA baseline — most recent past change-point
         if sorted_days:
             past_days = [d for d in sorted_days if d <= today_str]
             if past_days:
@@ -2667,29 +2661,22 @@ def scrape_mtpasa_outages() -> list:
                 state_now = entry["state"]
                 avail_source = "MTPASA"
 
-        # STPASA first interval — take lower value
+        # STPASA first interval — all fuels, take lower
         if duid in stpasa_first:
             st_val = stpasa_first[duid]
             if avail_now is None or st_val < avail_now:
                 avail_now = st_val
                 avail_source = "STPASA"
 
-        # PDPASA first interval — take lower value
-        pdpasa_slots = pdpasa_avail.get(duid, {})
-        if pdpasa_slots:
-            pdpasa_first_slot = sorted(pdpasa_slots.keys())[0]
-            pd_val = pdpasa_slots[pdpasa_first_slot]
-            if avail_now is None or pd_val < avail_now:
-                avail_now = pd_val
-                avail_source = "PDPASA"
-
-        # SCADA — actual current MW, take lower value (catches forced outages NOW)
-        if duid in scada_now:
-            scada_val = scada_now[duid]
-            if scada_val is not None and scada_val >= 0:
-                if avail_now is None or scada_val < avail_now:
-                    avail_now = scada_val
-                    avail_source = "SCADA"
+        # PDPASA first interval — coal only, take lower
+        if fuel in ("Black Coal", "Brown Coal"):
+            pdpasa_slots = pdpasa_avail.get(duid, {})
+            if pdpasa_slots:
+                pdpasa_first_slot = sorted(pdpasa_slots.keys())[0]
+                pd_val = pdpasa_slots[pdpasa_first_slot]
+                if avail_now is None or pd_val < avail_now:
+                    avail_now = pd_val
+                    avail_source = "PDPASA"
 
         if avail_now is None:
             avail_now = capacity  # assume full if no data

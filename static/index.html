@@ -4362,7 +4362,7 @@ function renderOutages(data) {
 
   let html = '<div class="section-title">Capacity Reductions - MTPASA + STPASA</div>' +
     '<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-bottom:8px;line-height:1.5">' +
-    'Units below 85% of registered capacity, or with a significant change scheduled. Minor ambient deratings excluded. Source: PDPASA / STPASA / MTPASA.' +
+    'Units below 70% of registered capacity, or with a significant change scheduled. Minor ambient deratings excluded. Source: PDPASA / STPASA / MTPASA.' +
     '</div>';
 
   if (!slowData) {
@@ -4847,7 +4847,7 @@ function showMtpasaModal(duid, u, days) {
   let current = null;
   for (const pt of days) {
     const pct = capacity > 0 ? pt.avail / capacity : 1;
-    const type = pct >= 0.85 ? 'full' : pct <= 0.02 ? 'offline' : 'derated';
+    const type = pct >= 0.70 ? 'full' : pct <= 0.02 ? 'offline' : 'derated';
     if (!current || current.type !== type || current.avail !== pt.avail || current.state !== pt.state) {
       if (current) periods.push(current);
       current = {start: pt.day, end: pt.day, avail: pt.avail, state: pt.state, type};
@@ -5106,7 +5106,7 @@ function drawCoalCalendar() {
         let fill='#0d1420';
         if (pt&&u.capacity>0) {
           const pct=pt.avail/u.capacity;
-          if (pct>=0.85)      fill='#0d1117';  // full / minor derate — black
+          if (pct>=0.70)      fill='#0d1117';  // full / minor derate — black
           else if (pct<=0.02) fill='#7f1d1d';  // full outage — red
           else                fill='#78350f';   // significant derate (>15%) — brown
         }

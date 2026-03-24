@@ -1725,25 +1725,95 @@ def _load_registration_list() -> dict:
 
 
 def _try_load_nemweb_csv() -> dict:
-    """Try to load registration data from NEMWeb SEMP CSV."""
-    # NEMWeb publishes Generators and Scheduled Loads via MMS tables
-    # Try the Generators_and_Scheduled_Loads static file
-    urls_to_try = [
-        f"{NEMWEB_BASE}/REPORTS/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV",
-        # Also try the NEM Registration list as a direct download from the data portal
-        "https://data.wa.aemo.com.au/public/public-data/datafiles/facilities/facilities.csv",  # WA only, skip
-    ]
-    # The most reliable source: MMS DUDETAILSUMMARY via NEMWeb
-    # Available as a static file updated daily
-    url = f"{NEMWEB_BASE}/REPORTS/CURRENT/Ancillary_Services/PUBLIC_DVD_DUDETAILSUMMARY_202503120000.zip"
-
-    # Actually use the correct approach: scrape the Generators listing page
-    # NEMWeb has a static CSV at this well-known path:
-    gen_csv_url = "https://www.nemweb.com.au/REPORTS/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV"
-    r = _get(gen_csv_url, timeout=15)
+    """
+    Try multiple NEMWeb sources for DUID registration data.
+    Priority:
+      1. SEMP registration CSV (direct, updated daily)
+      2. MMS DVD DUDETAILSUMMARY zip (monthly snapshot, very complete)
+      3. MMS DVD DUDETAIL zip (fallback)
+    """
+    # Source 1: SEMP registration CSV
+    semp_url = f"{NEMWEB_BASE}/REPORTS/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV"
+    r = _get(semp_url, timeout=15)
     if r and r.status_code == 200 and len(r.content) > 1000:
+        logger.info("Registration: loaded from SEMP CSV")
         return _parse_registration_csv(r.text)
+
+    # Source 2: MMS DVD DUDETAILSUMMARY — find latest zip
+    for dvd_path in [
+        f"{NEMWEB_BASE}/REPORTS/CURRENT/DVD/",
+        f"{NEMWEB_BASE}/REPORTS/ARCHIVE/DVD/",
+    ]:
+        try:
+            files = _list_hrefs(dvd_path)
+            # Find DUDETAILSUMMARY files
+            detail_files = sorted([f for f in files if "DUDETAILSUMMARY" in f.upper()])
+            if not detail_files:
+                detail_files = sorted([f for f in files if "DUDETAIL" in f.upper()])
+            if detail_files:
+                url = detail_files[-1]
+                logger.info(f"Registration: trying DVD {url}")
+                text = _read_zip(url)
+                if text:
+                    result = _parse_dudetail_csv(text)
+                    if result:
+                        logger.info(f"Registration: loaded {len(result)} DUIDs from DVD")
+                        return result
+        except Exception as e:
+            logger.debug(f"Registration DVD fetch failed: {e}")
+
+    logger.warning("Registration: all sources failed")
     return {}
+
+
+def _parse_dudetail_csv(text: str) -> dict:
+    """Parse MMS DUDETAILSUMMARY or DUDETAIL CSV into {DUID: info} dict."""
+    import csv, io
+    result = {}
+    try:
+        # MMS format: I,DUDETAILSUMMARY,DUDETAILSUMMARY,1,...col headers...
+        # D rows: D,DUDETAILSUMMARY,DUDETAILSUMMARY,1,...values...
+        reader = csv.reader(io.StringIO(text))
+        headers = []
+        for row in reader:
+            if not row:
+                continue
+            rec_type = row[0].strip().upper()
+            if rec_type == 'I' and len(row) > 4:
+                table = row[2].strip().upper()
+                if 'DUDETAIL' in table:
+                    headers = [c.strip().upper() for c in row[4:]]
+            elif rec_type == 'D' and headers:
+                if len(row) < 5:
+                    continue
+                vals = row[4:]
+                d = dict(zip(headers, vals))
+                duid = d.get('DUID', '').strip().upper()
+                if not duid:
+                    continue
+                # DUDETAILSUMMARY columns: DUID, REGIONID, STATIONID, DISPATCHTYPE,
+                #   CONNECTIONPOINTID, REGISTEREDCAPACITY, LASTCHANGED
+                region = d.get('REGIONID', '').strip()
+                if region and not region.endswith('1'):
+                    region += '1'
+                capacity_str = d.get('REGISTEREDCAPACITY', '') or d.get('MAXCAPACITY', '')
+                try:
+                    capacity = round(float(capacity_str)) if capacity_str else 0
+                except ValueError:
+                    capacity = 0
+                station = d.get('STATIONID', duid).strip()
+                # Fuel not in DUDETAILSUMMARY — will need to infer or leave for SEMP
+                fuel = _infer_fuel_from_duid(duid)
+                if region:
+                    result[duid] = {
+                        "station":  station,
+                        "fuel":     fuel,
+                        "region":   region,
+                        "capacity": capacity,
+                    }
+    except Exception as e:
+        logger.warning(f"_parse_dudetail_csv failed: {e}")
+    return result
 
 
 def _parse_registration_csv(text: str) -> dict:

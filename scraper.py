@@ -2705,27 +2705,26 @@ def scrape_mtpasa_outages() -> list:
         if state_now in ("Mothballed", "Retired", "Decommissioned"):
             continue
 
-        # ── Find return date: first slot AFTER the minimum where avail >= threshold
+        # ── Find return date: first future date where avail >= threshold ─────────
+        # Scan from outage_start onwards — first date where avail recovers above 70%
         return_date = None
         return_source = None
+        outage_start_cmp = outage_start.replace("/", "-") if outage_start else ""
 
-        # STPASA daily snapshots after min date
-        min_label = min_avail_date.replace("/", "-") if min_avail_date else ""
+        # STPASA daily snapshots from outage_start onwards
         for day in sorted(daily_st.keys()):
-            if day <= min_label:
+            if day < outage_start_cmp:
                 continue
             if daily_st[day] >= threshold_mw:
                 return_date = day.replace("-", "/")
                 return_source = "STPASA"
                 break
 
-        # MTPASA fallback
+        # MTPASA: scan all change-points from outage_start onwards
         if not return_date:
-            found_min = False
             for d in sorted_days:
-                if not found_min:
-                    if d >= (min_avail_date or ""):
-                        found_min = True
+                d_cmp = d.replace("/", "-")
+                if d_cmp < outage_start_cmp:
                     continue
                 if mtpasa_days[d]["avail"] >= threshold_mw:
                     return_date = d

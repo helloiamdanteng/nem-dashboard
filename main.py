@@ -873,6 +873,29 @@ async def tnps1_debug():
         }
     return await loop.run_in_executor(None, _fetch)
 
+@app.get("/api/dispatch-price-debug2")
+async def dispatch_price_debug2():
+    """Check what tables are inside a DispatchIS file."""
+    import asyncio
+    from scraper import _list_hrefs, _read_zip, DISPATCH_IS_URL
+    loop = asyncio.get_running_loop()
+    def _fetch():
+        files = _list_hrefs(DISPATCH_IS_URL)
+        # Get a file from yesterday
+        matching = sorted([f for f in files if "20260324" in f and "PUBLIC_DISPATCHIS" in f.upper()])
+        if not matching:
+            return {"error": "no files found"}
+        url = matching[0]
+        text = _read_zip(url)
+        # Find all table names (I rows)
+        import csv, io
+        tables = set()
+        for row in csv.reader(io.StringIO(text)):
+            if row and row[0].strip().upper() == 'I' and len(row) >= 3:
+                tables.add(row[2].strip().upper())
+        return {"file": url, "tables": sorted(tables)}
+    return await loop.run_in_executor(None, _fetch)
+
 @app.get("/api/dispatch-price-debug")
 async def dispatch_price_debug(date: str = "20260324"):
     """Debug historical dispatch prices fetch."""

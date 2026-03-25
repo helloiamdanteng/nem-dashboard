@@ -2671,17 +2671,16 @@ def scrape_mtpasa_outages() -> list:
                 min_avail_date = day.replace("-", "/")
                 min_avail_source = "STPASA"
 
-        # is_current: unit is at 0MW at the first PDPASA slot (coal) or first STPASA slot (gas/hydro)
-        # Only fully offline units (0MW) are flagged as current — derates are not.
+        # is_current: first PDPASA slot (coal) or first STPASA slot (gas/hydro) is below threshold
         # MTPASA-only units are never current — they are future planned outages.
+        # Battery excluded — 0MW at night is normal dispatch, not an outage.
         is_current = False
         if fuel in ("Black Coal", "Brown Coal"):
             if pdpasa_first_avail is not None:
-                is_current = pdpasa_first_avail == 0
+                is_current = pdpasa_first_avail < threshold_mw
         elif fuel in ("Gas", "Hydro", "Liquid", "Other"):
             if stpasa_first_avail is not None:
-                is_current = stpasa_first_avail == 0
-        # Battery excluded — 0MW at night is normal
+                is_current = stpasa_first_avail < threshold_mw
 
         # MTPASA — fallback: scan all change-points
         mtpasa_first_below = None
@@ -2739,6 +2738,15 @@ def scrape_mtpasa_outages() -> list:
         else:
             label = "Derated"
 
+        # avail_now = current reading from first PDPASA/STPASA slot (for offline/derated toggle)
+        avail_now = None
+        if fuel in ("Black Coal", "Brown Coal") and pdpasa_first_avail is not None:
+            avail_now = pdpasa_first_avail
+        elif stpasa_first_avail is not None:
+            avail_now = stpasa_first_avail
+        if avail_now is None:
+            avail_now = min_avail  # fallback
+
         results.append({
             "duid":          duid,
             "station":       unit.get("station", duid),
@@ -2746,6 +2754,7 @@ def scrape_mtpasa_outages() -> list:
             "region":        unit.get("region", ""),
             "capacity":      int(capacity),
             "avail_today":   int(min_avail),
+            "avail_now":     int(avail_now),   # current reading for offline/derated toggle
             "avail_source":  min_avail_source,
             "state":         label,
             "pasa_state":    state_now,
@@ -2753,7 +2762,7 @@ def scrape_mtpasa_outages() -> list:
             "outage_start":  outage_start,
             "return_date":   return_date,
             "return_source": return_source,
-            "is_current":   is_current,
+            "is_current":    is_current,
         })
 
     results.sort(key=lambda x: x["change_mw"])

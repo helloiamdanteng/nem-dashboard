@@ -2671,12 +2671,19 @@ def scrape_mtpasa_outages() -> list:
                 min_avail_date = day.replace("-", "/")
                 min_avail_source = "STPASA"
 
-        # is_current: the unit is already below threshold at the FIRST available PASA slot
+        # is_current: below threshold at FIRST PDPASA slot (coal) or FIRST STPASA slot (gas/hydro only)
+        # Batteries excluded from is_current via STPASA — 0MW at night is normal dispatch behaviour.
+        # MTPASA-only units are never "current" — they are future planned outages.
         is_current = False
-        if fuel in ("Black Coal", "Brown Coal") and pdpasa_first_avail is not None:
-            is_current = pdpasa_first_avail < threshold_mw
-        elif stpasa_first_avail is not None:
-            is_current = stpasa_first_avail < threshold_mw
+        if fuel in ("Black Coal", "Brown Coal"):
+            # Coal: use PDPASA (most current, 30-min resolution)
+            if pdpasa_first_avail is not None:
+                is_current = pdpasa_first_avail < threshold_mw
+        elif fuel in ("Gas", "Hydro", "Liquid", "Other"):
+            # Gas/Hydro: use STPASA first slot
+            if stpasa_first_avail is not None:
+                is_current = stpasa_first_avail < threshold_mw
+        # Battery: excluded — 0MW in STPASA at night is normal, not an outage
 
         # MTPASA — fallback: scan all change-points
         mtpasa_first_below = None

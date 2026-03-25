@@ -992,6 +992,73 @@ def scrape_dispatch_demand_history() -> dict:
 # Predispatch
 # ---------------------------------------------------------------------------
 
+def scrape_historical_dispatch_prices(date_str: str) -> dict:
+    """
+    Fetch 5-min dispatch prices for a given date (YYYYMMDD).
+    Returns { region: [ {interval: "HH:MM", rrp: float} ] }
+    Uses CURRENT directory for recent dates, ARCHIVE for older dates.
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    now_aest = datetime.now(AEST)
+    today    = now_aest.date()
+
+    try:
+        req_date = _dt.strptime(date_str, "%Y%m%d").date()
+    except ValueError:
+        return {}
+
+    # Choose directory
+    if req_date >= today - _td(days=1):
+        base_url = DISPATCH_IS_URL
+    else:
+        ym = req_date.strftime("%Y%m")
+        base_url = f"{NEMWEB_BASE}/REPORTS/ARCHIVE/DispatchIS_Reports/{ym}/"
+
+    try:
+        all_files = _list_hrefs(base_url)
+    except Exception as e:
+        logger.warning(f"scrape_historical_dispatch_prices: listing failed: {e}")
+        return {}
+
+    # Filter to files matching the requested date
+    date_files = sorted([f for f in all_files if date_str in f and "PUBLIC_DISPATCHIS" in f.upper()])
+    if not date_files:
+        logger.warning(f"scrape_historical_dispatch_prices: no files for {date_str}")
+        return {}
+
+    # Collect prices: { region: { "HH:MM": rrp } }
+    prices: dict = {r: {} for r in NEM_REGIONS}
+
+    for url in date_files:
+        try:
+            text = _read_zip(url)
+            if not text:
+                continue
+            for row in _parse_aemo(text, "DISPATCHPRICE"):
+                region = row.get("REGIONID", "").strip()
+                if region not in NEM_REGIONS:
+                    continue
+                dt_str2 = row.get("SETTLEMENTDATE", "")
+                rrp_str = row.get("RRP", "")
+                if not dt_str2 or not rrp_str:
+                    continue
+                try:
+                    dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - _td(minutes=5)
+                    if dt.date() != req_date:
+                        continue
+                    label = dt.strftime("%H:%M")
+                    prices[region][label] = round(float(rrp_str), 2)
+                except (ValueError, TypeError):
+                    continue
+        except Exception as e:
+            logger.debug(f"scrape_historical_dispatch_prices: file error {url}: {e}")
+            continue
+
+    # Convert to list format
+    return {r: [{"interval": k, "rrp": v} for k, v in sorted(pts.items())]
+            for r, pts in prices.items() if pts}
+
+
 def _fetch_predispatch() -> str:
     url = get_latest_file_url(PREDISPATCH_URL, "PUBLIC_PREDISPATCHIS")
     return _read_zip(url) if url else ""

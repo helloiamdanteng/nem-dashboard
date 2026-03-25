@@ -4562,7 +4562,7 @@ function renderOutages(data) {
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--text)">${(u.avail_now ?? u.avail_today).toLocaleString()} <span style="font-size:7px;color:#475569">/ ${u.capacity.toLocaleString()} MW</span></span>
+            <span style="font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--text)">${u.avail_today.toLocaleString()} <span style="font-size:7px;color:#475569">/ ${u.capacity.toLocaleString()} MW</span></span>
             ${u.pasa_state && u.pasa_state !== 'Unknown' && u.pasa_state !== '' ? `<span style="font-family:var(--font-mono);font-size:7px;padding:1px 5px;border-radius:9px;background:${psCol}22;color:${psCol};border:1px solid ${psCol}55">${u.pasa_state}</span>` : ''}
           </div>
           <span style="font-family:var(--font-mono);font-size:7px;color:#334155">src: ${u.avail_source || '?'}</span>

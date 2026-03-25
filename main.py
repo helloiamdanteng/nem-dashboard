@@ -873,6 +873,47 @@ async def tnps1_debug():
         }
     return await loop.run_in_executor(None, _fetch)
 
+@app.get("/api/dispatch-price-debug")
+async def dispatch_price_debug(date: str = "20260324"):
+    """Debug historical dispatch prices fetch."""
+    import asyncio
+    from scraper import _list_hrefs, NEM_REGIONS, NEMWEB_BASE, DISPATCH_IS_URL, AEST
+    from datetime import datetime, timedelta
+    loop = asyncio.get_running_loop()
+    def _fetch():
+        now = datetime.now(AEST)
+        today = now.date()
+        from datetime import datetime as _dt
+        req_date = _dt.strptime(date, "%Y%m%d").date()
+        ym = req_date.strftime("%Y%m")
+
+        # Try both URLs
+        current_url = DISPATCH_IS_URL
+        archive_url = f"{NEMWEB_BASE}/REPORTS/ARCHIVE/DispatchIS_Reports/{ym}/"
+
+        current_files, archive_files = [], []
+        try:
+            all_current = _list_hrefs(current_url)
+            current_files = sorted([f for f in all_current if date in f and "PUBLIC_DISPATCHIS" in f.upper()])[:3]
+        except Exception as e:
+            current_files = [f"ERROR: {e}"]
+        try:
+            all_archive = _list_hrefs(archive_url)
+            archive_files = sorted([f for f in all_archive if date in f and "PUBLIC_DISPATCHIS" in f.upper()])[:3]
+        except Exception as e:
+            archive_files = [f"ERROR: {e}"]
+
+        return {
+            "date": date,
+            "today": str(today),
+            "req_date": str(req_date),
+            "current_url": current_url,
+            "archive_url": archive_url,
+            "current_matching_files": current_files,
+            "archive_matching_files": archive_files,
+        }
+    return await loop.run_in_executor(None, _fetch)
+
 @app.get("/api/outage-debug")
 async def outage_debug():
     """Show first 20 outages with is_current flag to debug filter."""

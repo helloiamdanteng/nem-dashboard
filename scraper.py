@@ -2732,6 +2732,33 @@ def scrape_mtpasa_outages() -> list:
                     return_source = "MTPASA"
                     break
 
+        # ── Outage minimum: minimum avail between outage_start and return_date ──
+        # This is what the card displays — how low it drops during the outage window
+        return_label = return_date.replace("/", "-") if return_date else "9999-99-99"
+        outage_start_label = outage_start.replace("/", "-") if outage_start else ""
+        outage_min = min_avail  # default to global min
+
+        if outage_start_label:
+            window_min = capacity
+            # Scan PDPASA slots within outage window (coal only)
+            if fuel in ("Black Coal", "Brown Coal"):
+                for slot, avail in pdpasa_slots.items():
+                    d = slot[:10]
+                    if d >= outage_start_label and d <= return_label:
+                        if avail < window_min:
+                            window_min = avail
+            # Scan STPASA daily slots within outage window
+            for day, avail in daily_st.items():
+                if day >= outage_start_label and day <= return_label:
+                    if avail < window_min:
+                        window_min = avail
+            # Scan MTPASA change-points within outage window
+            for d in sorted_days:
+                if d >= outage_start and d <= return_label.replace("-", "/"):
+                    if mtpasa_days[d]["avail"] < window_min:
+                        window_min = mtpasa_days[d]["avail"]
+            outage_min = window_min
+
         # ── State label ───────────────────────────────────────────────────────
         if min_avail == 0:
             label = "Forced" if state_now == "Forced" else "Planned" if state_now == "Planned" else "Offline"
@@ -2753,7 +2780,7 @@ def scrape_mtpasa_outages() -> list:
             "fuel":          fuel,
             "region":        unit.get("region", ""),
             "capacity":      int(capacity),
-            "avail_today":   int(min_avail),
+            "avail_today":   int(outage_min),
             "avail_now":     int(avail_now),   # current reading for offline/derated toggle
             "avail_source":  min_avail_source,
             "state":         label,

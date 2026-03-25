@@ -791,6 +791,61 @@ async def yallourn_debug():
 
     return await loop.run_in_executor(None, _fetch)
 
+@app.get("/api/tnps1-debug2")
+async def tnps1_debug2():
+    """Check return date logic for TNPS1."""
+    import asyncio
+    from scraper import scrape_pasa_duid_availability, _list_hrefs, _read_zip, _parse_aemo, NEM_UNITS, MTPASA_DUID_URL, AEST
+    from datetime import datetime
+    loop = asyncio.get_running_loop()
+    def _fetch():
+        now = datetime.now(AEST)
+        today_str = now.strftime("%Y/%m/%d")
+        cap = NEM_UNITS.get("TNPS1", {}).get("capacity", 480)
+        threshold = cap * 0.70
+
+        pd = scrape_pasa_duid_availability("PDPASA")
+        st = scrape_pasa_duid_availability("STPASA")
+        pd_slots = pd.get("slots", {}).get("TNPS1", {})
+        st_slots = st.get("slots", {}).get("TNPS1", {})
+
+        # Build STPASA daily 00:30
+        daily_st = {s[:10]: st_slots[s] for s in st_slots if s[11:] == "00:30"}
+
+        # MTPASA
+        files = _list_hrefs(MTPASA_DUID_URL)
+        text = _read_zip(sorted(files)[-1])
+        mt = {}
+        for row in _parse_aemo(text, "MTPASA_DUIDAVAILABILITY"):
+            if row.get("DUID","").strip() == "TNPS1":
+                d = row.get("DAY","").strip()[:10]
+                mt[d] = float(row.get("PASAAVAILABILITY") or 0)
+
+        # Find outage start
+        pd_first_below = next((s[:10].replace("-","/") for s in sorted(pd_slots) if pd_slots[s] < threshold), None)
+        st_first_below = next((d.replace("-","/") for d in sorted(daily_st) if daily_st[d] < threshold), None)
+        mt_first_below = next((d for d in sorted(mt) if mt[d] < threshold), None)
+        outage_start = min([d for d in [pd_first_below, st_first_below, mt_first_below] if d]) if any([pd_first_below, st_first_below, mt_first_below]) else None
+
+        # Find return - scan STPASA then MTPASA for first slot >= threshold after outage_start
+        outage_label = outage_start.replace("/","-") if outage_start else ""
+        stpasa_return = next((d.replace("-","/") for d in sorted(daily_st) if d > outage_label and daily_st[d] >= threshold), None)
+        mtpasa_return = next((d for d in sorted(mt) if d.replace("/","-") > outage_label and mt[d] >= threshold), None)
+
+        return {
+            "capacity": cap, "threshold_70": threshold,
+            "pdpasa_first_5": sorted(pd_slots.items())[:5],
+            "stpasa_daily_first_5": sorted(daily_st.items())[:5],
+            "mtpasa_first_5": sorted(mt.items())[:5],
+            "pd_first_below_threshold": pd_first_below,
+            "st_first_below_threshold": st_first_below,
+            "mt_first_below_threshold": mt_first_below,
+            "outage_start": outage_start,
+            "stpasa_return": stpasa_return,
+            "mtpasa_return": mtpasa_return,
+        }
+    return await loop.run_in_executor(None, _fetch)
+
 @app.get("/api/tnps1-debug")
 async def tnps1_debug():
     """Check exactly what PDPASA and STPASA show for TNPS1."""

@@ -873,6 +873,30 @@ async def tnps1_debug():
         }
     return await loop.run_in_executor(None, _fetch)
 
+@app.get("/api/dispatch-price-debug3")
+async def dispatch_price_debug3():
+    """Check PRICE table columns and sample rows."""
+    import asyncio, csv, io
+    from scraper import _list_hrefs, _read_zip, DISPATCH_IS_URL
+    loop = asyncio.get_running_loop()
+    def _fetch():
+        files = _list_hrefs(DISPATCH_IS_URL)
+        matching = sorted([f for f in files if "20260324" in f and "PUBLIC_DISPATCHIS" in f.upper()])
+        if not matching:
+            return {"error": "no files"}
+        text = _read_zip(matching[0])
+        headers, rows = [], []
+        for row in csv.reader(io.StringIO(text)):
+            if not row: continue
+            if row[0].strip().upper() == 'I' and len(row) >= 3 and row[2].strip().upper() == 'PRICE':
+                headers = [c.strip() for c in row[4:] if c.strip()]
+            if row[0].strip().upper() == 'D' and len(row) >= 3 and row[2].strip().upper() == 'PRICE':
+                d = dict(zip(headers, row[4:]))
+                rows.append(d)
+                if len(rows) >= 3: break
+        return {"headers": headers, "sample_rows": rows}
+    return await loop.run_in_executor(None, _fetch)
+
 @app.get("/api/dispatch-price-debug2")
 async def dispatch_price_debug2():
     """Check what tables are inside a DispatchIS file."""

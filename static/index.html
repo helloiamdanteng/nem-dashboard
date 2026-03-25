@@ -4381,8 +4381,9 @@ function renderOutages(data) {
   const filterState   = window._outageFilter !== undefined ? window._outageFilter : 'offline';
   const w3mFilter     = window._outageW3m !== undefined ? window._outageW3m : false;
   const timeFilter    = window._outageTimeFilter !== undefined ? window._outageTimeFilter : 'current';
-  const offline    = outages.filter(r => r.avail_today === 0);
-  const derated    = outages.filter(r => r.avail_today > 0);
+  // offline/derated based on avail_now (current PDPASA/STPASA reading)
+  const offline    = outages.filter(r => (r.avail_now ?? r.avail_today) === 0);
+  const derated    = outages.filter(r => (r.avail_now ?? r.avail_today) > 0);
   const withReturn = outages.filter(r => r.return_date);
 
   // PASA state filter

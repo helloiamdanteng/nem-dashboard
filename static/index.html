@@ -4379,7 +4379,7 @@ function renderOutages(data) {
   // 1. Status radio: All / Offline / Derated
   // 2. Has Return toggle: can combine with status radio
   const filterState   = window._outageFilter !== undefined ? window._outageFilter : 'offline';
-  const w3mFilter     = window._outageW3m !== undefined ? window._outageW3m : false;
+
   const timeFilter    = window._outageTimeFilter !== undefined ? window._outageTimeFilter : 'current';
   // offline/derated based on avail_now (current PDPASA/STPASA reading)
   const offline    = outages.filter(r => (r.avail_now ?? r.avail_today) === 0);
@@ -4398,17 +4398,12 @@ function renderOutages(data) {
   const now2dStr = now2d.toISOString().slice(0,10);
   const now7d = new Date(); now7d.setDate(now7d.getDate() + 7);
   const now7dStr = now7d.toISOString().slice(0,10);
-  const now3m = new Date(); now3m.setDate(now3m.getDate() + 90);
+
   // "current" = outage already underway (start on or before first STPASA interval ~2 days out)
   const currentOut = outages.filter(r => r.is_current);
   // "within7d" = outage starts within 7 days
   const within7dOut = outages.filter(r => r.outage_start && r.outage_start.replace(/\//g,'-') <= now7dStr);
-  // Within 3 months: return_date within 90 days
-  const within3m = outages.filter(r => {
-    if (!r.return_date) return false;
-    const [y,m,d] = r.return_date.split('/');
-    return new Date(y,m-1,d) <= now3m;
-  });
+
   // Row: All / Offline / Derated + Within 3 months (independent)
   for (const [key, label, arr] of [
     ['all',     'All',     outages],
@@ -4431,9 +4426,7 @@ function renderOutages(data) {
     html += `<button class="region-pill ${active}" style="color:#818cf8;border-color:#818cf8"
       onclick="setOutageTimeFilter('${key}')">${label} <span style="opacity:0.5;font-size:9px">${arr.length}</span></button>`;
   }
-  // Within 3m — independent amber, same row
-  html += `<button class="region-pill ${w3mFilter ? 'active' : ''}" style="color:#f59e0b;border-color:#f59e0b;margin-left:8px"
-    onclick="toggleOutageW3m()">Within 3m <span style="opacity:0.5;font-size:9px">${within3m.length}</span></button>`;
+
   html += '</div>';
 
   html += '</div>';
@@ -4479,7 +4472,7 @@ function renderOutages(data) {
   else if (filterState === 'derated') visible = derated;
   // 'all' = show all
   // Apply within3m independently (intersect)
-  if (w3mFilter) visible = visible.filter(r => within3m.includes(r));
+
   if (timeFilter === 'current') visible = visible.filter(r => currentOut.includes(r));
   else if (timeFilter === 'within7d') visible = visible.filter(r => within7dOut.includes(r));
 
@@ -4583,11 +4576,6 @@ function renderOutages(data) {
 
 function setOutageTimeFilter(f) {
   window._outageTimeFilter = window._outageTimeFilter === f ? null : f;
-  if (latestData) renderPanel('outages', latestData);
-}
-
-function toggleOutageW3m() {
-  window._outageW3m = window._outageW3m !== undefined ? !window._outageW3m : false;
   if (latestData) renderPanel('outages', latestData);
 }
 

@@ -996,7 +996,8 @@ def scrape_historical_dispatch_prices(date_str: str) -> dict:
     """
     Fetch 5-min dispatch prices for a given date (YYYYMMDD).
     Returns { region: [ {interval: "HH:MM", rrp: float} ] }
-    Uses CURRENT directory for recent dates, ARCHIVE for older dates.
+    Table: PRICE (inside DispatchIS files), filter INTERVENTION=0.
+    SETTLEMENTDATE is end-of-interval — subtract 5 min for label.
     """
     from datetime import datetime as _dt, timedelta as _td
     now_aest = datetime.now(AEST)
@@ -1007,7 +1008,7 @@ def scrape_historical_dispatch_prices(date_str: str) -> dict:
     except ValueError:
         return {}
 
-    # Choose directory
+    # Choose directory — CURRENT has a rolling window of ~2 days
     if req_date >= today - _td(days=1):
         base_url = DISPATCH_IS_URL
     else:
@@ -1020,11 +1021,12 @@ def scrape_historical_dispatch_prices(date_str: str) -> dict:
         logger.warning(f"scrape_historical_dispatch_prices: listing failed: {e}")
         return {}
 
-    # Filter to files matching the requested date
     date_files = sorted([f for f in all_files if date_str in f and "PUBLIC_DISPATCHIS" in f.upper()])
     if not date_files:
         logger.warning(f"scrape_historical_dispatch_prices: no files for {date_str}")
         return {}
+
+    logger.info(f"scrape_historical_dispatch_prices: {len(date_files)} files for {date_str}")
 
     # Collect prices: { region: { "HH:MM": rrp } }
     prices: dict = {r: {} for r in NEM_REGIONS}
@@ -1034,7 +1036,10 @@ def scrape_historical_dispatch_prices(date_str: str) -> dict:
             text = _read_zip(url)
             if not text:
                 continue
-            for row in _parse_aemo(text, "DISPATCHPRICE"):
+            # Table is "PRICE", filter INTERVENTION=0
+            for row in _parse_aemo(text, "PRICE"):
+                if row.get("INTERVENTION", "0").strip() != "0":
+                    continue
                 region = row.get("REGIONID", "").strip()
                 if region not in NEM_REGIONS:
                     continue
@@ -1043,6 +1048,7 @@ def scrape_historical_dispatch_prices(date_str: str) -> dict:
                 if not dt_str2 or not rrp_str:
                     continue
                 try:
+                    # SETTLEMENTDATE is end-of-interval — subtract 5min for start label
                     dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - _td(minutes=5)
                     if dt.date() != req_date:
                         continue
@@ -1054,7 +1060,6 @@ def scrape_historical_dispatch_prices(date_str: str) -> dict:
             logger.debug(f"scrape_historical_dispatch_prices: file error {url}: {e}")
             continue
 
-    # Convert to list format
     return {r: [{"interval": k, "rrp": v} for k, v in sorted(pts.items())]
             for r, pts in prices.items() if pts}
 

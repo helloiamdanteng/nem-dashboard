@@ -879,6 +879,37 @@ async def tnps1_debug():
         }
     return await loop.run_in_executor(None, _fetch)
 
+@app.get("/api/dispatch-sources-debug")
+async def dispatch_sources_debug():
+    """Check alternative sources for historical 5-min dispatch prices."""
+    import asyncio
+    from scraper import _list_hrefs, NEMWEB_BASE
+    loop = asyncio.get_running_loop()
+    def _fetch():
+        results = {}
+        # AEMO keeps historical dispatch prices in the MMS DVD format
+        # Try MMSDM archive which has PUBLIC_DVD_DISPATCHPRICE files
+        sources = {
+            "mmsdm_202603": f"{NEMWEB_BASE}/Data/MMSDM/2026/MMSDM_2026_03/MMSDM_Historical_Data_SQLLoader/DATA/",
+            "mmsdm_202602": f"{NEMWEB_BASE}/Data/MMSDM/2026/MMSDM_2026_02/MMSDM_Historical_Data_SQLLoader/DATA/",
+            "archive_trading": f"{NEMWEB_BASE}/REPORTS/ARCHIVE/TradingIS_Reports/202603/",
+            "current_trading": f"{NEMWEB_BASE}/REPORTS/CURRENT/TradingIS_Reports/",
+        }
+        for name, url in sources.items():
+            try:
+                files = _list_hrefs(url)
+                dispatch = [f for f in files if "DISPATCHPRICE" in f.upper() or "DISPATCH_PRICE" in f.upper()]
+                results[name] = {
+                    "url": url,
+                    "total_files": len(files),
+                    "dispatch_price_files": len(dispatch),
+                    "sample": dispatch[:2],
+                }
+            except Exception as e:
+                results[name] = {"url": url, "error": str(e)}
+        return results
+    return await loop.run_in_executor(None, _fetch)
+
 @app.get("/api/dispatch-archive-debug")
 async def dispatch_archive_debug():
     """Check DispatchIS archive URL structure and how far back it goes."""

@@ -4108,6 +4108,9 @@ function renderDMinus1(data) {
   const selLabel = _dSelToLabel(sel);
 
   let html = `<div class="section-title">D− Historical Prices</div>`;
+  html += `<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-bottom:8px;line-height:1.5">
+    Data available for the last 15 days via AEMO TradingIS. Older data is not publicly available in real-time feeds.
+  </div>`;
 
   // ── Date picker + inline status ───────────────────────────────────────────
   html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
@@ -4204,13 +4207,18 @@ function dMinusBuildCalendar() {
     const isSel   = _dCmp(cell, sel) === 0;
     const isFuture = _dCmp(cell, today) > 0;
     const isToday = _dCmp(cell, today) === 0;
+    // Grey out dates older than 15 days — beyond TradingIS window
+    const cellDate = new Date(y, m-1, d);
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 15);
+    const isTooOld = cellDate < cutoff;
+    const isDisabled = isFuture || isTooOld;
     const bg      = isSel ? '#3b82f6' : isToday ? '#475569' : 'transparent';
-    const fg      = isSel ? '#fff' : isFuture ? '#1e2d45' : '#e2e8f0';
+    const fg      = isSel ? '#fff' : isDisabled ? '#1e2d45' : '#e2e8f0';
     const dateArg = `${y},${m},${d}`;
-    cal += `<div onclick="${isFuture ? '' : `dMinusSelectDate(${dateArg})`}"
+    cal += `<div onclick="${isDisabled ? '' : `dMinusSelectDate(${dateArg})`}"
       style="font-family:var(--font-mono);font-size:10px;text-align:center;padding:4px 2px;
       border-radius:4px;background:${bg};color:${fg};
-      cursor:${isFuture ? 'default' : 'pointer'}">${d}</div>`;
+      cursor:${isDisabled ? 'default' : 'pointer'}${isTooOld ? ';text-decoration:line-through' : ''}">${d}</div>`;
   }
   cal += `</div>`;
   cal += `<div style="display:flex;justify-content:flex-end;margin-top:8px">

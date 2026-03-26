@@ -899,6 +899,35 @@ async def trading_window_debug():
         }
     return await loop.run_in_executor(None, _fetch)
 
+@app.get("/api/mmsdm-debug")
+async def mmsdm_debug():
+    """Check MMSDM archive for historical dispatch prices."""
+    import asyncio
+    from scraper import _list_hrefs, NEMWEB_BASE
+    loop = asyncio.get_running_loop()
+    def _fetch():
+        results = {}
+        # MMSDM is published monthly with ~1 month lag
+        # Try several possible URL patterns
+        urls_to_try = {
+            "mmsdm_2026_02": f"{NEMWEB_BASE}/Data/MMSDM/2026/MMSDM_2026_02/MMSDM_Historical_Data_SQLLoader/DATA/PUBLIC_DVD_DISPATCHPRICE_202602010000.zip",
+            "mmsdm_root_2026": f"{NEMWEB_BASE}/Data/MMSDM/2026/",
+            "mmsdm_root": f"{NEMWEB_BASE}/Data/MMSDM/",
+            "nemweb_data": f"{NEMWEB_BASE}/Data/",
+            # Alternative: Electricity Statement of Opportunities or other
+            "archive_5min": f"{NEMWEB_BASE}/REPORTS/ARCHIVE/5MIN/",
+            "current_5min": f"{NEMWEB_BASE}/REPORTS/CURRENT/5MIN/",
+        }
+        for name, url in urls_to_try.items():
+            try:
+                import requests
+                r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True)
+                results[name] = {"status": r.status_code, "url": url, "content_length": len(r.content), "preview": r.text[:200]}
+            except Exception as e:
+                results[name] = {"error": str(e), "url": url}
+        return results
+    return await loop.run_in_executor(None, _fetch)
+
 @app.get("/api/tradingis-structure-debug")
 async def tradingis_structure_debug():
     """Check tables and columns inside a TradingIS file."""

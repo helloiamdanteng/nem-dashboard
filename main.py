@@ -1640,14 +1640,14 @@ async def historical_price_averages(refresh: bool = False):
     # Serve cache if fresh (< 24h old) and not forced refresh
     if not refresh and _price_avg_cache["data"] and _price_avg_cache["last_updated"]:
         age = datetime.now(timezone.utc) - _price_avg_cache["last_updated"]
-        if age < timedelta(hours=24):
+        if age < timedelta(hours=1):
             return JSONResponse(content=_price_avg_cache["data"])
 
     loop = asyncio.get_running_loop()
     try:
         data = await asyncio.wait_for(
             loop.run_in_executor(None, scrape_historical_price_averages),
-            timeout=300.0  # 5 min — 53 file fetches
+            timeout=60.0
         )
         _price_avg_cache["data"] = data
         _price_avg_cache["last_updated"] = datetime.now(timezone.utc)

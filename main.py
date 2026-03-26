@@ -1580,6 +1580,37 @@ async def mtpasa_calendar():
         _mtpasa_cal_cache["data"] = data
     return data or {"error": "Failed to fetch MTPASA data"}
 
+# Cache for historical price averages — expensive to compute (~53 file fetches)
+_price_avg_cache = {"data": None, "last_updated": None}
+
+@app.get("/api/historical_price_averages")
+async def historical_price_averages(refresh: bool = False):
+    """Monthly average electricity prices from TradingIS archive (~12 months)."""
+    import asyncio
+    from datetime import datetime, timezone, timedelta
+    from scraper import scrape_historical_price_averages
+
+    # Serve cache if fresh (< 24h old) and not forced refresh
+    if not refresh and _price_avg_cache["data"] and _price_avg_cache["last_updated"]:
+        age = datetime.now(timezone.utc) - _price_avg_cache["last_updated"]
+        if age < timedelta(hours=24):
+            return JSONResponse(content=_price_avg_cache["data"])
+
+    loop = asyncio.get_running_loop()
+    try:
+        data = await asyncio.wait_for(
+            loop.run_in_executor(None, scrape_historical_price_averages),
+            timeout=300.0  # 5 min — 53 file fetches
+        )
+        _price_avg_cache["data"] = data
+        _price_avg_cache["last_updated"] = datetime.now(timezone.utc)
+        return JSONResponse(content=data)
+    except asyncio.TimeoutError:
+        return JSONResponse(status_code=504, content={"error": "timeout"})
+    except Exception as e:
+        logger.error(f"historical_price_averages error: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
 @app.get("/api/historical_day")
 async def historical_day(date: str):
     """Fetch full day of historical data for D-1 page: prices, demand, fuel mix."""

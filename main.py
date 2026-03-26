@@ -879,6 +879,27 @@ async def tnps1_debug():
         }
     return await loop.run_in_executor(None, _fetch)
 
+@app.get("/api/dispatch-archive-debug")
+async def dispatch_archive_debug():
+    """Check DispatchIS archive URL structure."""
+    import asyncio
+    from scraper import _list_hrefs, NEMWEB_BASE
+    loop = asyncio.get_running_loop()
+    def _fetch():
+        # Check archive root
+        archive_root = f"{NEMWEB_BASE}/REPORTS/ARCHIVE/DispatchIS_Reports/"
+        try:
+            dirs = _list_hrefs(archive_root)
+            # These will be month directories like 202603/
+            return {
+                "archive_root": archive_root,
+                "month_dirs_sample": sorted(dirs)[-5:],
+                "total_dirs": len(dirs),
+            }
+        except Exception as e:
+            return {"error": str(e), "archive_root": archive_root}
+    return await loop.run_in_executor(None, _fetch)
+
 @app.get("/api/dispatch-price-debug3")
 async def dispatch_price_debug3():
     """Check PRICE table columns and sample rows."""

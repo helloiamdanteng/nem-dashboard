@@ -899,6 +899,35 @@ async def trading_window_debug():
         }
     return await loop.run_in_executor(None, _fetch)
 
+@app.get("/api/tradingis-structure-debug")
+async def tradingis_structure_debug():
+    """Check tables and columns inside a TradingIS file."""
+    import asyncio, csv, io
+    from scraper import _list_hrefs, _read_zip, NEMWEB_BASE
+    loop = asyncio.get_running_loop()
+    def _fetch():
+        url = f"{NEMWEB_BASE}/REPORTS/CURRENT/TradingIS_Reports/"
+        files = sorted(_list_hrefs(url))
+        # Pick a file from a few days ago
+        old_files = [f for f in files if "20260320" in f]
+        sample = old_files[0] if old_files else files[10]
+        text = _read_zip(sample)
+        tables = {}
+        current_table = None
+        current_headers = []
+        sample_rows = {}
+        for row in csv.reader(io.StringIO(text)):
+            if not row: continue
+            if row[0].strip().upper() == 'I' and len(row) >= 3:
+                current_table = row[2].strip().upper()
+                current_headers = [c.strip() for c in row[4:] if c.strip()]
+                tables[current_table] = current_headers
+            if row[0].strip().upper() == 'D' and current_table and current_table not in sample_rows:
+                d = dict(zip(current_headers, row[4:]))
+                sample_rows[current_table] = d
+        return {"file": sample, "tables": tables, "sample_rows": sample_rows}
+    return await loop.run_in_executor(None, _fetch)
+
 @app.get("/api/trading-files-debug")
 async def trading_files_debug():
     """Check what's in TradingIS CURRENT and what date range it covers."""

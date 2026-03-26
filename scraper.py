@@ -27,6 +27,7 @@ NEMWEB_BASE       = "https://www.nemweb.com.au"
 DISPATCH_IS_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/DispatchIS_Reports/"
 PREDISPATCH_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/PredispatchIS_Reports/"
 SCADA_URL         = f"{NEMWEB_BASE}/REPORTS/CURRENT/Dispatch_SCADA/"
+TRADING_IS_URL    = f"{NEMWEB_BASE}/REPORTS/CURRENT/TradingIS_Reports/"
 TRADING_CURRENT   = f"{NEMWEB_BASE}/REPORTS/CURRENT/TradingIS_Reports/"
 TRADING_ARCHIVE   = f"{NEMWEB_BASE}/REPORTS/ARCHIVE/TradingIS_Reports/"
 MTPASA_DUID_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/MTPASA_DUIDAvailability/"
@@ -996,8 +997,10 @@ def scrape_historical_dispatch_prices(date_str: str) -> dict:
     """
     Fetch 5-min dispatch prices for a given date (YYYYMMDD).
     Returns { region: [ {interval: "HH:MM", rrp: float} ] }
-    Table: PRICE (inside DispatchIS files), filter INTERVENTION=0.
-    SETTLEMENTDATE is end-of-interval — subtract 5 min for label.
+
+    Sources (in priority order):
+    1. DispatchIS CURRENT — last ~3 days, table PRICE, filter INTERVENTION=0
+    2. TradingIS CURRENT  — last ~15 days, table PRICE, uses PERIODID for time
     """
     from datetime import datetime as _dt, timedelta as _td
     now_aest = datetime.now(AEST)
@@ -1008,57 +1011,73 @@ def scrape_historical_dispatch_prices(date_str: str) -> dict:
     except ValueError:
         return {}
 
-    # Choose directory — CURRENT has a rolling window of ~2 days
-    if req_date >= today - _td(days=1):
-        base_url = DISPATCH_IS_URL
-    else:
-        ym = req_date.strftime("%Y%m")
-        base_url = f"{NEMWEB_BASE}/REPORTS/ARCHIVE/DispatchIS_Reports/{ym}/"
-
-    try:
-        all_files = _list_hrefs(base_url)
-    except Exception as e:
-        logger.warning(f"scrape_historical_dispatch_prices: listing failed: {e}")
-        return {}
-
-    date_files = sorted([f for f in all_files if date_str in f and "PUBLIC_DISPATCHIS" in f.upper()])
-    if not date_files:
-        logger.warning(f"scrape_historical_dispatch_prices: no files for {date_str}")
-        return {}
-
-    logger.info(f"scrape_historical_dispatch_prices: {len(date_files)} files for {date_str}")
-
-    # Collect prices: { region: { "HH:MM": rrp } }
     prices: dict = {r: {} for r in NEM_REGIONS}
 
-    for url in date_files:
-        try:
-            text = _read_zip(url)
-            if not text:
-                continue
-            # Table is "PRICE", filter INTERVENTION=0
-            for row in _parse_aemo(text, "PRICE"):
-                if row.get("INTERVENTION", "0").strip() != "0":
-                    continue
-                region = row.get("REGIONID", "").strip()
-                if region not in NEM_REGIONS:
-                    continue
-                dt_str2 = row.get("SETTLEMENTDATE", "")
-                rrp_str = row.get("RRP", "")
-                if not dt_str2 or not rrp_str:
-                    continue
-                try:
-                    # SETTLEMENTDATE is end-of-interval — subtract 5min for start label
-                    dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - _td(minutes=5)
-                    if dt.date() != req_date:
+    # ── Source 1: DispatchIS CURRENT (last ~3 days, 5-min, INTERVENTION filter) ──
+    try:
+        dispatch_files = _list_hrefs(DISPATCH_IS_URL)
+        date_files = sorted([f for f in dispatch_files if date_str in f and "PUBLIC_DISPATCHIS" in f.upper()])
+        logger.info(f"scrape_historical_dispatch_prices: {len(date_files)} DispatchIS files for {date_str}")
+        for url in date_files:
+            try:
+                text = _read_zip(url)
+                if not text: continue
+                for row in _parse_aemo(text, "PRICE"):
+                    if row.get("INTERVENTION", "0").strip() != "0":
                         continue
-                    label = dt.strftime("%H:%M")
-                    prices[region][label] = round(float(rrp_str), 2)
-                except (ValueError, TypeError):
-                    continue
-        except Exception as e:
-            logger.debug(f"scrape_historical_dispatch_prices: file error {url}: {e}")
-            continue
+                    region = row.get("REGIONID", "").strip()
+                    if region not in NEM_REGIONS: continue
+                    dt_str2 = row.get("SETTLEMENTDATE", "")
+                    rrp_str = row.get("RRP", "")
+                    if not dt_str2 or not rrp_str: continue
+                    try:
+                        dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - _td(minutes=5)
+                        if dt.date() != req_date: continue
+                        label = dt.strftime("%H:%M")
+                        prices[region][label] = round(float(rrp_str), 2)
+                    except (ValueError, TypeError):
+                        continue
+            except Exception as e:
+                logger.debug(f"scrape_historical_dispatch_prices: DispatchIS file error {url}: {e}")
+    except Exception as e:
+        logger.warning(f"scrape_historical_dispatch_prices: DispatchIS listing failed: {e}")
+
+    # If we got data from DispatchIS, return it
+    if any(prices.values()):
+        return {r: [{"interval": k, "rrp": v} for k, v in sorted(pts.items())]
+                for r, pts in prices.items() if pts}
+
+    # ── Source 2: TradingIS CURRENT (last ~15 days, 5-min via PERIODID) ──
+    try:
+        trading_files = _list_hrefs(TRADING_IS_URL)
+        date_files = sorted([f for f in trading_files if date_str in f and "PUBLIC_TRADINGIS" in f.upper()])
+        logger.info(f"scrape_historical_dispatch_prices: {len(date_files)} TradingIS files for {date_str}")
+        for url in date_files:
+            try:
+                text = _read_zip(url)
+                if not text: continue
+                for row in _parse_aemo(text, "PRICE"):
+                    region = row.get("REGIONID", "").strip()
+                    if region not in NEM_REGIONS: continue
+                    period_str = row.get("PERIODID", "")
+                    rrp_str    = row.get("RRP", "")
+                    if not period_str or not rrp_str: continue
+                    try:
+                        # PERIODID 1-288, each = 5 min from midnight
+                        period = int(float(period_str))
+                        total_min = (period - 1) * 5
+                        hh, mm = divmod(total_min, 60)
+                        label = f"{hh:02d}:{mm:02d}"
+                        prices[region][label] = round(float(rrp_str), 2)
+                    except (ValueError, TypeError):
+                        continue
+            except Exception as e:
+                logger.debug(f"scrape_historical_dispatch_prices: TradingIS file error {url}: {e}")
+    except Exception as e:
+        logger.warning(f"scrape_historical_dispatch_prices: TradingIS listing failed: {e}")
+
+    if not any(prices.values()):
+        logger.warning(f"scrape_historical_dispatch_prices: no data found for {date_str}")
 
     return {r: [{"interval": k, "rrp": v} for k, v in sorted(pts.items())]
             for r, pts in prices.items() if pts}

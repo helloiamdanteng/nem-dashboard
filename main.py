@@ -1774,7 +1774,7 @@ async def station_debug():
 
 @app.post("/api/views")
 async def record_view(request: Request):
-    import json, hashlib, os
+    import json, hashlib, os, base64
     from datetime import datetime, timezone, timedelta
     import httpx
 
@@ -1787,23 +1787,29 @@ async def record_view(request: Request):
     raw_ip    = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
     ip_hash   = hashlib.sha256(raw_ip.encode()).hexdigest()[:16]
 
-    GIST_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-    GIST_ID    = os.environ.get("VIEWS_GIST_ID", "")
+    GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+    GH_REPO  = os.environ.get("GITHUB_REPO", "")   # e.g. "danielteng/nem-dashboard"
+    GH_PATH  = "data/views.json"
+    GH_HEADERS = {
+        "Authorization": f"token {GH_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+    }
 
-    # ── Load current data ────────────────────────────────────────────────────
+    # ── Load current data from repo file ─────────────────────────────────────
     data: dict = {}
-    if GIST_TOKEN and GIST_ID:
+    file_sha: str = ""   # needed to update an existing file
+    if GH_TOKEN and GH_REPO:
         try:
             async with httpx.AsyncClient(timeout=8) as client:
                 r = await client.get(
-                    f"https://api.github.com/gists/{GIST_ID}",
-                    headers={"Authorization": f"token {GIST_TOKEN}",
-                             "Accept": "application/vnd.github.v3+json"}
+                    f"https://api.github.com/repos/{GH_REPO}/contents/{GH_PATH}",
+                    headers=GH_HEADERS,
                 )
                 if r.status_code == 200:
-                    files = r.json().get("files", {})
-                    raw   = next(iter(files.values()), {}).get("content", "{}")
-                    data  = json.loads(raw)
+                    resp_json = r.json()
+                    file_sha  = resp_json.get("sha", "")
+                    raw       = base64.b64decode(resp_json["content"]).decode()
+                    data      = json.loads(raw)
         except Exception:
             pass
 
@@ -1832,15 +1838,21 @@ async def record_view(request: Request):
             data["by_day"].pop(old, None)
             data["unique_by_day"].pop(old, None)
 
-    # ── Persist to Gist ──────────────────────────────────────────────────────
-    if GIST_TOKEN and GIST_ID:
+    # ── Write back to repo file ───────────────────────────────────────────────
+    if GH_TOKEN and GH_REPO:
         try:
+            encoded = base64.b64encode(json.dumps(data, indent=2).encode()).decode()
+            payload = {
+                "message": f"views: {today} total={data['total']}",
+                "content": encoded,
+            }
+            if file_sha:
+                payload["sha"] = file_sha   # required to update existing file
             async with httpx.AsyncClient(timeout=8) as client:
-                await client.patch(
-                    f"https://api.github.com/gists/{GIST_ID}",
-                    headers={"Authorization": f"token {GIST_TOKEN}",
-                             "Accept": "application/vnd.github.v3+json"},
-                    json={"files": {"views.json": {"content": json.dumps(data)}}}
+                await client.put(
+                    f"https://api.github.com/repos/{GH_REPO}/contents/{GH_PATH}",
+                    headers=GH_HEADERS,
+                    json=payload,
                 )
         except Exception:
             pass

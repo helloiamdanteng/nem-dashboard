@@ -3098,66 +3098,63 @@ def scrape_mtpasa_outages() -> list:
 
 def scrape_weather() -> dict:
     """
-    Fetch 7-day daily forecast from BOM's api.weather.bom.gov.au using geohashes.
+    Fetch 7-day daily forecast using Open-Meteo API (free, no key, uses BOM ACCESS-G model).
     Returns { region: { name, days: [{day_of_week, date_label, temp_max, temp_min}] } }
     """
-    # Geohashes for each capital city (6-char for daily forecasts)
-    BOM_LOCATIONS = {
-        "QLD1": {"name": "Brisbane",  "geohash": "r7hgd"},
-        "NSW1": {"name": "Sydney",    "geohash": "r3gx2"},
-        "VIC1": {"name": "Melbourne", "geohash": "r1r0f"},
-        "SA1":  {"name": "Adelaide",  "geohash": "r1f91"},
-        "TAS1": {"name": "Hobart",    "geohash": "r22tb"},
+    # Capital city coordinates for each NEM region
+    LOCATIONS = {
+        "QLD1": {"name": "Brisbane",  "lat": -27.4698, "lon": 153.0251},
+        "NSW1": {"name": "Sydney",    "lat": -33.8688, "lon": 151.2093},
+        "VIC1": {"name": "Melbourne", "lat": -37.8136, "lon": 144.9631},
+        "SA1":  {"name": "Adelaide",  "lat": -34.9285, "lon": 138.6007},
+        "TAS1": {"name": "Hobart",    "lat": -42.8821, "lon": 147.3272},
     }
 
     result = {}
     session = requests.Session()
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (nem-dashboard weather fetch)",
-        "Accept": "application/json",
-    })
+    session.headers.update({"User-Agent": "nem-dashboard/1.0"})
 
-    for region, info in BOM_LOCATIONS.items():
+    for region, info in LOCATIONS.items():
         try:
-            url = f"https://api.weather.bom.gov.au/v1/locations/{info['geohash']}/forecasts/daily"
+            url = (
+                f"https://api.open-meteo.com/v1/forecast"
+                f"?latitude={info['lat']}&longitude={info['lon']}"
+                f"&daily=temperature_2m_max,temperature_2m_min"
+                f"&timezone=Australia%2FSydney&forecast_days=7"
+            )
             r = session.get(url, timeout=10)
             if r.status_code != 200:
-                logger.warning(f"scrape_weather: {region} status {r.status_code} from {url}")
+                logger.warning(f"scrape_weather: {region} status {r.status_code}")
                 continue
             j = r.json()
-            entries = j.get("data", [])
+            daily = j.get("daily", {})
+            dates    = daily.get("time", [])
+            temp_max = daily.get("temperature_2m_max", [])
+            temp_min = daily.get("temperature_2m_min", [])
+
             days = []
-            for entry in entries[:7]:
-                date_str = entry.get("date", "")[:10]
-                temp_max = entry.get("temp_max")
-                temp_min = entry.get("temp_min")
-                if temp_max is not None:
-                    try: temp_max = round(float(temp_max), 1)
-                    except: temp_max = None
-                if temp_min is not None:
-                    try: temp_min = round(float(temp_min), 1)
-                    except: temp_min = None
-                if date_str:
-                    try:
-                        from datetime import datetime as _dt
-                        dt = _dt.strptime(date_str, "%Y-%m-%d")
-                        day_of_week = dt.strftime("%a")
-                        date_label  = dt.strftime("%-d %b")
-                    except Exception:
-                        day_of_week = ""
-                        date_label  = date_str
-                    days.append({
-                        "date":        date_str,
-                        "day_of_week": day_of_week,
-                        "date_label":  date_label,
-                        "temp_max":    temp_max,
-                        "temp_min":    temp_min,
-                    })
+            for i, date_str in enumerate(dates[:7]):
+                try:
+                    from datetime import datetime as _dt
+                    dt = _dt.strptime(date_str, "%Y-%m-%d")
+                    day_of_week = dt.strftime("%a")
+                    date_label  = dt.strftime("%-d %b")
+                except Exception:
+                    day_of_week = ""
+                    date_label  = date_str
+                days.append({
+                    "date":        date_str,
+                    "day_of_week": day_of_week,
+                    "date_label":  date_label,
+                    "temp_max":    round(temp_max[i], 1) if i < len(temp_max) and temp_max[i] is not None else None,
+                    "temp_min":    round(temp_min[i], 1) if i < len(temp_min) and temp_min[i] is not None else None,
+                })
+
             if days:
                 result[region] = {"name": info["name"], "days": days}
                 logger.info(f"scrape_weather: {region} ({info['name']}) got {len(days)} days")
             else:
-                logger.warning(f"scrape_weather: {region} no days parsed — raw: {str(j)[:200]}")
+                logger.warning(f"scrape_weather: {region} no days in response")
         except Exception as e:
             logger.warning(f"scrape_weather: {region} error: {e}")
 

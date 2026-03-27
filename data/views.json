@@ -1,25 +1,28 @@
 {
-  "total": 10,
+  "total": 11,
   "by_day": {
-    "2026-03-27": 10
+    "2026-03-27": 11
   },
   "by_month": {
-    "2026-03": 10
+    "2026-03": 11
   },
   "unique_ips": [
     "f48aaf2b262598f6",
-    "b9cac36a48f3c180"
+    "b9cac36a48f3c180",
+    "1e0014fa0cea4be5"
   ],
   "unique_by_day": {
     "2026-03-27": [
       "f48aaf2b262598f6",
-      "b9cac36a48f3c180"
+      "b9cac36a48f3c180",
+      "1e0014fa0cea4be5"
     ]
   },
   "unique_by_month": {
     "2026-03": [
       "f48aaf2b262598f6",
-      "b9cac36a48f3c180"
+      "b9cac36a48f3c180",
+      "1e0014fa0cea4be5"
     ]
   }
 }

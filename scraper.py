@@ -2773,54 +2773,100 @@ def scrape_historical_day(date_str: str) -> dict:
 
 def scrape_historical_price_averages() -> dict:
     """
-    Compute daily average prices for the last 15 days using scrape_historical_prices.
-    Fetches one file per day (30-min trading prices), computes daily avg/min/max/p90.
+    Compute daily average prices for the last 30 days using the TradingIS monthly
+    archive ZIPs — one or two files cover everything, much faster than per-day fetches.
     Returns { region: { "YYYY-MM-DD": { avg, min, max, p90, count } } }
     """
     import statistics
-    from collections import defaultdict
-    from datetime import datetime as _dt, timedelta as _td
-    from concurrent.futures import ThreadPoolExecutor as _TPE
+    from datetime import timedelta as _td
 
     now_aest = datetime.now(AEST)
-    # Last 7 days (excluding today — today may be incomplete)
-    dates = []
-    for i in range(1, 8):
-        d = (now_aest - _td(days=i)).strftime("%Y%m%d")
-        dates.append(d)
+    cutoff   = (now_aest - _td(days=30)).date()
 
-    results: dict = {r: {} for r in NEM_REGIONS}
+    # Work out which months we need
+    months_needed = set()
+    for i in range(32):
+        d = (now_aest - _td(days=i)).date()
+        if d >= cutoff:
+            months_needed.add(d.strftime("%Y%m"))
 
-    def _fetch_day(date_str):
-        try:
-            day_prices = scrape_historical_dispatch_prices(date_str)
-            return date_str, day_prices
-        except Exception as e:
-            logger.debug(f"scrape_historical_price_averages: {date_str} failed: {e}")
-            return date_str, {}
+    # Accumulate raw per-interval prices keyed by (region, date)
+    raw: dict = {}   # { (region, "YYYY-MM-DD"): [rrp, ...] }
 
-    with _TPE(max_workers=15) as ex:
-        all_results = list(ex.map(_fetch_day, dates))
+    for ym in sorted(months_needed):
+        # Try archive first
+        archive_url = f"{TRADING_ARCHIVE}PUBLIC_TRADINGIS_{ym}.zip"
+        text = _read_zip(archive_url)
 
-    for date_str, day_prices in all_results:
-        day_label = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
-        for region, intervals in day_prices.items():
+        if not text:
+            # Current month not yet archived — pull from CURRENT directory
+            logger.info(f"scrape_historical_price_averages: archive miss for {ym}, using CURRENT")
+            try:
+                all_hrefs = _list_hrefs(TRADING_CURRENT)
+                # Keep last sequence per timestamp to get final settled price
+                seen: dict = {}
+                for href in all_hrefs:
+                    fname  = href.split('/')[-1]
+                    parts  = fname.split('_')
+                    if len(parts) >= 3 and len(parts[2]) >= 8 and parts[2][:6] == ym:
+                        seen[parts[2]] = href
+                urls = sorted(seen.values())
+                logger.info(f"scrape_historical_price_averages: {len(urls)} CURRENT files for {ym}")
+                from concurrent.futures import ThreadPoolExecutor as _TPE
+                def _fetch(u):
+                    try: return _read_zip(u)
+                    except: return ""
+                with _TPE(max_workers=20) as ex:
+                    texts = list(ex.map(_fetch, urls))
+                text = "\n".join(t for t in texts if t)
+            except Exception as e:
+                logger.warning(f"scrape_historical_price_averages: CURRENT fallback failed: {e}")
+                continue
+
+        if not text:
+            logger.warning(f"scrape_historical_price_averages: no data for {ym}")
+            continue
+
+        logger.info(f"scrape_historical_price_averages: parsing {ym} ({len(text)//1024}KB)")
+
+        for row in _parse_aemo(text, "TRADING_PRICE"):
+            region = row.get("REGIONID", "").strip()
             if region not in NEM_REGIONS:
                 continue
-            prices = [pt["rrp"] for pt in intervals if pt.get("rrp") is not None]
-            if not prices:
+            if row.get("INVALIDFLAG", "0") not in ("0", ""):
                 continue
-            prices_sorted = sorted(prices)
-            p90_idx = min(int(len(prices_sorted) * 0.90), len(prices_sorted) - 1)
-            results[region][day_label] = {
-                "avg":   round(statistics.mean(prices), 2),
-                "min":   round(min(prices), 2),
-                "max":   round(max(prices), 2),
-                "p90":   round(prices_sorted[p90_idx], 2),
-                "count": len(prices),
-            }
+            dt_str  = row.get("SETTLEMENTDATE", "")
+            rrp_str = row.get("RRP", "")
+            if not dt_str or not rrp_str:
+                continue
+            try:
+                dt       = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
+                day_str  = dt.strftime("%Y-%m-%d")
+                day_date = dt.date()
+                if day_date < cutoff or day_date >= now_aest.date():
+                    continue
+                key = (region, day_str)
+                raw.setdefault(key, []).append(round(float(rrp_str), 2))
+            except (ValueError, TypeError):
+                continue
 
-    logger.info(f"scrape_historical_price_averages: {sum(len(v) for v in results.values())} region-days")
+    # Compute stats per region per day
+    results: dict = {r: {} for r in NEM_REGIONS}
+    for (region, day_str), prices in raw.items():
+        if not prices:
+            continue
+        prices_sorted = sorted(prices)
+        p90_idx = min(int(len(prices_sorted) * 0.90), len(prices_sorted) - 1)
+        results[region][day_str] = {
+            "avg":   round(statistics.mean(prices), 2),
+            "min":   round(min(prices), 2),
+            "max":   round(max(prices), 2),
+            "p90":   round(prices_sorted[p90_idx], 2),
+            "count": len(prices),
+        }
+
+    total = sum(len(v) for v in results.values())
+    logger.info(f"scrape_historical_price_averages: {total} region-days computed")
     return results
 
 

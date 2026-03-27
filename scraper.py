@@ -2793,7 +2793,7 @@ def scrape_historical_price_averages() -> dict:
 
     def _fetch_day(date_str):
         try:
-            day_prices = scrape_historical_prices(date_str)
+            day_prices = scrape_historical_dispatch_prices(date_str)
             return date_str, day_prices
         except Exception as e:
             logger.debug(f"scrape_historical_price_averages: {date_str} failed: {e}")

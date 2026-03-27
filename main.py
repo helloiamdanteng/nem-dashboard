@@ -251,7 +251,7 @@ async def get_slow():
 
 @app.get("/api/rescrape")
 async def rescrape():
-    """Force a full rescrape: backfill history + fast + gen caches."""
+    """Force a full rescrape: backfill history + fast + gen + slow caches."""
     import asyncio
     from scraper import scrape_scada_history, scrape_dispatch_history
 
@@ -266,6 +266,8 @@ async def rescrape():
         await _run_fast()
         # Then gen scrape
         await _run_gen()
+        # Then slow scrape (includes weather)
+        await _run_slow()
 
     asyncio.create_task(_run())
     return {"status": "rescrape started — allow ~60s for data to refresh"}

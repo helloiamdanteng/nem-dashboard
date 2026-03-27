@@ -2842,30 +2842,33 @@ def scrape_historical_price_averages() -> dict:
         logger.warning("scrape_historical_price_averages: no data fetched")
         return {r: {} for r in NEM_REGIONS}
 
-    # ── Step 3: parse all text and accumulate prices ─────────────────────────
+    # ── Step 3: parse each text individually and accumulate prices ───────────
     raw: dict = {}  # { (region, "YYYY-MM-DD"): [rrp, ...] }
-    combined = "\n".join(texts)
-    logger.info(f"scrape_historical_price_averages: parsing {len(combined)//1024}KB total")
 
-    for row in _parse_aemo(combined, "TRADING_PRICE"):
-        region = row.get("REGIONID", "").strip()
-        if region not in NEM_REGIONS:
+    for text in texts:
+        if not text:
             continue
-        if row.get("INVALIDFLAG", "0") not in ("0", ""):
-            continue
-        dt_str  = row.get("SETTLEMENTDATE", "")
-        rrp_str = row.get("RRP", "")
-        if not dt_str or not rrp_str:
-            continue
-        try:
-            dt       = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-            day_date = dt.date()
-            if day_date < cutoff or day_date >= today:
+        for row in _parse_aemo(text, "TRADING_PRICE"):
+            region = row.get("REGIONID", "").strip()
+            if region not in NEM_REGIONS:
                 continue
-            key = (region, dt.strftime("%Y-%m-%d"))
-            raw.setdefault(key, []).append(round(float(rrp_str), 2))
-        except (ValueError, TypeError):
-            continue
+            if row.get("INVALIDFLAG", "0") not in ("0", ""):
+                continue
+            dt_str  = row.get("SETTLEMENTDATE", "")
+            rrp_str = row.get("RRP", "")
+            if not dt_str or not rrp_str:
+                continue
+            try:
+                dt       = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
+                day_date = dt.date()
+                if day_date < cutoff or day_date >= today:
+                    continue
+                key = (region, dt.strftime("%Y-%m-%d"))
+                raw.setdefault(key, []).append(round(float(rrp_str), 2))
+            except (ValueError, TypeError):
+                continue
+
+    logger.info(f"scrape_historical_price_averages: {len(raw)} region-day keys found")
 
     # ── Step 4: compute stats ────────────────────────────────────────────────
     results: dict = {r: {} for r in NEM_REGIONS}

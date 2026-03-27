@@ -3755,7 +3755,7 @@ function renderDayAhead(data) {
   // ── Weather forecast (above heading) ─────────────────────────────────────────
   try {
     const weather = (slowData && slowData.weather) || {};
-    html += renderWeatherTable(weather);
+    html += `<div id="weather-table-container">${renderWeatherTable(weather)}</div>`;
   } catch(e) { console.warn('Weather render error:', e); }
 
   html += `<div class="section-title" style="margin-top:8px">${dayStr}</div>`;
@@ -5089,8 +5089,15 @@ async function fetchSlowData() {
 
       if (resp.ok) {
         slowData = await resp.json();
-        if (currentPanel === 'stations' || currentPanel === 'weekahead' || currentPanel === 'dayahead' || currentPanel === 'dminus1') {
+        if (currentPanel === 'stations' || currentPanel === 'weekahead' || currentPanel === 'dayahead' || currentPanel === 'dminus1' || currentPanel === 'outages') {
           renderPanel(currentPanel, latestData);
+        }
+        // If on dayahead, also refresh weather table specifically
+        if (currentPanel === 'dayahead') {
+          const weatherDiv = document.getElementById('weather-table-container');
+          if (weatherDiv) {
+            weatherDiv.innerHTML = renderWeatherTable((slowData && slowData.weather) || {});
+          }
         }
         // Wait 30 min then kick off a fresh cycle
         await new Promise(r => setTimeout(r, REFRESH_INTERVAL));

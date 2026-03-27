@@ -1647,7 +1647,7 @@ async def historical_price_averages(refresh: bool = False):
     try:
         data = await asyncio.wait_for(
             loop.run_in_executor(None, scrape_historical_price_averages),
-            timeout=60.0
+            timeout=180.0
         )
         _price_avg_cache["data"] = data
         _price_avg_cache["last_updated"] = datetime.now(timezone.utc)

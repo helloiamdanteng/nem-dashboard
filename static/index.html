@@ -4641,7 +4641,7 @@ function renderPanel(panel, data) {
     else if (panel === 'prices-hist') { html = renderPricesHist(); }
 
     else if (panel === 'dayahead')   html = renderDayAhead(data);
-    else if (panel === 'about') html = renderAbout(data);
+    else if (panel === 'about') { html = renderAbout(data); setTimeout(_renderViewStats, 0); }
     else if (panel === 'outages') html = renderOutages(data);
     else if (panel === 'prices-hist') html = renderPricesHist(data);
     else if (panel === 'coalcal') html = renderCoalCalendar(data);
@@ -4995,6 +4995,24 @@ function renderAbout(data) {
     </div>
   </div>
 
+  <div id="viewStatsBlock" style="margin-top:10px;padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:10px">
+    <div style="font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:0.12em;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px">Dashboard Usage</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px" id="viewStatsGrid">
+      <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px">
+        <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--accent)" id="vs-month">—</div>
+        <div style="font-family:var(--font-mono);font-size:8px;color:var(--text-muted);margin-top:3px">VIEWS THIS MONTH</div>
+      </div>
+      <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px">
+        <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--accent)" id="vs-unique-month">—</div>
+        <div style="font-family:var(--font-mono);font-size:8px;color:var(--text-muted);margin-top:3px">UNIQUE THIS MONTH</div>
+      </div>
+      <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px">
+        <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--text-dim)" id="vs-total">—</div>
+        <div style="font-family:var(--font-mono);font-size:8px;color:var(--text-muted);margin-top:3px">ALL-TIME VIEWS</div>
+      </div>
+    </div>
+  </div>
+
   `;
 }
 
@@ -5121,11 +5139,34 @@ async function fetchData() {
   }
 }
 
+// ── View counter ──────────────────────────────────────────────────────────────
+let _viewStats = null;
+
+async function fetchViewStats() {
+  try {
+    const resp = await fetch('/api/views', { method: 'POST' });
+    if (!resp.ok) return;
+    _viewStats = await resp.json();
+    _renderViewStats();
+  } catch(e) {
+    console.warn('View stats fetch failed:', e);
+  }
+}
+
+function _renderViewStats() {
+  if (!_viewStats) return;
+  const el = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
+  el('vs-month',        Number(_viewStats.this_month   ?? 0).toLocaleString());
+  el('vs-unique-month', Number(_viewStats.unique_month ?? 0).toLocaleString());
+  el('vs-total',        Number(_viewStats.total        ?? 0).toLocaleString());
+}
+
 fetchData();
 setInterval(fetchData, 300000);
 // Start slow data fetch 3s after fast data — doesn't block initial render
 setTimeout(fetchGenData,  2000);  // gen: fuel mix + stations (15 min refresh)
 setTimeout(fetchSlowData, 3000); // slow: PASA week-ahead (30 min refresh)
+fetchViewStats();                 // record this visit + load stats for About page
 
 // ── Coal Outage Calendar ──────────────────────────────────────────────────────
 let _coalCalData = null;

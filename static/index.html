@@ -4136,7 +4136,7 @@ async function drawPricesHist() {
     return;
   }
   const status = document.getElementById('prices-hist-status');
-  if (status) status.textContent = 'Loading archive data… (may take ~30 seconds)';
+  if (status) status.textContent = 'Loading 15 days of price data… (first load takes ~60s)';
   try {
     const data = await fetch('/api/historical_price_averages').then(r => r.json());
     if (data.error) { if (status) status.textContent = `Error: ${data.error}`; return; }

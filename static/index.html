@@ -4997,7 +4997,7 @@ function renderAbout(data) {
 
   <div id="viewStatsBlock" style="margin-top:10px;padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:10px">
     <div style="font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:0.12em;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px">Dashboard Usage</div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:14px" id="viewStatsGrid">
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px" id="viewStatsGrid">
       <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px">
         <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--accent)" id="vs-month">—</div>
         <div style="font-family:var(--font-mono);font-size:8px;color:var(--text-muted);margin-top:3px">VIEWS THIS MONTH</div>
@@ -5010,8 +5010,11 @@ function renderAbout(data) {
         <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--text-dim)" id="vs-total">—</div>
         <div style="font-family:var(--font-mono);font-size:8px;color:var(--text-muted);margin-top:3px">ALL-TIME VIEWS</div>
       </div>
+      <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px">
+        <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--text-dim)" id="vs-unique-total">—</div>
+        <div style="font-family:var(--font-mono);font-size:8px;color:var(--text-muted);margin-top:3px">ALL-TIME UNIQUE</div>
+      </div>
     </div>
-    <div style="position:relative;height:140px"><canvas id="vs-chart"></canvas></div>
   </div>
 
   `;
@@ -5160,54 +5163,7 @@ function _renderViewStats() {
   el('vs-month',        Number(_viewStats.this_month   ?? 0).toLocaleString());
   el('vs-unique-month', Number(_viewStats.unique_month ?? 0).toLocaleString());
   el('vs-total',        Number(_viewStats.total        ?? 0).toLocaleString());
-
-  // Monthly bar chart
-  const canvas = document.getElementById('vs-chart');
-  if (!canvas) return;
-  const byMonth     = _viewStats.by_month     || {};
-  const uniqueMonth = _viewStats.unique_by_month || {};
-  const months = Object.keys(byMonth).sort();
-  if (!months.length) return;
-
-  // Format labels: "2026-03" → "Mar"
-  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const labels = months.map(m => { const [,mo] = m.split('-'); return monthNames[parseInt(mo)-1]; });
-
-  if (charts['vs-chart']) { charts['vs-chart'].destroy(); delete charts['vs-chart']; }
-  charts['vs-chart'] = new Chart(canvas, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'Views',
-          data: months.map(m => byMonth[m] || 0),
-          backgroundColor: 'rgba(0,212,255,0.5)',
-          borderColor: '#00d4ff',
-          borderWidth: 1,
-          borderRadius: 3,
-        },
-        {
-          label: 'Unique',
-          data: months.map(m => uniqueMonth[m] || 0),
-          backgroundColor: 'rgba(46,213,115,0.5)',
-          borderColor: '#2ed573',
-          borderWidth: 1,
-          borderRadius: 3,
-        },
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { color: '#64748b', font: { family: 'Space Mono', size: 9 }, boxWidth: 10 } },
-      },
-      scales: {
-        x: { ticks: { color: '#64748b', font: { family: 'Space Mono', size: 9 } }, grid: { color: '#1e2d45' } },
-        y: { ticks: { color: '#64748b', font: { family: 'Space Mono', size: 9 } }, grid: { color: '#1e2d45' }, beginAtZero: true },
-      }
-    }
-  });
+  el('vs-unique-total', Number(_viewStats.unique_total ?? 0).toLocaleString());
 }
 
 fetchData();

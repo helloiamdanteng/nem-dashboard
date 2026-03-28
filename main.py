@@ -138,6 +138,179 @@ async def _run_fast():
             fast_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
 
 
+async def _gap_fill_prices():
+    """
+    Every slow scrape (30 min): check today's and yesterday's GitHub price files
+    and patch any missing 5-min intervals from TradingIS CURRENT.
+    Runs sequentially with delays to avoid 403s.
+    """
+    import json, base64, os, zipfile as _zf, io as _io
+    from datetime import timedelta
+    from scraper import (TRADING_CURRENT, NEM_REGIONS, AEST,
+                         _list_hrefs, _parse_aemo, _get as _scraper_get)
+    import httpx
+
+    AEST_TZ  = timezone(timedelta(hours=10))
+    now_aest = datetime.now(AEST_TZ)
+    GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+    GH_REPO  = os.environ.get("GITHUB_REPO", "")
+    GH_HEADERS = {
+        "Authorization": f"token {GH_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+
+    if not GH_TOKEN or not GH_REPO:
+        return
+
+    # Build full set of expected 5-min intervals for a day up to a cutoff time
+    def _expected_intervals(up_to_hhmm: str) -> set:
+        intervals = set()
+        h, m = 0, 5
+        while True:
+            s = f"{h:02d}:{m:02d}"
+            if s > up_to_hhmm:
+                break
+            intervals.add(s)
+            m += 5
+            if m >= 60:
+                m = 0
+                h += 1
+            if h >= 24:
+                break
+        return intervals
+
+    loop = asyncio.get_running_loop()
+
+    # Determine which dates to gap-fill: today + yesterday (near midnight)
+    today_str     = now_aest.strftime("%Y-%m-%d")
+    yesterday_str = (now_aest - timedelta(days=1)).strftime("%Y-%m-%d")
+    now_hhmm      = now_aest.strftime("%H:%M")
+    is_near_midnight = now_aest.hour == 0 and now_aest.minute < 35
+
+    dates_to_check = [today_str]
+    if is_near_midnight:
+        dates_to_check.append(yesterday_str)
+
+    # List CURRENT files once
+    try:
+        current_hrefs = await loop.run_in_executor(None, _list_hrefs, TRADING_CURRENT)
+    except Exception as e:
+        logger.warning(f"gap-fill: CURRENT listing failed: {e}")
+        return
+
+    # Build map: date → { hhmm → url } (last sequence per timestamp)
+    current_map: dict = {}
+    for href in current_hrefs:
+        fname = href.split('/')[-1]
+        parts = fname.split('_')
+        if len(parts) >= 3 and len(parts[2]) >= 12:
+            try:
+                fd   = datetime.strptime(parts[2][:8], "%Y%m%d").strftime("%Y-%m-%d")
+                hhmm = f"{parts[2][8:10]}:{parts[2][10:12]}"
+                current_map.setdefault(fd, {})[hhmm] = href
+            except ValueError:
+                pass
+
+    for date_str in dates_to_check:
+        is_today = date_str == today_str
+        up_to    = now_hhmm if is_today else "23:55"
+
+        # Read existing GitHub file
+        path = f"data/prices/{date_str}.json"
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.get(
+                    f"https://api.github.com/repos/{GH_REPO}/contents/{path}",
+                    headers=GH_HEADERS
+                )
+                if r.status_code == 200:
+                    rj       = r.json()
+                    file_sha = rj.get("sha", "")
+                    existing = json.loads(base64.b64decode(rj["content"]).decode())
+                else:
+                    file_sha = ""
+                    existing = {"date": date_str}
+        except Exception as e:
+            logger.warning(f"gap-fill: read {date_str} failed: {e}")
+            continue
+
+        # Find missing intervals for any region
+        expected    = _expected_intervals(up_to)
+        have        = set()
+        for region in NEM_REGIONS:
+            have |= set(existing.get(region, {}).keys())
+        missing = expected - have
+
+        if not missing:
+            logger.debug(f"gap-fill: {date_str} complete ({len(expected)} intervals)")
+            continue
+
+        logger.info(f"gap-fill: {date_str} missing {len(missing)} intervals: {sorted(missing)[:5]}...")
+
+        # Fetch missing intervals from CURRENT
+        day_current = current_map.get(date_str, {})
+        fetched_any = False
+
+        for hhmm in sorted(missing):
+            url = day_current.get(hhmm)
+            if not url:
+                continue
+            try:
+                await asyncio.sleep(1.5)  # gentle delay between requests
+                def _fetch(u=url):
+                    r = _scraper_get(u, timeout=15)
+                    if not r:
+                        return ""
+                    try:
+                        with _zf.ZipFile(_io.BytesIO(r.content)) as z:
+                            csvs = [n for n in z.namelist() if n.lower().endswith(".csv")]
+                            if csvs:
+                                with z.open(csvs[0]) as f:
+                                    return f.read().decode("utf-8", errors="replace")
+                    except Exception:
+                        return ""
+                    return ""
+
+                text = await loop.run_in_executor(None, _fetch)
+                if not text:
+                    continue
+
+                for row in _parse_aemo(text, "TRADING_PRICE"):
+                    region = row.get("REGIONID", "").strip()
+                    if region not in NEM_REGIONS: continue
+                    if row.get("INVALIDFLAG", "0") not in ("0", ""): continue
+                    dt_str  = row.get("SETTLEMENTDATE", "")
+                    rrp_str = row.get("RRP", "")
+                    if not dt_str or not rrp_str: continue
+                    try:
+                        dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
+                        existing.setdefault(region, {})[dt.strftime("%H:%M")] = round(float(rrp_str), 2)
+                        fetched_any = True
+                    except (ValueError, TypeError):
+                        continue
+            except Exception as e:
+                logger.warning(f"gap-fill: fetch {date_str} {hhmm} failed: {e}")
+
+        # Write back if we got anything
+        if fetched_any:
+            try:
+                encoded = base64.b64encode(
+                    json.dumps(existing, separators=(',', ':')).encode()
+                ).decode()
+                payload = {"message": f"gap-fill: {date_str}", "content": encoded}
+                if file_sha: payload["sha"] = file_sha
+                async with httpx.AsyncClient(timeout=10) as client:
+                    wr = await client.put(
+                        f"https://api.github.com/repos/{GH_REPO}/contents/{path}",
+                        headers=GH_HEADERS, json=payload
+                    )
+                logger.info(f"gap-fill: {date_str} patched, status={wr.status_code}")
+            except Exception as e:
+                logger.warning(f"gap-fill: write {date_str} failed: {e}")
+        else:
+            logger.info(f"gap-fill: {date_str} nothing fetched from CURRENT")
+
+
 async def _run_slow():
     t0 = time.time()
     try:
@@ -150,6 +323,8 @@ async def _run_slow():
         slow_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
         slow_cache["error"] = None
         logger.info(f"Slow scrape done in {time.time()-t0:.1f}s")
+        # Gap-fill prices in background (fire and forget)
+        asyncio.create_task(_gap_fill_prices())
     except asyncio.TimeoutError:
         logger.error("Slow scrape timed out after 120s")
         slow_cache["error"] = "timeout"

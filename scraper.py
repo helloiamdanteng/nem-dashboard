@@ -2819,117 +2819,48 @@ def scrape_historical_day(date_str: str) -> dict:
     }
 
 
-def scrape_historical_price_averages() -> dict:
+MMSDM_BASE = f"{NEMWEB_BASE}/Data_Archive/Wholesale_Electricity/MMSDM"
+
+
+def scrape_historical_price_averages(days: int = 90) -> dict:
     """
-    Compute daily average prices for the last 30 days using TradingIS weekly
-    archive ZIPs. Downloads the relevant weekly ZIPs in parallel (5-6 files,
-    ~1.6MB each). Does NOT use CURRENT files to avoid 403 rate-limiting.
+    Compute daily average prices for the last N days (default 90).
+
+    Sources (in priority order per month):
+    1. MMSDM monthly DVD — single flat CSV, available ~5-6 weeks after month end
+       URL: MMSDM/YYYY/MMSDM_YYYYMM/MMSDM_Historical_Data_SQLLoader/DATA/
+            PUBLIC_DVD_TRADINGPRICE_YYYYMM010000.zip
+    2. TradingIS weekly archive — ZIP of ZIPs, available next Sunday after week end
+       URL: REPORTS/ARCHIVE/TradingIS_Reports/PUBLIC_TRADINGIS_YYYYMMDD_YYYYMMDD.zip
+
     Returns { region: { "YYYY-MM-DD": { avg, min, max, p90, count } } }
     """
     import statistics
     from datetime import timedelta as _td
     from concurrent.futures import ThreadPoolExecutor as _TPE
 
-    now_aest = datetime.now(AEST)
-    cutoff   = (now_aest - _td(days=30)).date()
-    today    = now_aest.date()
+    now_aest  = datetime.now(AEST)
+    cutoff    = (now_aest - _td(days=days)).date()
+    today     = now_aest.date()
 
-    # ── Step 1: list archive and find relevant weekly ZIPs ───────────────────
-    relevant = []
-    try:
-        all_hrefs = _list_hrefs(TRADING_ARCHIVE)
-        for href in all_hrefs:
-            fname = href.split('/')[-1]
-            # Pattern: PUBLIC_TRADINGIS_YYYYMMDD_YYYYMMDD.zip
-            parts = fname.replace('.zip', '').split('_')
-            if len(parts) >= 4:
-                try:
-                    end_date = datetime.strptime(parts[-1], "%Y%m%d").date()
-                    if end_date >= cutoff:
-                        relevant.append(href)
-                except ValueError:
-                    continue
-        logger.info(f"scrape_historical_price_averages: {len(relevant)} archive ZIPs relevant")
-    except Exception as e:
-        logger.warning(f"scrape_historical_price_averages: archive listing failed: {e}")
-        return {r: {} for r in NEM_REGIONS}
+    # Work out which months we need
+    months_needed = set()
+    d = cutoff
+    while d < today:
+        months_needed.add((d.year, d.month))
+        # advance to next month
+        if d.month == 12:
+            d = d.replace(year=d.year+1, month=1, day=1)
+        else:
+            d = d.replace(month=d.month+1, day=1)
 
-    if not relevant:
-        logger.warning("scrape_historical_price_averages: no relevant archive ZIPs found")
-        return {r: {} for r in NEM_REGIONS}
-
-    # ── Step 2: download archive ZIPs in parallel ────────────────────────────
-    def _fetch(u):
-        try:
-            return _read_zip_of_zips(u)
-        except Exception as e:
-            logger.warning(f"scrape_historical_price_averages: fetch failed {u}: {e}")
-            return ""
-
-    with _TPE(max_workers=3) as ex:
-        texts = [t for t in ex.map(_fetch, relevant) if t]
-
-    logger.info(f"scrape_historical_price_averages: downloaded {len(texts)}/{len(relevant)} archive ZIPs")
-
-    # ── Step 3: fetch CURRENT files for days since last archive end-date ─────
-    # Find the latest date covered by the archive
-    latest_archive_end = None
-    for href in relevant:
-        fname = href.split('/')[-1]
-        parts = fname.replace('.zip', '').split('_')
-        if len(parts) >= 4:
-            try:
-                end_date = datetime.strptime(parts[-1], "%Y%m%d").date()
-                if latest_archive_end is None or end_date > latest_archive_end:
-                    latest_archive_end = end_date
-            except ValueError:
-                pass
-
-    if latest_archive_end and latest_archive_end < today:
-        logger.info(f"scrape_historical_price_averages: fetching CURRENT from {latest_archive_end} to {today}")
-        try:
-            import time as _time
-            all_current = _list_hrefs(TRADING_CURRENT)
-            # Keep last sequence per HHMM timestamp, only for dates after archive
-            seen: dict = {}
-            for href in all_current:
-                fname = href.split('/')[-1]
-                parts = fname.split('_')
-                if len(parts) >= 3 and len(parts[2]) >= 8:
-                    try:
-                        file_date = datetime.strptime(parts[2][:8], "%Y%m%d").date()
-                        if file_date > latest_archive_end and file_date < today:
-                            seen[parts[2]] = href
-                    except ValueError:
-                        pass
-            current_urls = sorted(seen.values())
-            logger.info(f"scrape_historical_price_averages: {len(current_urls)} CURRENT files to fetch")
-            # Fetch sequentially with small delay to avoid 403s
-            current_texts = []
-            for url in current_urls:
-                try:
-                    t = _read_zip(url)
-                    if t:
-                        current_texts.append(t)
-                    _time.sleep(0.05)  # 50ms between requests
-                except Exception:
-                    pass
-            texts.extend(current_texts)
-            logger.info(f"scrape_historical_price_averages: got {len(current_texts)} CURRENT files")
-        except Exception as e:
-            logger.warning(f"scrape_historical_price_averages: CURRENT fetch failed: {e}")
-
-    if not texts:
-        logger.warning("scrape_historical_price_averages: no data fetched")
-        return {r: {} for r in NEM_REGIONS}
-
-    # ── Step 3: parse each ZIP and accumulate prices ─────────────────────────
     raw: dict = {}  # { (region, "YYYY-MM-DD"): [rrp, ...] }
 
-    for text in texts:
-        if not text:
-            continue
-        for row in _parse_aemo(text, "TRADING_PRICE"):
+    def _parse_text(text: str):
+        """Parse AEMO CSV text and accumulate into raw."""
+        # Try both TRADINGPRICE (MMSDM) and TRADING_PRICE (TradingIS) table names
+        rows = _parse_aemo(text, "TRADINGPRICE") or _parse_aemo(text, "TRADING_PRICE")
+        for row in rows:
             region = row.get("REGIONID", "").strip()
             if region not in NEM_REGIONS:
                 continue
@@ -2949,9 +2880,61 @@ def scrape_historical_price_averages() -> dict:
             except (ValueError, TypeError):
                 continue
 
-    logger.info(f"scrape_historical_price_averages: {len(raw)} region-day keys found")
+    # ── Step 1: try MMSDM monthly DVDs ───────────────────────────────────────
+    mmsdm_covered = set()  # months successfully fetched from MMSDM
+    for (year, month) in sorted(months_needed):
+        ym     = f"{year}{month:02d}"
+        url    = (f"{MMSDM_BASE}/{year}/MMSDM_{ym}/"
+                  f"MMSDM_Historical_Data_SQLLoader/DATA/"
+                  f"PUBLIC_DVD_TRADINGPRICE_{ym}010000.zip")
+        text = _read_zip(url)
+        if text:
+            logger.info(f"scrape_historical_price_averages: MMSDM {ym} OK ({len(text)//1024}KB)")
+            _parse_text(text)
+            mmsdm_covered.add((year, month))
+        else:
+            logger.info(f"scrape_historical_price_averages: MMSDM {ym} not available, will use TradingIS archive")
 
-    # ── Step 4: compute stats ────────────────────────────────────────────────
+    # ── Step 2: for months not in MMSDM, use TradingIS weekly archive ────────
+    months_needing_archive = months_needed - mmsdm_covered
+    if months_needing_archive:
+        try:
+            all_hrefs = _list_hrefs(TRADING_ARCHIVE)
+            # Find weekly ZIPs that overlap with needed months
+            relevant = []
+            for href in all_hrefs:
+                fname = href.split('/')[-1]
+                parts = fname.replace('.zip', '').split('_')
+                if len(parts) >= 4:
+                    try:
+                        start_date = datetime.strptime(parts[-2], "%Y%m%d").date()
+                        end_date   = datetime.strptime(parts[-1], "%Y%m%d").date()
+                        # Include if any needed month overlaps this week
+                        for (yr, mo) in months_needing_archive:
+                            from calendar import monthrange
+                            month_start = datetime(yr, mo, 1).date()
+                            last_day    = monthrange(yr, mo)[1]
+                            month_end   = datetime(yr, mo, last_day).date()
+                            if start_date <= month_end and end_date >= month_start and end_date >= cutoff:
+                                relevant.append(href)
+                                break
+                    except ValueError:
+                        continue
+            relevant = list(set(relevant))  # deduplicate
+            logger.info(f"scrape_historical_price_averages: {len(relevant)} TradingIS archive ZIPs to fetch")
+
+            def _fetch_archive(u):
+                try: return _read_zip_of_zips(u)
+                except: return ""
+
+            with _TPE(max_workers=3) as ex:
+                for text in ex.map(_fetch_archive, relevant):
+                    if text:
+                        _parse_text(text)
+        except Exception as e:
+            logger.warning(f"scrape_historical_price_averages: TradingIS archive failed: {e}")
+
+    # ── Step 3: compute daily stats ───────────────────────────────────────────
     results: dict = {r: {} for r in NEM_REGIONS}
     for (region, day_str), prices in raw.items():
         if not prices:

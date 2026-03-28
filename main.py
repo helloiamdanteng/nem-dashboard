@@ -1719,71 +1719,82 @@ async def origin_history():
 
 @app.get("/api/price-avg-debug")
 async def price_avg_debug():
-    """Debug endpoint — times each step of scrape_historical_price_averages."""
+    """Debug endpoint — tests each step of scrape_historical_price_averages."""
     import time
-    from scraper import (TRADING_ARCHIVE, TRADING_CURRENT,
-                         _read_zip, _list_hrefs, AEST)
+    from scraper import (TRADING_ARCHIVE, _list_hrefs, _read_zip_all,
+                         _parse_aemo, NEM_REGIONS, AEST)
     from datetime import datetime, timedelta
 
     results = {}
     now_aest = datetime.now(AEST)
+    cutoff   = (now_aest - timedelta(days=30)).date()
+    loop     = asyncio.get_running_loop()
 
-    # Step 1: Can we reach the archive directory?
+    # Step 1: list archive
     t0 = time.time()
     try:
-        hrefs = await asyncio.get_running_loop().run_in_executor(
-            None, _list_hrefs, TRADING_ARCHIVE)
-        results["archive_listing"] = {
-            "ok": True, "count": len(hrefs),
-            "sample": hrefs[-3:] if hrefs else [],
+        hrefs = await loop.run_in_executor(None, _list_hrefs, TRADING_ARCHIVE)
+        relevant = []
+        for href in hrefs:
+            fname = href.split('/')[-1]
+            parts = fname.replace('.zip','').split('_')
+            if len(parts) >= 4:
+                try:
+                    end_date = datetime.strptime(parts[-1], "%Y%m%d").date()
+                    if end_date >= cutoff:
+                        relevant.append(href)
+                except ValueError:
+                    pass
+        results["step1_listing"] = {
+            "total_hrefs": len(hrefs),
+            "relevant": len(relevant),
+            "relevant_files": [h.split('/')[-1] for h in relevant],
             "ms": round((time.time()-t0)*1000)
         }
     except Exception as e:
-        results["archive_listing"] = {"ok": False, "error": str(e), "ms": round((time.time()-t0)*1000)}
+        results["step1_listing"] = {"error": str(e)}
+        return JSONResponse(content=results)
 
-    # Step 2: Try downloading this month's archive ZIP
-    ym = now_aest.strftime("%Y%m")
-    archive_url = f"{TRADING_ARCHIVE}PUBLIC_TRADINGIS_{ym}.zip"
+    if not relevant:
+        results["error"] = "no relevant ZIPs"
+        return JSONResponse(content=results)
+
+    # Step 2: download most recent ZIP and inspect
     t0 = time.time()
+    test_url = relevant[-1]
     try:
-        text = await asyncio.get_running_loop().run_in_executor(None, _read_zip, archive_url)
-        results["archive_zip_current_month"] = {
-            "url": archive_url,
-            "ok": bool(text),
+        text = await loop.run_in_executor(None, _read_zip_all, test_url)
+        lines = text.split('\n') if text else []
+        i_rows = [l for l in lines[:500] if l.startswith('I,')]
+        d_count = sum(1 for l in lines if l.startswith('D,'))
+        results["step2_zip"] = {
+            "url": test_url,
             "kb": len(text)//1024 if text else 0,
+            "total_lines": len(lines),
+            "d_rows": d_count,
+            "i_rows": i_rows[:8],
+            "first_200": text[:200] if text else "",
             "ms": round((time.time()-t0)*1000)
         }
     except Exception as e:
-        results["archive_zip_current_month"] = {"ok": False, "error": str(e), "ms": round((time.time()-t0)*1000)}
+        results["step2_zip"] = {"error": str(e)}
+        return JSONResponse(content=results)
 
-    # Step 3: Try last month's archive ZIP
-    last_month = (now_aest.replace(day=1) - timedelta(days=1)).strftime("%Y%m")
-    archive_url_prev = f"{TRADING_ARCHIVE}PUBLIC_TRADINGIS_{last_month}.zip"
+    # Step 3: parse
     t0 = time.time()
     try:
-        text2 = await asyncio.get_running_loop().run_in_executor(None, _read_zip, archive_url_prev)
-        results["archive_zip_last_month"] = {
-            "url": archive_url_prev,
-            "ok": bool(text2),
-            "kb": len(text2)//1024 if text2 else 0,
+        rows = list(_parse_aemo(text, "TRADING_PRICE")) if text else []
+        results["step3_parse"] = {
+            "rows_found": len(rows),
+            "sample": rows[:2],
             "ms": round((time.time()-t0)*1000)
         }
     except Exception as e:
-        results["archive_zip_last_month"] = {"ok": False, "error": str(e), "ms": round((time.time()-t0)*1000)}
-
-    # Step 4: CURRENT directory listing
-    t0 = time.time()
-    try:
-        current_hrefs = await asyncio.get_running_loop().run_in_executor(
-            None, _list_hrefs, TRADING_CURRENT)
-        results["current_listing"] = {
-            "ok": True, "count": len(current_hrefs),
-            "ms": round((time.time()-t0)*1000)
-        }
-    except Exception as e:
-        results["current_listing"] = {"ok": False, "error": str(e), "ms": round((time.time()-t0)*1000)}
+        results["step3_parse"] = {"error": str(e)}
 
     return JSONResponse(content=results)
+
+
 
 
 @app.get("/api/price-avg-debug")

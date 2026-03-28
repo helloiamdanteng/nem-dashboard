@@ -2858,7 +2858,7 @@ def scrape_historical_price_averages() -> dict:
         logger.warning("scrape_historical_price_averages: no relevant archive ZIPs found")
         return {r: {} for r in NEM_REGIONS}
 
-    # ── Step 2: download ZIPs in parallel (small pool to avoid rate limiting) ─
+    # ── Step 2: download archive ZIPs in parallel ────────────────────────────
     def _fetch(u):
         try:
             return _read_zip_of_zips(u)
@@ -2869,7 +2869,55 @@ def scrape_historical_price_averages() -> dict:
     with _TPE(max_workers=3) as ex:
         texts = [t for t in ex.map(_fetch, relevant) if t]
 
-    logger.info(f"scrape_historical_price_averages: downloaded {len(texts)}/{len(relevant)} ZIPs")
+    logger.info(f"scrape_historical_price_averages: downloaded {len(texts)}/{len(relevant)} archive ZIPs")
+
+    # ── Step 3: fetch CURRENT files for days since last archive end-date ─────
+    # Find the latest date covered by the archive
+    latest_archive_end = None
+    for href in relevant:
+        fname = href.split('/')[-1]
+        parts = fname.replace('.zip', '').split('_')
+        if len(parts) >= 4:
+            try:
+                end_date = datetime.strptime(parts[-1], "%Y%m%d").date()
+                if latest_archive_end is None or end_date > latest_archive_end:
+                    latest_archive_end = end_date
+            except ValueError:
+                pass
+
+    if latest_archive_end and latest_archive_end < today:
+        logger.info(f"scrape_historical_price_averages: fetching CURRENT from {latest_archive_end} to {today}")
+        try:
+            import time as _time
+            all_current = _list_hrefs(TRADING_CURRENT)
+            # Keep last sequence per HHMM timestamp, only for dates after archive
+            seen: dict = {}
+            for href in all_current:
+                fname = href.split('/')[-1]
+                parts = fname.split('_')
+                if len(parts) >= 3 and len(parts[2]) >= 8:
+                    try:
+                        file_date = datetime.strptime(parts[2][:8], "%Y%m%d").date()
+                        if file_date > latest_archive_end and file_date < today:
+                            seen[parts[2]] = href
+                    except ValueError:
+                        pass
+            current_urls = sorted(seen.values())
+            logger.info(f"scrape_historical_price_averages: {len(current_urls)} CURRENT files to fetch")
+            # Fetch sequentially with small delay to avoid 403s
+            current_texts = []
+            for url in current_urls:
+                try:
+                    t = _read_zip(url)
+                    if t:
+                        current_texts.append(t)
+                    _time.sleep(0.05)  # 50ms between requests
+                except Exception:
+                    pass
+            texts.extend(current_texts)
+            logger.info(f"scrape_historical_price_averages: got {len(current_texts)} CURRENT files")
+        except Exception as e:
+            logger.warning(f"scrape_historical_price_averages: CURRENT fetch failed: {e}")
 
     if not texts:
         logger.warning("scrape_historical_price_averages: no data fetched")

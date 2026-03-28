@@ -1718,7 +1718,7 @@ async def price_avg_debug():
     test_url = relevant[-1]
     try:
         import zipfile as _zf, io as _io
-        from scraper import _get
+        from scraper import _get, _read_zip_of_zips
         r = await loop.run_in_executor(None, lambda: _get(test_url, timeout=60))
         if not r:
             results["step2_zip"] = {"error": "no response", "url": test_url}
@@ -1737,19 +1737,25 @@ async def price_avg_debug():
             "url": test_url,
             "bytes": raw_bytes,
             "zip_file_count": len(zip_files),
-            "zip_files_sample": zip_files[:10],
+            "zip_files_sample": zip_files[:5],
             "ms": round((time.time()-t0)*1000)
         }
     except Exception as e:
         results["step2_zip"] = {"error": str(e)}
         return JSONResponse(content=results)
 
-    # Step 3: parse
+    # Step 3: read one inner ZIP and parse
     t0 = time.time()
     try:
+        text = await loop.run_in_executor(None, _read_zip_of_zips, test_url)
+        lines = text.split('\n') if text else []
+        d_count = sum(1 for l in lines if l.startswith('D,'))
         rows = list(_parse_aemo(text, "TRADING_PRICE")) if text else []
         results["step3_parse"] = {
-            "rows_found": len(rows),
+            "kb": len(text)//1024 if text else 0,
+            "total_lines": len(lines),
+            "d_rows": d_count,
+            "trading_price_rows": len(rows),
             "sample": rows[:2],
             "ms": round((time.time()-t0)*1000)
         }

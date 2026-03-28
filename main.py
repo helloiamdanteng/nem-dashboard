@@ -902,52 +902,6 @@ async def trading_window_debug():
         }
     return await loop.run_in_executor(None, _fetch)
 
-@app.get("/api/price-avg-debug")
-async def price_avg_debug():
-    """Debug: check what data one weekly archive file contains."""
-    import asyncio, csv, io
-    from scraper import _list_hrefs, _read_zip, _parse_aemo, TRADING_ARCHIVE, NEM_REGIONS
-    loop = asyncio.get_running_loop()
-    def _fetch():
-        files = sorted(_list_hrefs(TRADING_ARCHIVE))
-        # Test oldest file
-        oldest = files[0]
-        text = _read_zip(oldest)
-        if not text:
-            return {"error": "empty file", "url": oldest}
-
-        # Check tables
-        tables = set()
-        for row in csv.reader(io.StringIO(text)):
-            if row and row[0].strip().upper() == 'I' and len(row) >= 3:
-                tables.add(row[2].strip().upper())
-
-        # Sample PRICE rows
-        price_rows = []
-        for row in _parse_aemo(text, "PRICE"):
-            price_rows.append({
-                "SETTLEMENTDATE": row.get("SETTLEMENTDATE",""),
-                "REGIONID": row.get("REGIONID",""),
-                "PERIODID": row.get("PERIODID",""),
-                "RRP": row.get("RRP",""),
-            })
-            if len(price_rows) >= 5: break
-
-        # Count total rows
-        total = sum(1 for row in _parse_aemo(text, "PRICE"))
-        dates = set()
-        for row in _parse_aemo(text, "PRICE"):
-            dt = row.get("SETTLEMENTDATE","")[:10]
-            if dt: dates.add(dt)
-
-        return {
-            "file": oldest,
-            "tables": sorted(tables),
-            "price_rows_sample": price_rows,
-            "total_price_rows": total,
-            "unique_dates": sorted(dates),
-        }
-    return await loop.run_in_executor(None, _fetch)
 
 @app.get("/api/trading-archive-range")
 async def trading_archive_range():
@@ -1797,84 +1751,6 @@ async def price_avg_debug():
 
 
 
-@app.get("/api/price-avg-debug")
-async def price_avg_debug():
-    """Debug endpoint — times each step of scrape_historical_price_averages."""
-    import time, base64
-    from scraper import (TRADING_ARCHIVE, _list_hrefs, _read_zip_all, _parse_aemo,
-                         NEM_REGIONS, AEST)
-    from datetime import datetime, timedelta
-
-    results = {}
-    now_aest = datetime.now(AEST)
-    cutoff   = (now_aest - timedelta(days=30)).date()
-    loop     = asyncio.get_running_loop()
-
-    # Step 1: list archive
-    t0 = time.time()
-    try:
-        hrefs = await loop.run_in_executor(None, _list_hrefs, TRADING_ARCHIVE)
-        relevant = []
-        for href in hrefs:
-            fname = href.split('/')[-1]
-            parts = fname.replace('.zip','').split('_')
-            if len(parts) >= 4:
-                try:
-                    end_date = datetime.strptime(parts[-1], "%Y%m%d").date()
-                    if end_date >= cutoff:
-                        relevant.append(href)
-                except ValueError:
-                    pass
-        results["step1_listing"] = {
-            "total_hrefs": len(hrefs),
-            "relevant": len(relevant),
-            "relevant_files": [h.split('/')[-1] for h in relevant],
-            "ms": round((time.time()-t0)*1000)
-        }
-    except Exception as e:
-        results["step1_listing"] = {"error": str(e), "ms": round((time.time()-t0)*1000)}
-        return JSONResponse(content=results)
-
-    if not relevant:
-        results["step2"] = {"error": "no relevant ZIPs"}
-        return JSONResponse(content=results)
-
-    # Step 2: download first ZIP and inspect
-    t0 = time.time()
-    test_url = relevant[-1]  # most recent
-    try:
-        text = await loop.run_in_executor(None, _read_zip_all, test_url)
-        lines = text.split('\n') if text else []
-        # Find I rows (headers) and count D rows
-        i_rows = [l for l in lines[:200] if l.startswith('I,')]
-        d_count = sum(1 for l in lines if l.startswith('D,'))
-        results["step2_zip_download"] = {
-            "url": test_url,
-            "kb": len(text)//1024 if text else 0,
-            "total_lines": len(lines),
-            "d_rows": d_count,
-            "i_rows_sample": i_rows[:5],
-            "first_50_chars": text[:200] if text else "",
-            "ms": round((time.time()-t0)*1000)
-        }
-    except Exception as e:
-        results["step2_zip_download"] = {"error": str(e), "ms": round((time.time()-t0)*1000)}
-        return JSONResponse(content=results)
-
-    # Step 3: try parsing it
-    t0 = time.time()
-    try:
-        rows = list(_parse_aemo(text, "TRADING_PRICE")) if text else []
-        sample = rows[:3] if rows else []
-        results["step3_parse"] = {
-            "rows_found": len(rows),
-            "sample": sample,
-            "ms": round((time.time()-t0)*1000)
-        }
-    except Exception as e:
-        results["step3_parse"] = {"error": str(e), "ms": round((time.time()-t0)*1000)}
-
-    return JSONResponse(content=results)
 
 
 @app.get("/api/weather-debug")

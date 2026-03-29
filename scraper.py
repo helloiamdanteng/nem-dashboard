@@ -3794,6 +3794,34 @@ def scrape_gbb() -> dict:
                 "supply": s, "demand": d, "net": round(s - d, 1)
             }
 
+        # ── State history: daily supply/demand for last 14 days ─────────────
+        state_history = {}  # { state: { date: {supply, demand} } }
+        for row in rows:
+            st  = row.get("State", "")
+            gd  = row.get("GasDate", "").replace("/", "-")
+            if not st or not gd:
+                continue
+            state_history.setdefault(st, {}).setdefault(gd, {"supply": 0.0, "demand": 0.0})
+            try:
+                state_history[st][gd]["supply"] += float(row.get("Supply") or 0)
+                state_history[st][gd]["demand"] += float(row.get("Demand") or 0)
+            except (ValueError, TypeError):
+                pass
+
+        # Convert to sorted lists, last 14 days
+        result["state_history"] = {}
+        for st, dates in state_history.items():
+            sorted_dates = sorted(dates.keys())[-14:]
+            result["state_history"][st] = [
+                {
+                    "gas_date": d,
+                    "supply":   round(dates[d]["supply"], 1),
+                    "demand":   round(dates[d]["demand"], 1),
+                    "net":      round(dates[d]["supply"] - dates[d]["demand"], 1),
+                }
+                for d in sorted_dates
+            ]
+
         logger.info(
             f"scrape_gbb: {len(rows)} rows, {len(all_dates)} dates, "
             f"storage={list(result['storage'].keys())}, latest={latest_date}"

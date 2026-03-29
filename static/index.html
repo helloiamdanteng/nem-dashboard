@@ -4339,6 +4339,11 @@ function _renderGasContent(gas) {
     '<div class="chart-container" style="height:220px"><canvas id="gasPriceHistChart"></canvas></div>' +
     '</div>';
 
+  // ── GBB storage + state summary (loaded separately) ──
+  html += '<div id="gbb-content">';
+  html += '<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:12px 0">Loading storage data…</div>';
+  html += '</div>';
+
   return html;
 }
 
@@ -4416,6 +4421,129 @@ function _drawGasCharts(gas) {
 
 function round2(v) { return Math.round(v * 100) / 100; }
 
+// ── GBB Storage + State Summary ───────────────────────────────────────────────
+
+const STOR_COLORS = {
+  'Iona UGS':      '#2ed573',
+  'Moomba Storage':'#f39c12',
+  'RUGS':          '#3498db',
+  'SSSF':          '#9b59b6',
+  'Dandenong LNG': '#e74c3c',
+  'NGS':           '#1abc9c',
+};
+const STATE_ORDER = ['QLD', 'NSW', 'VIC', 'SA', 'TAS', 'NT'];
+
+let _gbbData = null;
+
+async function fetchGBBData() {
+  try {
+    const resp = await fetch('/api/gbb');
+    if (!resp.ok) return;
+    _gbbData = await resp.json();
+    _renderGBB(_gbbData);
+  } catch(e) {
+    console.warn('GBB fetch failed:', e);
+  }
+}
+
+function _renderGBB(gbb) {
+  const el = document.getElementById('gbb-content');
+  if (!el) return;
+  const storage = gbb.storage || {};
+  const stateSum = gbb.state_summary || {};
+  const latestDate = gbb.latest_date || '';
+  let html = '';
+
+  // ── State supply/demand summary table ──
+  html += '<div class="chart-card" style="margin-top:8px;padding:12px 14px">';
+  html += `<div class="chart-title">East Coast Gas — Supply & Demand by State`;
+  if (latestDate) html += ` <span style="font-weight:400;color:#475569">${latestDate.replace(/\//g,'-')}</span>`;
+  html += '</div>';
+  html += '<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px;margin-top:8px">';
+  html += '<thead><tr style="color:#475569;border-bottom:1px solid #1e2d45">' +
+    '<th style="text-align:left;padding:4px 0">State</th>' +
+    '<th style="text-align:right;padding:4px 6px">Supply TJ</th>' +
+    '<th style="text-align:right;padding:4px 6px">Demand TJ</th>' +
+    '<th style="text-align:right;padding:4px 0">Net TJ</th>' +
+    '</tr></thead><tbody>';
+  let totS = 0, totD = 0;
+  for (const st of STATE_ORDER) {
+    const v = stateSum[st];
+    if (!v) continue;
+    totS += v.supply; totD += v.demand;
+    const net = v.net;
+    const netCol = net >= 0 ? '#2ed573' : '#e74c3c';
+    html += `<tr style="border-bottom:1px solid #1e2d4533">
+      <td style="padding:5px 0;color:#94a3b8">${st}</td>
+      <td style="text-align:right;padding:5px 6px;color:var(--text)">${v.supply.toFixed(0)}</td>
+      <td style="text-align:right;padding:5px 6px;color:var(--text)">${v.demand.toFixed(0)}</td>
+      <td style="text-align:right;padding:5px 0;color:${netCol};font-weight:700">${net >= 0 ? '+' : ''}${net.toFixed(0)}</td>
+    </tr>`;
+  }
+  const totNet = totS - totD;
+  const totCol = totNet >= 0 ? '#2ed573' : '#e74c3c';
+  html += `<tr style="border-top:1px solid #334155;font-weight:700">
+    <td style="padding:6px 0;color:var(--text)">TOTAL</td>
+    <td style="text-align:right;padding:6px 6px;color:var(--text)">${totS.toFixed(0)}</td>
+    <td style="text-align:right;padding:6px 6px;color:var(--text)">${totD.toFixed(0)}</td>
+    <td style="text-align:right;padding:6px 0;color:${totCol};font-weight:700">${totNet >= 0 ? '+' : ''}${totNet.toFixed(0)}</td>
+  </tr>`;
+  html += '</tbody></table></div>';
+
+  // ── Storage levels chart ──
+  html += '<div class="chart-card" style="margin-top:8px">' +
+    '<div class="chart-title">Gas Storage Levels — 31 Days (TJ)</div>' +
+    '<div class="chart-container" style="height:240px"><canvas id="gbbStorageChart"></canvas></div>' +
+    '</div>';
+
+  el.innerHTML = html;
+
+  // Draw storage chart
+  setTimeout(() => {
+    const ctx = document.getElementById('gbbStorageChart');
+    if (!ctx || !Object.keys(storage).length) return;
+    destroyChart('gbbStorage');
+
+    // Collect all dates
+    const allDates = [...new Set(
+      Object.values(storage).flatMap(pts => pts.map(p => p.gas_date))
+    )].sort();
+
+    const datasets = Object.entries(storage).map(([name, pts]) => {
+      const map = Object.fromEntries(pts.map(p => [p.gas_date, p.held_tj]));
+      return {
+        label: name,
+        data: allDates.map(d => map[d] ?? null),
+        borderColor: STOR_COLORS[name] || '#64748b',
+        backgroundColor: 'transparent',
+        borderWidth: 1.5, pointRadius: 0, tension: 0.2,
+      };
+    });
+
+    const dayLabels = allDates.map(d => {
+      const dt = new Date(d + 'T00:00:00');
+      return dt.toLocaleDateString('en-AU', {day:'numeric', month:'short'});
+    });
+
+    charts.gbbStorage = new Chart(ctx, {
+      type: 'line',
+      data: { labels: dayLabels, datasets },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins,
+          legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 } },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
+            callbacks: { label: c => c.raw===null?null:` ${c.dataset.label}: ${c.raw.toLocaleString()} TJ` }
+          }
+        },
+        scales: {
+          x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:45,autoSkip:true,maxTicksLimit:10}, grid:{color:'#1e2d4544'} },
+          y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>v>=1000?(v/1000).toFixed(0)+'k TJ':v+' TJ'}, grid:{color:'#1e2d45'}, beginAtZero:false }
+        }
+      }
+    });
+  }, 50);
+}
+
 async function fetchGasData() {
   const content = document.getElementById('gas-content');
   if (content && !_gasData) {
@@ -4432,6 +4560,7 @@ async function fetchGasData() {
     if (currentPanel === 'gas') {
       if (latestData) renderPanel('gas', latestData);
       setTimeout(() => _drawGasCharts(_gasData), 50);
+      fetchGBBData();
     }
   } catch(e) {
     if (content) content.innerHTML = `<div style="font-family:var(--font-mono);font-size:10px;color:#e74c3c;padding:16px 0">Error: ${e.message}</div>`;
@@ -4869,8 +4998,11 @@ function renderPanel(panel, data) {
       else if (panel === 'dminus1')    drawDMinus1Charts(data);
       else if (panel === 'prices-hist') { setTimeout(drawPricesHist, 0); }
       else if (panel === 'gas') {
-        if (_gasData) setTimeout(() => _drawGasCharts(_gasData), 50);
-        else fetchGasData();
+        if (_gasData) {
+          setTimeout(() => _drawGasCharts(_gasData), 50);
+          if (_gbbData) _renderGBB(_gbbData);
+          else fetchGBBData();
+        } else fetchGasData();
       }
     } catch(e) {
       console.error(`Chart error [${panel}]:`, e);

@@ -3886,11 +3886,36 @@ def scrape_gbb() -> dict:
             prod_hist.setdefault(key, {}).setdefault(gd, 0.0)
             prod_hist[key][gd] = round(prod_hist[key][gd] + supply, 1)
 
+        # ── Storage net flow: withdrawals (demand) = supply to market ────────
+        # demand_tj = gas released from storage (positive = market supply)
+        # supply_tj = gas injected into storage (negative = market withdrawal)
+        # Net = demand - supply: positive means net releasing to market
+        stor_net = {}  # { date: net_tj }
+        for row in rows:
+            if row.get("FacilityType") != "STOR":
+                continue
+            gd  = row.get("GasDate", "").replace("/", "-")
+            dem = float(row.get("Demand") or 0)   # withdrawals from storage
+            sup = float(row.get("Supply") or 0)   # injections into storage
+            if not gd:
+                continue
+            stor_net.setdefault(gd, 0.0)
+            stor_net[gd] = round(stor_net[gd] + dem - sup, 1)
+
+        if stor_net:
+            prod_hist["Storage (net)"] = stor_net
+
         result["production_history"] = {}
         for key, dates in prod_hist.items():
-            result["production_history"][key] = [
-                {"gas_date": d, "supply_tj": dates[d]} for d in sorted(dates)
-            ]
+            if isinstance(list(dates.values())[0], float):
+                # dict format from storage net
+                result["production_history"][key] = [
+                    {"gas_date": d, "supply_tj": v} for d, v in sorted(dates.items())
+                ]
+            else:
+                result["production_history"][key] = [
+                    {"gas_date": d, "supply_tj": dates[d]} for d in sorted(dates)
+                ]
 
         # ── Pipeline flows (all days) ─────────────────────────────────────────
         # Key interstate pipelines with direction label

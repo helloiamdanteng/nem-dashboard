@@ -3786,15 +3786,23 @@ def scrape_gbb() -> dict:
             "Regional - NSW", "Regional - NT", "Regional - VIC", "Gippsland",
         }
 
-        # Use the most recent date that has PROD + LNGEXPORT data (i.e. a complete day)
-        # Today's data is partial so use yesterday if today only has partial facility types
-        summary_date = latest_date
-        for candidate in reversed(all_dates):
-            candidate_rows = [r for r in rows if r["GasDate"] == candidate]
-            types_present = {r["FacilityType"] for r in candidate_rows}
-            if "PROD" in types_present and "LNGEXPORT" in types_present:
-                summary_date = candidate
-                break
+        # Determine which dates are complete (have PROD + LNGEXPORT = full settlement)
+        # and which are partial (only some operators have submitted)
+        complete_dates = set()
+        partial_dates  = set()
+        for d in all_dates:
+            types = {r["FacilityType"] for r in rows if r["GasDate"] == d}
+            if "PROD" in types and "LNGEXPORT" in types:
+                complete_dates.add(d)
+            else:
+                partial_dates.add(d)
+
+        result["partial_dates"] = sorted(
+            d.replace("/", "-") for d in partial_dates
+        )
+
+        # Use the most recent COMPLETE date for the state summary table
+        summary_date = max(complete_dates) if complete_dates else latest_date
         result["latest_date"] = summary_date
         latest_rows = [row for row in rows if row["GasDate"] == summary_date]
         state_agg = {}

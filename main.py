@@ -2241,6 +2241,32 @@ async def backfill_prices(days: int = 90, secret: str = ""):
     })
 
 
+@app.get("/api/gas")
+async def gas_data():
+    """Return gas market data from slow cache."""
+    if slow_cache["data"] is None:
+        return JSONResponse(status_code=202, content={"loading": True})
+    gas = slow_cache["data"].get("gas", {})
+    if not gas:
+        return JSONResponse(status_code=202, content={"loading": True, "message": "Gas data not yet scraped"})
+    return JSONResponse(content=gas)
+
+
+@app.get("/api/gas-debug")
+async def gas_debug():
+    """Force a fresh gas scrape and return raw result for debugging."""
+    from scraper import scrape_gas
+    loop = asyncio.get_running_loop()
+    try:
+        data = await asyncio.wait_for(
+            loop.run_in_executor(None, scrape_gas),
+            timeout=60.0
+        )
+        return JSONResponse(content={"ok": True, "data": data})
+    except Exception as e:
+        return JSONResponse(content={"ok": False, "error": str(e)})
+
+
 @app.get("/api/weather-debug")
 async def weather_debug():
     """Test weather scraping directly and return raw result."""

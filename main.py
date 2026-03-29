@@ -2351,74 +2351,51 @@ async def gas_debug():
 
 @app.get("/api/gbb-debug")
 async def gbb_debug():
-    """Check Athena dates, TAS demand, and pipeline flows."""
+    """Inspect GasBBNominationAndForecastNext7.CSV structure."""
     import csv as _csv
     from scraper import _get
     loop = asyncio.get_running_loop()
 
     def _inspect():
-        url = "https://www.nemweb.com.au/Reports/Current/GBB/GasBBActualFlowStorageLast31.CSV"
+        url = "https://www.nemweb.com.au/Reports/Current/GBB/GasBBNominationAndForecastNext7.CSV"
         r = _get(url, timeout=30)
         if not r:
             return {"error": "fetch failed"}
         rows = list(_csv.DictReader(r.text.splitlines()))
-        all_dates = sorted({row["GasDate"] for row in rows})
-        latest = all_dates[-1]
-
-        # 1. Athena dates - how many unique gas dates does it appear on?
-        athena_rows = [row for row in rows if row["FacilityName"] == "ATHENA"]
-        athena_dates = sorted({r["GasDate"] for r in athena_rows})
-
-        # 2. Longford dates for comparison
-        longford_dates = sorted({r["GasDate"] for r in rows if r["FacilityName"] == "Longford"})
-
-        # 3. TAS rows on latest date - all facility types
-        tas_latest = [row for row in rows if row["GasDate"] == latest and row["State"] == "TAS"]
-        tas_by_type = {}
-        for row in tas_latest:
-            ft = row["FacilityType"]
-            tas_by_type.setdefault(ft, []).append({
-                "facility": row["FacilityName"],
-                "location": row["LocationName"],
-                "supply": row["Supply"],
-                "demand": row["Demand"],
-            })
-
-        # 4. Pipeline flows - inter-state pipelines on latest date
-        # Pipelines that cross state lines have rows in multiple states
-        # Find pipelines appearing in >1 state
-        pipe_states = {}
+        all_dates = sorted({row.get("GasDate","") for row in rows})
+        headers = list(rows[0].keys()) if rows else []
+        ftypes = sorted({r.get("FacilityType","") for r in rows})
+        states = sorted({r.get("State","") for r in rows})
+        # Show first 5 rows
+        sample = rows[:5]
+        # Aggregate supply/demand by date+state for key facility types
+        by_date = {}
         for row in rows:
-            if row["FacilityType"] == "PIPE" and row["GasDate"] == latest:
-                name = row["FacilityName"]
-                pipe_states.setdefault(name, set()).add(row["State"])
-        interstate = {k: sorted(v) for k, v in pipe_states.items() if len(v) > 1}
-
-        # 5. Sample of major pipeline supply values on latest date
-        major_pipes = ["EGP", "MSP", "RBP", "VTS", "MAPS", "TGP", "SWQP"]
-        pipe_latest = {}
-        for row in rows:
-            if row["GasDate"] == latest and row["FacilityType"] == "PIPE" and row["FacilityName"] in major_pipes:
-                name = row["FacilityName"]
-                pipe_latest.setdefault(name, []).append({
-                    "location": row["LocationName"],
-                    "state": row["State"],
-                    "supply": row["Supply"],
-                    "demand": row["Demand"],
-                })
-
+            gd = row.get("GasDate","")
+            st = row.get("State","")
+            ft = row.get("FacilityType","")
+            try:
+                sup = float(row.get("Supply") or 0)
+                dem = float(row.get("Demand") or 0)
+            except: sup = dem = 0
+            by_date.setdefault(gd, {}).setdefault(st, {"supply":0.0,"demand":0.0})
+            if ft in ("PROD","STOR"):
+                by_date[gd][st]["supply"] += sup
+            if ft in ("LNGEXPORT","BBGPG","BBLARGE"):
+                by_date[gd][st]["demand"] += dem
         return {
-            "athena_dates": athena_dates,
-            "athena_date_count": len(athena_dates),
-            "longford_dates": longford_dates,
-            "longford_date_count": len(longford_dates),
-            "tas_latest_by_type": tas_by_type,
-            "interstate_pipelines": interstate,
-            "major_pipe_flows_latest": pipe_latest,
+            "total_rows": len(rows),
+            "headers": headers,
+            "sample_rows": sample,
+            "all_dates": all_dates,
+            "facility_types": ftypes,
+            "states": states,
+            "by_date_state": {d: {s: {"supply":round(v["supply"],1),"demand":round(v["demand"],1)} for s,v in sv.items()} for d,sv in sorted(by_date.items())},
         }
 
     result = await loop.run_in_executor(None, _inspect)
     return JSONResponse(content=result)
+
 
 
 async def gas_excel_debug():

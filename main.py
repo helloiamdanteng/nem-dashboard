@@ -2315,8 +2315,18 @@ async def gas_debug():
         lines = r.text.splitlines()[:10]
         return {"url": url, "first_10_lines": lines}
 
+    # Check VicGas INT050
+    def _inspect_int050():
+        url = f"{VICGAS_BASE}/INT050_V4_SCHED_WITHDRAWALS_1.CSV"
+        r = _get(url, timeout=15)
+        if not r:
+            return {"error": "no response"}
+        lines = r.text.splitlines()[:5]
+        return {"first_5_lines": lines}
+
     result["sttm"] = await loop.run_in_executor(None, _inspect_sttm)
     result["vicgas_int041"] = await loop.run_in_executor(None, _inspect_vicgas)
+    result["vicgas_int050"] = await loop.run_in_executor(None, _inspect_int050)
     return JSONResponse(content=result)
 
 

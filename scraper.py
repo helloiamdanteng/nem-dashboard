@@ -3457,20 +3457,31 @@ def scrape_gas(days: int = 14) -> dict:
             logger.warning(f"scrape_gas: STTM ZIP parse failed: {e}")
         return out
 
-    # ── STTM: fetch CURRENTDAY + DAY01..DAY14 ────────────────────────────────
-    def _fetch_sttm(label: str):
-        url = f"{STTM_BASE}/{label}.ZIP"
+    # ── STTM: fetch CURRENTDAY ZIP + history CSVs ────────────────────────────
+    # CURRENTDAY.ZIP contains today's ex ante prices (int651) and quantities (int652)
+    # int676 (rolling_average_price) has 30-day price history per hub
+    # int678 (net_market_balance) has total withdrawals per hub
+
+    def _fetch_sttm_current():
+        url = f"{STTM_BASE}/CURRENTDAY.ZIP"
         r = _get(url, timeout=30)
         if not r:
-            return label, {}
-        return label, _parse_sttm_zip(r.content)
+            return {}
+        return _parse_sttm_zip(r.content)
 
-    sttm_labels = ["CURRENTDAY"] + [f"DAY{i:02d}" for i in range(1, days + 1)]
-    with _TPE(max_workers=5) as ex:
-        sttm_results = dict(ex.map(lambda l: _fetch_sttm(l), sttm_labels))
+    def _fetch_sttm_csv(filename: str) -> str:
+        url = f"{STTM_BASE}/CURRENTDAY.ZIP"  # all in CURRENTDAY
+        # Actually fetch directly from the file list
+        direct_url = f"{STTM_BASE}/{filename}"
+        r = _get(direct_url, timeout=15)
+        return r.text if r else ""
 
-    # Today
-    today_data = sttm_results.get("CURRENTDAY", {})
+    # Fetch CURRENTDAY in a thread
+    today_data = {}
+    with _TPE(max_workers=1) as ex:
+        today_data = ex.submit(_fetch_sttm_current).result(timeout=45)
+
+    # Today's prices and demand
     for hub in STTM_HUBS:
         if hub in today_data:
             result["sttm"]["today"][hub] = {
@@ -3480,29 +3491,76 @@ def scrape_gas(days: int = 14) -> dict:
                 "facilities": today_data[hub].get("facilities", {}),
             }
 
-    # History (DAY01 = most recent completed day)
-    for i in range(1, days + 1):
-        label    = f"DAY{i:02d}"
-        day_data = sttm_results.get(label, {})
-        if not day_data:
-            continue
-        entry = {}
-        for hub in STTM_HUBS:
-            if hub in day_data:
-                entry[hub] = {
-                    "price":     day_data[hub].get("price"),
-                    "demand_tj": day_data[hub].get("demand_tj"),
-                }
-        if entry:
-            # Gas date from first available hub
-            gas_date = next(
-                (day_data[h].get("gas_date", "") for h in STTM_HUBS if h in day_data), ""
-            )
-            entry["gas_date"] = gas_date
-            result["sttm"]["history"].append(entry)
+    # ── STTM history: parse int676 (rolling average price) from CURRENTDAY ZIP ─
+    # int676 has rolling_average per hub for last 30 days — use as price history
+    # We also use int678 (net_market_balance) for total withdrawals history
+    try:
+        url = f"{STTM_BASE}/CURRENTDAY.ZIP"
+        r = _get(url, timeout=30)
+        if r:
+            history_prices = {}   # { hub: { "YYYY-MM-DD": price } }
+            history_demand = {}   # { hub: { "YYYY-MM-DD": total_withdrawals_tj } }
+            with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+                names = z.namelist()
 
-    # Sort history by gas_date ascending
-    result["sttm"]["history"].sort(key=lambda x: x.get("gas_date", ""))
+                # int676 — rolling average price (one row per hub per day)
+                int676_files = [n for n in names if "int676" in n.lower()]
+                for fname in sorted(int676_files):
+                    with z.open(fname) as f:
+                        reader = csv.DictReader(io.TextIOWrapper(f, errors="replace"))
+                        for row in reader:
+                            hub_name  = (row.get("hub_name") or "").strip().title()
+                            gas_date_raw = (row.get("gas_date") or "").strip()
+                            price     = (row.get("rolling_average") or "").strip()
+                            if hub_name and gas_date_raw and price:
+                                try:
+                                    from datetime import datetime as _dt
+                                    gas_date = _dt.strptime(gas_date_raw, "%d %b %Y").strftime("%Y-%m-%d")
+                                    history_prices.setdefault(hub_name, {})[gas_date] = round(float(price), 4)
+                                except (ValueError, TypeError):
+                                    pass
+
+                # int678 — net market balance (has total_withdrawals per hub)
+                int678_files = [n for n in names if "int678" in n.lower()]
+                for fname in sorted(int678_files):
+                    with z.open(fname) as f:
+                        reader = csv.DictReader(io.TextIOWrapper(f, errors="replace"))
+                        for row in reader:
+                            hub_name = (row.get("hub_name") or "").strip().title()
+                            # period covers multiple days — use period_end_date
+                            wdr = (row.get("total_withdrawals") or "").strip()
+                            period_end = (row.get("period_end_date") or "").strip()
+                            if hub_name and wdr and period_end:
+                                try:
+                                    from datetime import datetime as _dt
+                                    gas_date = _dt.strptime(period_end, "%d %b %Y").strftime("%Y-%m-%d")
+                                    history_demand.setdefault(hub_name, {})[gas_date] = round(float(wdr) / 1000, 3)
+                                except (ValueError, TypeError):
+                                    pass
+
+            # Build history list — last 14 days, sorted ascending
+            all_dates = set()
+            for hub_dates in history_prices.values():
+                all_dates.update(hub_dates.keys())
+            sorted_dates = sorted(all_dates)[-days:]
+
+            for gas_date in sorted_dates:
+                entry = {"gas_date": gas_date}
+                for hub in STTM_HUBS:
+                    price = history_prices.get(hub, {}).get(gas_date)
+                    demand = history_demand.get(hub, {}).get(gas_date)
+                    if price is not None or demand is not None:
+                        entry[hub] = {}
+                        if price is not None:
+                            entry[hub]["price"] = price
+                        if demand is not None:
+                            entry[hub]["demand_tj"] = demand
+                if len(entry) > 1:
+                    result["sttm"]["history"].append(entry)
+
+            logger.info(f"scrape_gas: STTM history {len(result['sttm']['history'])} days")
+    except Exception as e:
+        logger.warning(f"scrape_gas: STTM history parse failed: {e}")
 
     # ── VicGas: fetch flat CSVs ───────────────────────────────────────────────
     def _fetch_vicgas_csv(filename: str) -> str:
@@ -3573,23 +3631,21 @@ def scrape_gas(days: int = 14) -> dict:
     except Exception as e:
         logger.warning(f"scrape_gas: INT041 parse failed: {e}")
 
-    # INT050 — today's scheduled withdrawals (columns: gas_date, withdrawal_type, scheduled_withdrawal_quantity, ...)
+    # INT050 — today's scheduled withdrawals by zone (column: scheduled_qty in GJ)
     try:
         text = vicgas_texts.get("INT050_V4_SCHED_WITHDRAWALS_1.CSV", "")
         if text:
             reader = csv.DictReader(io.StringIO(text))
             total = 0.0
             for row in reader:
-                # Try various column names
-                qty = (row.get("scheduled_withdrawal_quantity") or
-                       row.get("scheduled_quantity") or
-                       row.get("quantity") or "").strip()
+                qty = (row.get("scheduled_qty") or "").strip()
                 if qty:
                     try:
                         total += float(qty)
                     except (ValueError, TypeError):
                         pass
             result["vicgas"]["today_demand_tj"] = round(total / 1000, 3) if total else None
+            logger.info(f"scrape_gas: VicGas demand {result['vicgas']['today_demand_tj']} TJ")
     except Exception as e:
         logger.warning(f"scrape_gas: INT050 parse failed: {e}")
 

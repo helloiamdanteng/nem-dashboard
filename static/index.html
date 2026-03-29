@@ -4281,367 +4281,143 @@ function _renderPriceHistCharts(data) {
 
 const GAS_HUBS = ['Adelaide', 'Brisbane', 'Sydney'];
 const GAS_HUB_COLORS = { Adelaide: '#e74c3c', Brisbane: '#f39c12', Sydney: '#3498db' };
-const GAS_TABS = ['prices', 'demand', 'generation'];
-let _gasTab = 'prices';
 let _gasData = null;
 
 function renderGas() {
   let html = '<div class="section-title">Gas Markets</div>';
   html += '<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-bottom:12px">STTM (Adelaide · Brisbane · Sydney) + VicGas DWGM</div>';
-
-  // Sub-tabs
-  html += '<div class="region-pills" style="margin-bottom:12px">';
-  for (const tab of GAS_TABS) {
-    const label = tab.charAt(0).toUpperCase() + tab.slice(1);
-    html += `<button class="region-pill ${_gasTab===tab?'active':''}" style="color:#94a3b8;border-color:#94a3b8"
-      onclick="setGasTab('${tab}')">${label}</button>`;
-  }
-  html += '</div>';
-
-  html += `<div id="gas-tab-content">`;
+  html += `<div id="gas-content">`;
   if (!_gasData) {
     html += '<div id="gas-loading" style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:16px 0">Loading gas data…</div>';
   } else {
-    html += _renderGasTab(_gasTab, _gasData);
+    html += _renderGasContent(_gasData);
   }
   html += '</div>';
   return html;
 }
 
-function setGasTab(tab) {
-  _gasTab = tab;
-  const content = document.getElementById('gas-tab-content');
-  if (content && _gasData) {
-    content.innerHTML = _renderGasTab(tab, _gasData);
-    _drawGasCharts(tab, _gasData);
-  }
-  // Update pill active state
-  for (const t of GAS_TABS) {
-    const btns = document.querySelectorAll('.region-pill');
-    btns.forEach(b => { if (b.textContent.toLowerCase() === t) b.classList.toggle('active', t === tab); });
-  }
-  if (latestData) renderPanel('gas', latestData);
-  if (_gasData) setTimeout(() => _drawGasCharts(tab, _gasData), 50);
-}
-
-function _renderGasTab(tab, gas) {
+function _renderGasContent(gas) {
   const sttm   = gas.sttm   || {};
   const vicgas = gas.vicgas || {};
   const today  = sttm.today || {};
   let html = '';
 
-  if (tab === 'prices') {
-    // ── Price summary cards ──
-    html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px">';
-    // STTM hubs
-    for (const hub of GAS_HUBS) {
-      const d   = today[hub] || {};
-      const col = GAS_HUB_COLORS[hub];
-      const px  = d.price != null ? `$${d.price.toFixed(2)}/GJ` : '—';
-      const gd  = d.gas_date ? `<div style="font-size:8px;color:#64748b;margin-top:2px">${d.gas_date}</div>` : '';
-      html += `<div class="chart-card" style="padding:10px 12px">
-        <div style="font-size:9px;color:${col};font-family:var(--font-mono);font-weight:700">${hub} STTM</div>
-        <div style="font-size:18px;font-family:var(--font-mono);font-weight:700;color:var(--text)">${px}</div>
-        ${gd}
-      </div>`;
-    }
-    // VicGas
-    const vicPx = vicgas.today_price != null ? `$${vicgas.today_price.toFixed(2)}/GJ` : '—';
+  // ── Price cards ──
+  html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px">';
+  for (const hub of GAS_HUBS) {
+    const d   = today[hub] || {};
+    const col = GAS_HUB_COLORS[hub];
+    const px  = d.price != null ? `$${d.price.toFixed(2)}/GJ` : '—';
+    const dem = d.demand_tj != null ? `${d.demand_tj.toFixed(1)} TJ` : '';
     html += `<div class="chart-card" style="padding:10px 12px">
-      <div style="font-size:9px;color:#2ed573;font-family:var(--font-mono);font-weight:700">Victoria DWGM</div>
-      <div style="font-size:18px;font-family:var(--font-mono);font-weight:700;color:var(--text)">${vicPx}</div>
-      <div style="font-size:8px;color:#64748b;margin-top:2px">Scheduled price</div>
+      <div style="font-size:9px;color:${col};font-family:var(--font-mono);font-weight:700">${hub} STTM</div>
+      <div style="font-size:18px;font-family:var(--font-mono);font-weight:700;color:var(--text)">${px}</div>
+      ${dem ? `<div style="font-size:9px;color:#64748b;margin-top:2px">${dem} today</div>` : ''}
     </div>`;
-    html += '</div>';
+  }
+  // VicGas price + demand
+  const vicPx  = vicgas.today_price != null ? `$${vicgas.today_price.toFixed(2)}/GJ` : '—';
+  const vicDem = vicgas.today_demand_tj != null ? `${vicgas.today_demand_tj.toFixed(1)} TJ` : '';
+  html += `<div class="chart-card" style="padding:10px 12px">
+    <div style="font-size:9px;color:#2ed573;font-family:var(--font-mono);font-weight:700">Victoria DWGM</div>
+    <div style="font-size:18px;font-family:var(--font-mono);font-weight:700;color:var(--text)">${vicPx}</div>
+    ${vicDem ? `<div style="font-size:9px;color:#64748b;margin-top:2px">${vicDem} today</div>` : ''}
+  </div>`;
+  html += '</div>';
 
-    // VicGas intraday price chart
-    if (vicgas.intraday && vicgas.intraday.length > 0) {
-      html += '<div class="chart-card" style="margin-bottom:8px">' +
-        '<div class="chart-title">VicGas Indicative Price Today ($/GJ) — 30 min updates</div>' +
-        '<div class="chart-container" style="height:180px"><canvas id="gasVicIntradayChart"></canvas></div>' +
-        '</div>';
-    }
-
-    // 14-day price history
-    html += '<div class="chart-card">' +
-      '<div class="chart-title">14-Day Price History ($/GJ)</div>' +
-      '<div class="chart-container" style="height:220px"><canvas id="gasPriceHistChart"></canvas></div>' +
-      '</div>';
-
-  } else if (tab === 'demand') {
-    // ── Demand summary cards ──
-    html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px">';
-    for (const hub of GAS_HUBS) {
-      const d   = today[hub] || {};
-      const col = GAS_HUB_COLORS[hub];
-      const dem = d.demand_tj != null ? `${d.demand_tj.toFixed(1)} TJ` : '—';
-      html += `<div class="chart-card" style="padding:10px 12px">
-        <div style="font-size:9px;color:${col};font-family:var(--font-mono);font-weight:700">${hub}</div>
-        <div style="font-size:18px;font-family:var(--font-mono);font-weight:700;color:var(--text)">${dem}</div>
-        <div style="font-size:8px;color:#64748b;margin-top:2px">Scheduled withdrawals</div>
-      </div>`;
-    }
-    const vicDem = vicgas.today_demand_tj != null ? `${vicgas.today_demand_tj.toFixed(1)} TJ` : '—';
-    html += `<div class="chart-card" style="padding:10px 12px">
-      <div style="font-size:9px;color:#2ed573;font-family:var(--font-mono);font-weight:700">Victoria</div>
-      <div style="font-size:18px;font-family:var(--font-mono);font-weight:700;color:var(--text)">${vicDem}</div>
-      <div style="font-size:8px;color:#64748b;margin-top:2px">Scheduled withdrawals</div>
-    </div>`;
-    html += '</div>';
-
-    // Facility type breakdown for today
-    const allFacilities = {};
-    for (const hub of GAS_HUBS) {
-      const facs = today[hub]?.facilities || {};
-      for (const [name, info] of Object.entries(facs)) {
-        const type = info.type || 'Other';
-        allFacilities[type] = (allFacilities[type] || 0) + (info.tj || 0);
-      }
-    }
-    if (Object.keys(allFacilities).length > 0) {
-      html += '<div class="chart-card" style="margin-bottom:8px;padding:12px 14px">';
-      html += '<div class="chart-title" style="margin-bottom:8px">Today — Demand by Sector (TJ)</div>';
-      const typeColors = { Generation: '#f39c12', Distribution: '#3498db', Industrial: '#e74c3c', Pipeline: '#9b59b6', Other: '#64748b' };
-      const total = Object.values(allFacilities).reduce((a, b) => a + b, 0);
-      for (const [type, tj] of Object.entries(allFacilities).sort((a,b) => b[1]-a[1])) {
-        const pct = total > 0 ? (tj / total * 100).toFixed(0) : 0;
-        const col = typeColors[type] || '#64748b';
-        html += `<div style="margin-bottom:6px">
-          <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:9px;margin-bottom:2px">
-            <span style="color:${col}">${type}</span>
-            <span style="color:#94a3b8">${tj.toFixed(1)} TJ (${pct}%)</span>
-          </div>
-          <div style="height:4px;background:#1e2d45;border-radius:2px">
-            <div style="height:4px;width:${pct}%;background:${col};border-radius:2px"></div>
-          </div>
-        </div>`;
-      }
-      html += '</div>';
-    }
-
-    // 14-day demand trend
-    html += '<div class="chart-card">' +
-      '<div class="chart-title">14-Day Demand Trend (TJ/day)</div>' +
-      '<div class="chart-container" style="height:220px"><canvas id="gasDemandHistChart"></canvas></div>' +
-      '</div>';
-
-  } else if (tab === 'generation') {
-    html += '<div class="chart-card">' +
-      '<div class="chart-title">Gas-Fired Generation Today (MW) — 5 min</div>' +
-      '<div id="gas-gen-status" style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:4px 0"></div>' +
-      '<div class="chart-container" style="height:260px"><canvas id="gasGenChart"></canvas></div>' +
+  // ── VicGas intraday price ──
+  if (vicgas.intraday && vicgas.intraday.length > 0) {
+    html += '<div class="chart-card" style="margin-bottom:8px">' +
+      '<div class="chart-title">VicGas Indicative Price Today ($/GJ)</div>' +
+      '<div class="chart-container" style="height:160px"><canvas id="gasVicIntradayChart"></canvas></div>' +
       '</div>';
   }
+
+  // ── 14-day price history ──
+  html += '<div class="chart-card">' +
+    '<div class="chart-title">14-Day Price History ($/GJ)</div>' +
+    '<div class="chart-container" style="height:220px"><canvas id="gasPriceHistChart"></canvas></div>' +
+    '</div>';
 
   return html;
 }
 
-function _drawGasCharts(tab, gas) {
+function _drawGasCharts(gas) {
   const sttm   = gas.sttm   || {};
   const vicgas = gas.vicgas || {};
 
-  if (tab === 'prices') {
-    // VicGas intraday
-    const intraday = vicgas.intraday || [];
-    if (intraday.length && document.getElementById('gasVicIntradayChart')) {
-      destroyChart('gasVicIntraday');
-      charts.gasVicIntraday = new Chart(document.getElementById('gasVicIntradayChart'), {
-        type: 'line',
-        data: {
-          labels: intraday.map(p => p.time),
-          datasets: [{
-            label: 'VicGas $/GJ',
-            data: intraday.map(p => p.price),
-            borderColor: '#2ed573', backgroundColor: '#2ed57322',
-            borderWidth: 1.5, pointRadius: 0, tension: 0.2, fill: true,
-          }]
+  // VicGas intraday
+  const intraday = vicgas.intraday || [];
+  if (intraday.length && document.getElementById('gasVicIntradayChart')) {
+    destroyChart('gasVicIntraday');
+    charts.gasVicIntraday = new Chart(document.getElementById('gasVicIntradayChart'), {
+      type: 'line',
+      data: {
+        labels: intraday.map(p => p.time),
+        datasets: [{
+          label: 'VicGas $/GJ',
+          data: intraday.map(p => p.price),
+          borderColor: '#2ed573', backgroundColor: '#2ed57322',
+          borderWidth: 1.5, pointRadius: 3, tension: 0.2, fill: true,
+        }]
+      },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins, legend: { display: false },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip, callbacks: { label: c => ` $${c.raw.toFixed(2)}/GJ` } }
         },
-        options: { ...CHART_DEFAULTS,
-          plugins: { ...CHART_DEFAULTS.plugins,
-            legend: { display: false },
-            tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
-              callbacks: { label: c => ` $${c.raw.toFixed(2)}/GJ` } }
-          },
-          scales: {
-            x: { ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0, autoSkip:true, maxTicksLimit:8 }, grid:{color:'#1e2d4544'} },
-            y: { ticks: { color:'#94a3b8', font:{family:'Space Mono',size:9}, callback: v=>'$'+v.toFixed(2) }, grid:{color:'#1e2d45'}, beginAtZero:false }
-          }
+        scales: {
+          x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9}}, grid:{color:'#1e2d4544'} },
+          y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>'$'+v.toFixed(2)}, grid:{color:'#1e2d45'}, beginAtZero:false }
         }
-      });
-    }
-
-    // 14-day price history
-    const hist = sttm.history || [];
-    const vicHist = vicgas.history || [];
-    if ((hist.length || vicHist.length) && document.getElementById('gasPriceHistChart')) {
-      destroyChart('gasPriceHist');
-      // Merge dates
-      const allDates = [...new Set([...hist.map(d=>d.gas_date), ...vicHist.map(d=>d.gas_date)])].sort();
-      const vicMap   = Object.fromEntries(vicHist.map(d=>[d.gas_date, d.price]));
-      const datasets = GAS_HUBS.map(hub => ({
-        label: hub,
-        data: allDates.map(d => { const e = hist.find(h=>h.gas_date===d); return e?.[hub]?.price ?? null; }),
-        borderColor: GAS_HUB_COLORS[hub], backgroundColor: GAS_HUB_COLORS[hub]+'22',
-        borderWidth: 1.5, pointRadius: 2, tension: 0.2, fill: false,
-      }));
-      datasets.push({
-        label: 'Victoria',
-        data: allDates.map(d => vicMap[d] ?? null),
-        borderColor: '#2ed573', backgroundColor: '#2ed57322',
-        borderWidth: 1.5, pointRadius: 2, tension: 0.2, fill: false,
-      });
-      const dayLabels = allDates.map(d => {
-        const dt = new Date(d + 'T00:00:00');
-        return dt.toLocaleDateString('en-AU', {day:'numeric', month:'short'});
-      });
-      charts.gasPriceHist = new Chart(document.getElementById('gasPriceHistChart'), {
-        type: 'line',
-        data: { labels: dayLabels, datasets },
-        options: { ...CHART_DEFAULTS,
-          plugins: { ...CHART_DEFAULTS.plugins,
-            legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 } },
-            tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
-              callbacks: { label: c => c.raw===null?null:` ${c.dataset.label}: $${c.raw.toFixed(2)}/GJ` } }
-          },
-          scales: {
-            x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:45,autoSkip:false}, grid:{color:'#1e2d4544'} },
-            y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>'$'+v.toFixed(2)}, grid:{color:'#1e2d45'}, beginAtZero:false }
-          }
-        }
-      });
-    }
-
-  } else if (tab === 'demand') {
-    // 14-day demand trend
-    const hist   = sttm.history || [];
-    const vicHist = (gas.vicgas || {}).history || [];
-    const allDates = [...new Set([...hist.map(d=>d.gas_date), ...vicHist.map(d=>d.gas_date)])].sort();
-    const vicDemMap = Object.fromEntries(vicHist.map(d=>[d.gas_date, d.demand_tj]));
-    if (allDates.length && document.getElementById('gasDemandHistChart')) {
-      destroyChart('gasDemandHist');
-      const datasets = GAS_HUBS.map(hub => ({
-        label: hub,
-        data: allDates.map(d => { const e = hist.find(h=>h.gas_date===d); return e?.[hub]?.demand_tj ?? null; }),
-        borderColor: GAS_HUB_COLORS[hub], backgroundColor: GAS_HUB_COLORS[hub]+'55',
-        borderWidth: 1.5, pointRadius: 2, tension: 0.2, fill: true,
-      }));
-      datasets.push({
-        label: 'Victoria',
-        data: allDates.map(d => vicDemMap[d] ?? null),
-        borderColor: '#2ed573', backgroundColor: '#2ed57355',
-        borderWidth: 1.5, pointRadius: 2, tension: 0.2, fill: true,
-      });
-      const dayLabels = allDates.map(d => {
-        const dt = new Date(d + 'T00:00:00');
-        return dt.toLocaleDateString('en-AU', {day:'numeric', month:'short'});
-      });
-      charts.gasDemandHist = new Chart(document.getElementById('gasDemandHistChart'), {
-        type: 'line',
-        data: { labels: dayLabels, datasets },
-        options: { ...CHART_DEFAULTS,
-          plugins: { ...CHART_DEFAULTS.plugins,
-            legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 } },
-            tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
-              callbacks: { label: c => c.raw===null?null:` ${c.dataset.label}: ${c.raw.toFixed(1)} TJ` } }
-          },
-          scales: {
-            x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:45,autoSkip:false}, grid:{color:'#1e2d4544'} },
-            y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>v.toFixed(0)+' TJ'}, grid:{color:'#1e2d45'}, beginAtZero:false }
-          }
-        }
-      });
-    }
-
-  } else if (tab === 'generation') {
-    // Gas-fired generation from SCADA (_duid_history via gen cache)
-    const genData = window._gasGenData;
-    if (!genData) {
-      // Fetch from /api/gen
-      fetch('/api/gen').then(r=>r.json()).then(d => {
-        // Extract gas DUIDs from fuel_mix buckets
-        const gasGen = _extractGasGeneration(d);
-        window._gasGenData = gasGen;
-        _drawGasGenChart(gasGen);
-      }).catch(e => {
-        const s = document.getElementById('gas-gen-status');
-        if (s) s.textContent = 'Error loading generation data';
-      });
-    } else {
-      _drawGasGenChart(genData);
-    }
-  }
-}
-
-function _extractGasGeneration(genData) {
-  // Extract gas generation by region from fuel_mix_history
-  const fuelHistory = genData?.fuel_mix_history || {};
-  const result = {}; // { region: [{time, mw}] }
-  const GAS_FUELS = ['Gas', 'Gas CCGT', 'Gas OCGT', 'Gas Steam', 'Gas Recip'];
-  for (const [region, slots] of Object.entries(fuelHistory)) {
-    const pts = [];
-    for (const slot of (slots || [])) {
-      let mw = 0;
-      for (const fuel of GAS_FUELS) {
-        mw += slot[fuel] || 0;
       }
-      if (mw > 0) pts.push({ time: slot.interval, mw: round2(mw) });
-    }
-    if (pts.length) result[region] = pts;
+    });
   }
-  return result;
+
+  // 14-day price history
+  const hist    = sttm.history || [];
+  const vicHist = vicgas.history || [];
+  if ((hist.length || vicHist.length) && document.getElementById('gasPriceHistChart')) {
+    destroyChart('gasPriceHist');
+    const allDates = [...new Set([...hist.map(d=>d.gas_date), ...vicHist.map(d=>d.gas_date)])].sort();
+    const vicMap   = Object.fromEntries(vicHist.map(d=>[d.gas_date, d.price]));
+    const datasets = GAS_HUBS.map(hub => ({
+      label: hub,
+      data: allDates.map(d => { const e = hist.find(h=>h.gas_date===d); return e?.[hub]?.price ?? null; }),
+      borderColor: GAS_HUB_COLORS[hub], backgroundColor: 'transparent',
+      borderWidth: 1.5, pointRadius: 2, tension: 0.2,
+    }));
+    datasets.push({
+      label: 'Victoria',
+      data: allDates.map(d => vicMap[d] ?? null),
+      borderColor: '#2ed573', backgroundColor: 'transparent',
+      borderWidth: 1.5, pointRadius: 2, tension: 0.2,
+    });
+    const dayLabels = allDates.map(d => {
+      const dt = new Date(d + 'T00:00:00');
+      return dt.toLocaleDateString('en-AU', {day:'numeric', month:'short'});
+    });
+    charts.gasPriceHist = new Chart(document.getElementById('gasPriceHistChart'), {
+      type: 'line',
+      data: { labels: dayLabels, datasets },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins,
+          legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 } },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
+            callbacks: { label: c => c.raw===null?null:` ${c.dataset.label}: $${c.raw.toFixed(2)}/GJ` } }
+        },
+        scales: {
+          x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:45,autoSkip:true,maxTicksLimit:10}, grid:{color:'#1e2d4544'} },
+          y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>'$'+v.toFixed(2)}, grid:{color:'#1e2d45'}, beginAtZero:false }
+        }
+      }
+    });
+  }
 }
 
 function round2(v) { return Math.round(v * 100) / 100; }
 
-function _drawGasGenChart(gasGen) {
-  const ctx = document.getElementById('gasGenChart');
-  if (!ctx) return;
-  destroyChart('gasGen');
-
-  const GEN_REGIONS = ['QLD1', 'NSW1', 'VIC1', 'SA1'];
-  // Collect all time slots
-  const allTimes = [...new Set(
-    GEN_REGIONS.flatMap(r => (gasGen[r] || []).map(p => p.time))
-  )].sort();
-
-  if (!allTimes.length) {
-    const s = document.getElementById('gas-gen-status');
-    if (s) s.textContent = 'No gas generation data available yet';
-    return;
-  }
-
-  const datasets = GEN_REGIONS.map(r => {
-    const pts = gasGen[r] || [];
-    const map = Object.fromEntries(pts.map(p => [p.time, p.mw]));
-    return {
-      label: REGION_SHORT[r],
-      data: allTimes.map(t => map[t] ?? null),
-      backgroundColor: REGION_COLORS[r] + '99',
-      borderColor: REGION_COLORS[r],
-      borderWidth: 1, fill: true,
-    };
-  });
-
-  charts.gasGen = new Chart(ctx, {
-    type: 'line',
-    data: { labels: allTimes, datasets },
-    options: { ...CHART_DEFAULTS,
-      plugins: { ...CHART_DEFAULTS.plugins,
-        legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 } },
-        tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
-          callbacks: { label: c => c.raw===null?null:` ${c.dataset.label}: ${c.raw.toFixed(0)} MW` } }
-      },
-      scales: {
-        x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:0,autoSkip:true,maxTicksLimit:8}, grid:{color:'#1e2d4544'} },
-        y: { stacked: true, ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>v.toFixed(0)+' MW'}, grid:{color:'#1e2d45'}, beginAtZero:true }
-      }
-    }
-  });
-}
-
 async function fetchGasData() {
-  // Show loading state
-  const content = document.getElementById('gas-tab-content');
+  const content = document.getElementById('gas-content');
   if (content && !_gasData) {
     content.innerHTML = '<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:16px 0">Loading gas data… (first load ~15s)</div>';
   }
@@ -4655,7 +4431,7 @@ async function fetchGasData() {
     _gasData = await resp.json();
     if (currentPanel === 'gas') {
       if (latestData) renderPanel('gas', latestData);
-      setTimeout(() => _drawGasCharts(_gasTab, _gasData), 50);
+      setTimeout(() => _drawGasCharts(_gasData), 50);
     }
   } catch(e) {
     if (content) content.innerHTML = `<div style="font-family:var(--font-mono);font-size:10px;color:#e74c3c;padding:16px 0">Error: ${e.message}</div>`;
@@ -5093,7 +4869,7 @@ function renderPanel(panel, data) {
       else if (panel === 'dminus1')    drawDMinus1Charts(data);
       else if (panel === 'prices-hist') { setTimeout(drawPricesHist, 0); }
       else if (panel === 'gas') {
-        if (_gasData) setTimeout(() => _drawGasCharts(_gasTab, _gasData), 50);
+        if (_gasData) setTimeout(() => _drawGasCharts(_gasData), 50);
         else fetchGasData();
       }
     } catch(e) {

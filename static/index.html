@@ -4440,6 +4440,11 @@ async function fetchGBBData() {
     const resp = await fetch('/api/gbb');
     if (!resp.ok) return;
     _gbbData = await resp.json();
+    console.log('[GBB] keys:', Object.keys(_gbbData), 
+      'prod:', Object.keys(_gbbData.production_history||{}).length,
+      'demand:', Object.keys(_gbbData.demand_by_sector||{}).length,
+      'pipe:', Object.keys(_gbbData.pipeline_flows||{}).length,
+      'storage:', Object.keys(_gbbData.storage||{}).length);
     _renderGBB(_gbbData);
   } catch(e) {
     console.warn('GBB fetch failed:', e);
@@ -4520,14 +4525,7 @@ function _renderGBB(gbb) {
   el.innerHTML = html;
 
   setTimeout(() => {
-    const allDates = [...new Set(
-      Object.values(storage).flatMap(pts => pts.map(p => p.gas_date))
-    )].sort();
-    const dayLabels = allDates.map(d => {
-      const dt = new Date(d + 'T00:00:00');
-      return dt.toLocaleDateString('en-AU', {day:'numeric', month:'short'});
-    });
-
+    try {
     // ── Shared helpers ──
     const _dateLabels = dates => dates.map(d => new Date(d + 'T00:00:00').toLocaleDateString('en-AU', {day:'numeric', month:'short'}));
     const _allDates = arrs => [...new Set(arrs.flatMap(pts => pts.map(p => p.gas_date)))].sort();
@@ -4598,6 +4596,7 @@ function _renderGBB(gbb) {
           scales:{ x:{ticks:{color:"#64748b",font:{family:"Space Mono",size:9},maxRotation:45,autoSkip:true,maxTicksLimit:12},grid:{color:"#1e2d4544"}},
             y:{ticks:{color:"#94a3b8",font:{family:"Space Mono",size:9},callback:v=>v>=1000?(v/1000).toFixed(1)+"k TJ":v+" TJ"},grid:{color:"#1e2d45"},beginAtZero:false} }});
     }
+    } catch(e) { console.error('GBB chart error:', e); }
   }, 50);
 }
 

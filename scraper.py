@@ -3917,6 +3917,72 @@ def scrape_gbb() -> dict:
                 {"gas_date": d, "flow_tj": dates[d]} for d in sorted(dates)
             ]
 
+        # ── Nominations: today + D+1 production and pipeline forecasts ──────
+        # GasBBNominationAndForecastNext7.CSV — same structure as actuals
+        # Column is "Gasdate" (lowercase d), covers D+0 through D+6
+        try:
+            nom_url = "https://www.nemweb.com.au/Reports/Current/GBB/GasBBNominationAndForecastNext7.CSV"
+            rn = _get(nom_url, timeout=20)
+            if rn:
+                nom_rows = list(csv.DictReader(rn.text.splitlines()))
+                nom_prod  = {}  # same structure as prod_hist
+                nom_pipes = {}  # same structure as pipe_hist
+
+                for row in nom_rows:
+                    gd  = row.get("Gasdate", "").replace("/", "-")
+                    ft  = row.get("FacilityType", "")
+                    nm  = row.get("FacilityName", "")
+                    st  = row.get("State", "")
+                    sup = float(row.get("Supply") or 0)
+                    if not gd or sup == 0:
+                        continue
+
+                    # Production nominations
+                    if ft == "PROD":
+                        if nm in VIC_PROD:
+                            key = f"VIC: {nm}"
+                        elif nm == "Moomba":
+                            key = "SA: Moomba"
+                        elif st == "QLD":
+                            key = "QLD (CSG+LNG)"
+                        elif st == "NT":
+                            key = "NT"
+                        else:
+                            continue
+                        nom_prod.setdefault(key, {}).setdefault(gd, 0.0)
+                        nom_prod[key][gd] = round(nom_prod[key][gd] + sup, 1)
+
+                    # Pipeline nominations
+                    elif ft == "PIPE" and nm in PIPELINES:
+                        label = f"{nm} ({PIPELINES[nm]})"
+                        nom_pipes.setdefault(label, {}).setdefault(gd, 0.0)
+                        nom_pipes[label][gd] = round(nom_pipes[label][gd] + sup, 1)
+
+                # Merge into production_history — mark forecast dates
+                for key, dates in nom_prod.items():
+                    existing = {p["gas_date"] for p in result["production_history"].get(key, [])}
+                    for gd, val in sorted(dates.items()):
+                        if gd not in existing:
+                            result["production_history"].setdefault(key, []).append(
+                                {"gas_date": gd, "supply_tj": val, "forecast": True}
+                            )
+
+                # Merge into pipeline_flows
+                for label, dates in nom_pipes.items():
+                    existing = {p["gas_date"] for p in result["pipeline_flows"].get(label, [])}
+                    for gd, val in sorted(dates.items()):
+                        if gd not in existing:
+                            result["pipeline_flows"].setdefault(label, []).append(
+                                {"gas_date": gd, "flow_tj": val, "forecast": True}
+                            )
+
+                # Store which dates are forecasts
+                nom_dates = sorted({row.get("Gasdate","").replace("/","-") for row in nom_rows if row.get("Gasdate","")})
+                result["forecast_dates"] = nom_dates
+                logger.info(f"scrape_gbb: nominations {len(nom_rows)} rows, dates={nom_dates[:3]}")
+        except Exception as e:
+            logger.warning(f"scrape_gbb: nominations failed: {e}")
+
         logger.info(
             f"scrape_gbb: {len(rows)} rows, {N} dates, "
             f"storage={list(result['storage'].keys())}, latest={latest_date}"

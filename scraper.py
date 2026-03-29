@@ -3727,12 +3727,15 @@ def scrape_gas(days: int = 14) -> dict:
 def scrape_gbb() -> dict:
     """
     Scrape GasBBActualFlowStorageLast31.CSV from NEMWeb.
-    Returns storage levels (31-day history) and state supply/demand summary.
+    Returns storage, production, demand by sector, pipeline flows, state summary.
     """
     url = "https://www.nemweb.com.au/Reports/Current/GBB/GasBBActualFlowStorageLast31.CSV"
     result = {
-        "storage": {},       # { facility_name: [{gas_date, held_tj, demand_tj, supply_tj}] }
-        "state_summary": {}, # { state: {supply, demand, net} } for latest date
+        "storage": {},
+        "state_summary": {},
+        "production_history": {},
+        "demand_by_sector": {},
+        "pipeline_flows": {},
         "latest_date": None,
         "last_updated": datetime.now(timezone.utc).isoformat(),
     }
@@ -3746,82 +3749,80 @@ def scrape_gbb() -> dict:
         all_dates = sorted({row["GasDate"] for row in rows})
         latest_date = all_dates[-1] if all_dates else None
         result["latest_date"] = latest_date
+        N = len(all_dates)  # use all available days (up to 31)
 
         # ── Storage facilities ──────────────────────────────────────────────
         stor_rows = [row for row in rows if row.get("FacilityType") == "STOR"]
-        storage_hist = {}  # { facility: { date: {held, demand, supply} } }
+        storage_hist = {}
         for row in stor_rows:
             name     = row["FacilityName"]
-            gas_date = row["GasDate"].replace("/", "-")  # → YYYY-MM-DD
+            gas_date = row["GasDate"].replace("/", "-")
             held     = row.get("HeldInStorage", "")
-            demand   = row.get("Demand", "")
-            supply   = row.get("Supply", "")
             if not held:
                 continue
             try:
                 storage_hist.setdefault(name, {})[gas_date] = {
                     "held_tj":   round(float(held), 1),
-                    "demand_tj": round(float(demand), 1) if demand else 0,
-                    "supply_tj": round(float(supply), 1) if supply else 0,
+                    "demand_tj": round(float(row.get("Demand") or 0), 1),
+                    "supply_tj": round(float(row.get("Supply") or 0), 1),
                 }
             except (ValueError, TypeError):
                 pass
-
-        # Convert to sorted lists
         for name, dates in storage_hist.items():
-            result["storage"][name] = [
-                {"gas_date": d, **v}
-                for d, v in sorted(dates.items())
-            ]
+            result["storage"][name] = [{"gas_date": d, **v} for d, v in sorted(dates.items())]
 
-        # ── State summary for latest date ───────────────────────────────────
-        # Exclude PIPE rows — they double-count transit flows (both ends of pipeline)
-        SUPPLY_TYPES = {"PROD", "STOR"}
-        DEMAND_TYPES = {"LNGEXPORT", "BBGPG", "BBLARGE", "STOR"}
+        # ── State summary for latest date ────────────────────────────────────
+        # Supply: PROD + STOR supply + PIPE supply at terminal/hub locations (for TAS, NT etc.)
+        # Demand: LNGEXPORT + BBGPG + BBLARGE + PIPE demand at end-user locations
+        # TAS has no PROD — its supply is TGP pipeline delivery, counted as PIPE supply
+        TERMINAL_SUPPLY_LOCS = {
+            "Regional - TAS", "Darwin", "Regional - ACT",
+        }
+        DEMAND_TYPES   = {"LNGEXPORT", "BBGPG", "BBLARGE"}
+        RESI_LOCATIONS = {
+            "Melbourne", "Sydney", "Adelaide", "Brisbane", "Geelong",
+            "Ballarat", "Northern", "Western", "Canberra", "Darwin",
+            "Regional - TAS", "Regional - ACT", "Regional - SA",
+            "Regional - NSW", "Regional - NT", "Regional - VIC", "Gippsland",
+        }
+
         latest_rows = [row for row in rows if row["GasDate"] == latest_date]
         state_agg = {}
         for row in latest_rows:
-            st = row.get("State", "")
-            ft = row.get("FacilityType", "")
+            st  = row.get("State", "")
+            ft  = row.get("FacilityType", "")
+            loc = row.get("LocationName", "")
             if not st:
                 continue
             state_agg.setdefault(st, {"supply": 0.0, "demand": 0.0})
             try:
-                if ft in SUPPLY_TYPES:
-                    state_agg[st]["supply"] += float(row.get("Supply") or 0)
+                sup = float(row.get("Supply") or 0)
+                dem = float(row.get("Demand") or 0)
+                # Supply: production + storage + pipe terminal deliveries for import-only states
+                if ft in ("PROD", "STOR"):
+                    state_agg[st]["supply"] += sup
+                elif ft == "PIPE" and loc in TERMINAL_SUPPLY_LOCS and sup > 0:
+                    state_agg[st]["supply"] += sup
+                # Demand: end-use only
                 if ft in DEMAND_TYPES:
-                    state_agg[st]["demand"] += float(row.get("Demand") or 0)
+                    state_agg[st]["demand"] += dem
+                elif ft == "PIPE" and loc in RESI_LOCATIONS:
+                    state_agg[st]["demand"] += dem
             except (ValueError, TypeError):
                 pass
 
         for st, vals in state_agg.items():
             s, d = round(vals["supply"], 1), round(vals["demand"], 1)
-            result["state_summary"][st] = {
-                "supply": s, "demand": d, "net": round(s - d, 1)
-            }
+            result["state_summary"][st] = {"supply": s, "demand": d, "net": round(s - d, 1)}
 
-        # ── Demand by sector ─────────────────────────────────────────────────
-        # LNGEXPORT = LNG export terminals (Curtis Island)
-        # BBGPG = gas power generation
-        # BBLARGE = large industrial (>10 TJ/year BB threshold)
-        # PIPE at city/state locations = residential + small commercial distribution
-        #   Include: city names + Regional-STATE (excl QLD which is mostly transit)
-        #   Exclude: Curtis Island (already in LNGEXPORT), Hub locations, Wallumbilla, Ballera
-        RESI_LOCATIONS = {
-            "Melbourne", "Sydney", "Adelaide", "Brisbane", "Geelong",
-            "Ballarat", "Northern", "Western", "Canberra", "Darwin",
-            "Regional - TAS", "Regional - ACT", "Regional - SA",
-            "Regional - NSW", "Regional - NT", "Regional - VIC",
-            "Gippsland",
-        }
-
+        # ── Demand by sector (all days) ──────────────────────────────────────
         sector_hist = {}
         for row in rows:
-            ft     = row.get("FacilityType", "")
-            loc    = row.get("LocationName", "")
-            gd     = row.get("GasDate", "").replace("/", "-")
-            demand = float(row.get("Demand") or 0)
-            if not gd or demand == 0:
+            ft  = row.get("FacilityType", "")
+            loc = row.get("LocationName", "")
+            gd  = row.get("GasDate", "").replace("/", "-")
+            dem = float(row.get("Demand") or 0)
+            if not gd or dem == 0:
                 continue
             if ft == "BBGPG":
                 key = "Gas Power Generation"
@@ -3834,36 +3835,29 @@ def scrape_gbb() -> dict:
             else:
                 continue
             sector_hist.setdefault(key, {}).setdefault(gd, 0.0)
-            sector_hist[key][gd] = round(sector_hist[key][gd] + demand, 1)
+            sector_hist[key][gd] = round(sector_hist[key][gd] + dem, 1)
 
         result["demand_by_sector"] = {}
         for key, dates in sector_hist.items():
-            sorted_dates = sorted(dates.keys())[-14:]
             result["demand_by_sector"][key] = [
-                {"gas_date": d, "demand_tj": dates[d]}
-                for d in sorted_dates
+                {"gas_date": d, "demand_tj": dates[d]} for d in sorted(dates)
             ]
 
-        # ── Production by region: VIC/SA individually, QLD+NT aggregated ──────
-        # Key facilities to show individually
+        # ── Production by source (all days) ─────────────────────────────────
         VIC_PROD = {'Longford', 'Otway', 'Orbost', 'ATHENA', 'Lang Lang'}
-        SA_PROD  = {'Moomba'}
-        NT_PROD  = {'Mereenie', 'Palm Valley', 'Yelcherr'}
-
-        prod_rows = [row for row in rows if row.get("FacilityType") == "PROD"]
-        prod_hist = {}  # { series_name: { date: supply_tj } }
-
-        for row in prod_rows:
+        prod_hist = {}
+        for row in rows:
+            if row.get("FacilityType") != "PROD":
+                continue
             name   = row.get("FacilityName", "")
             st     = row.get("State", "")
             gd     = row.get("GasDate", "").replace("/", "-")
             supply = float(row.get("Supply") or 0)
             if not gd or supply == 0:
                 continue
-
             if name in VIC_PROD:
                 key = f"VIC: {name}"
-            elif name in SA_PROD:
+            elif name == "Moomba":
                 key = "SA: Moomba"
             elif st == "QLD":
                 key = "QLD (CSG+LNG)"
@@ -3871,21 +3865,50 @@ def scrape_gbb() -> dict:
                 key = "NT"
             else:
                 continue
-
             prod_hist.setdefault(key, {}).setdefault(gd, 0.0)
             prod_hist[key][gd] = round(prod_hist[key][gd] + supply, 1)
 
-        # Convert to sorted lists, last 14 days
         result["production_history"] = {}
         for key, dates in prod_hist.items():
-            sorted_dates = sorted(dates.keys())[-14:]
             result["production_history"][key] = [
-                {"gas_date": d, "supply_tj": dates[d]}
-                for d in sorted_dates
+                {"gas_date": d, "supply_tj": dates[d]} for d in sorted(dates)
+            ]
+
+        # ── Pipeline flows (all days) ─────────────────────────────────────────
+        # Key interstate pipelines with direction label
+        # For each pipeline, we track net flow = supply at source - demand at destination
+        # We use supply side only to avoid double-counting: supply = gas entering the pipe
+        PIPELINES = {
+            "EGP":   "VIC → NSW",   # Eastern Gas Pipeline
+            "TGP":   "VIC → TAS",   # Tasmanian Gas Pipeline
+            "MSP":   "SA → NSW",    # Moomba-Sydney Pipeline
+            "MAPS":  "SA (Moomba→Adelaide)",
+            "RBP":   "QLD (Roma→Brisbane)",
+            "SWQP":  "QLD → SA",    # South West Queensland Pipeline
+            "VTS":   "VIC (Longford→Melbourne)",
+            "PCA":   "SA → VIC",    # Parmelia/Port Campbell to Adelaide
+        }
+        pipe_hist = {}  # { label: { date: flow_tj } }
+        for row in rows:
+            if row.get("FacilityType") != "PIPE":
+                continue
+            name   = row.get("FacilityName", "")
+            gd     = row.get("GasDate", "").replace("/", "-")
+            supply = float(row.get("Supply") or 0)
+            if name not in PIPELINES or not gd or supply == 0:
+                continue
+            label = f"{name} ({PIPELINES[name]})"
+            pipe_hist.setdefault(label, {}).setdefault(gd, 0.0)
+            pipe_hist[label][gd] = round(pipe_hist[label][gd] + supply, 1)
+
+        result["pipeline_flows"] = {}
+        for label, dates in pipe_hist.items():
+            result["pipeline_flows"][label] = [
+                {"gas_date": d, "flow_tj": dates[d]} for d in sorted(dates)
             ]
 
         logger.info(
-            f"scrape_gbb: {len(rows)} rows, {len(all_dates)} dates, "
+            f"scrape_gbb: {len(rows)} rows, {N} dates, "
             f"storage={list(result['storage'].keys())}, latest={latest_date}"
         )
     except Exception as e:

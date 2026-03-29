@@ -4594,7 +4594,7 @@ function _renderGBB(gbb) {
         _dateLabels(allStorDates),
         { ...CHART_DEFAULTS, plugins:{ ...CHART_DEFAULTS.plugins,
             legend:{display:true,labels:{color:"#94a3b8",font:{family:"Space Mono",size:9},boxWidth:10,padding:6}},
-            tooltip:{...CHART_DEFAULTS.plugins.tooltip,callbacks:{label:c=>c.raw===null?null:}} },
+            tooltip:{...CHART_DEFAULTS.plugins.tooltip,callbacks:{label:c=>c.raw===null?null:(` ${c.dataset.label}: `+c.raw.toLocaleString()+` TJ`)}} },
           scales:{ x:{ticks:{color:"#64748b",font:{family:"Space Mono",size:9},maxRotation:45,autoSkip:true,maxTicksLimit:12},grid:{color:"#1e2d4544"}},
             y:{ticks:{color:"#94a3b8",font:{family:"Space Mono",size:9},callback:v=>v>=1000?(v/1000).toFixed(1)+"k TJ":v+" TJ"},grid:{color:"#1e2d45"},beginAtZero:false} }});
     }

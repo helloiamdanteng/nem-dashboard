@@ -4529,9 +4529,10 @@ function _renderGBB(gbb) {
     // ── Shared helpers ──
     const _dateLabels = dates => dates.map(d => new Date(d + 'T00:00:00').toLocaleDateString('en-AU', {day:'numeric', month:'short'}));
     const _allDates = arrs => [...new Set(arrs.flatMap(pts => pts.map(p => p.gas_date)))].sort();
-    const _makeChart = (id, key, data, labels, opts) => {
+    const _makeChart = (id, key, data, labels, opts, type='line') => {
       const ctx = document.getElementById(id); if (!ctx) return;
-      destroyChart(key); charts[key] = new Chart(ctx, {...opts, data: {labels, datasets: data}});
+      destroyChart(key);
+      charts[key] = new Chart(ctx, {type, data: {labels, datasets: data}, options: opts});
     };
     const CHART_OPT = (stacked, yFmt, maxTicks=12) => ({ ...CHART_DEFAULTS,
       plugins: { ...CHART_DEFAULTS.plugins,

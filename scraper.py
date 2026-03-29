@@ -3958,27 +3958,48 @@ def scrape_gbb() -> dict:
                         nom_pipes.setdefault(label, {}).setdefault(gd, 0.0)
                         nom_pipes[label][gd] = round(nom_pipes[label][gd] + sup, 1)
 
-                # Merge into production_history — mark forecast dates
+                # Collect all dates that appear in ANY actuals series
+                all_actual_dates = set()
+                for pts in result["production_history"].values():
+                    all_actual_dates.update(p["gas_date"] for p in pts)
+
+                # Merge nominations: add forecast flag for any date not in actuals,
+                # OR fill a series that has no value for a date that other series have
                 for key, dates in nom_prod.items():
                     existing = {p["gas_date"] for p in result["production_history"].get(key, [])}
                     for gd, val in sorted(dates.items()):
                         if gd not in existing:
+                            # Mark as forecast only if this date has NO actuals at all
+                            is_forecast = gd not in all_actual_dates
                             result["production_history"].setdefault(key, []).append(
-                                {"gas_date": gd, "supply_tj": val, "forecast": True}
+                                {"gas_date": gd, "supply_tj": val, "forecast": is_forecast}
                             )
 
-                # Merge into pipeline_flows
+                # Collect all dates in any pipeline actuals series
+                all_pipe_dates = set()
+                for pts in result["pipeline_flows"].values():
+                    all_pipe_dates.update(p["gas_date"] for p in pts)
+
+                # Merge pipeline nominations
                 for label, dates in nom_pipes.items():
                     existing = {p["gas_date"] for p in result["pipeline_flows"].get(label, [])}
                     for gd, val in sorted(dates.items()):
                         if gd not in existing:
+                            is_forecast = gd not in all_pipe_dates
                             result["pipeline_flows"].setdefault(label, []).append(
-                                {"gas_date": gd, "flow_tj": val, "forecast": True}
+                                {"gas_date": gd, "flow_tj": val, "forecast": is_forecast}
                             )
 
                 # Store which dates are forecasts
                 nom_dates = sorted({row.get("Gasdate","").replace("/","-") for row in nom_rows if row.get("Gasdate","")})
                 result["forecast_dates"] = nom_dates
+
+                # Sort all series by date after merging
+                for key in result["production_history"]:
+                    result["production_history"][key].sort(key=lambda x: x["gas_date"])
+                for label in result["pipeline_flows"]:
+                    result["pipeline_flows"][label].sort(key=lambda x: x["gas_date"])
+
                 logger.info(f"scrape_gbb: nominations {len(nom_rows)} rows, dates={nom_dates[:3]}")
         except Exception as e:
             logger.warning(f"scrape_gbb: nominations failed: {e}")

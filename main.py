@@ -2351,36 +2351,61 @@ async def gas_debug():
 
 @app.get("/api/gbb-debug")
 async def gbb_debug():
-    """Show actuals coverage for last 3 dates and nomination dates."""
+    """Check nomination demand types and pipeline direction data."""
     import csv as _csv
     from scraper import _get
     loop = asyncio.get_running_loop()
 
     def _inspect():
-        url = "https://www.nemweb.com.au/Reports/Current/GBB/GasBBActualFlowStorageLast31.CSV"
-        r = _get(url, timeout=30)
-        if not r:
-            return {"error": "fetch failed"}
-        rows = list(_csv.DictReader(r.text.splitlines()))
-        all_dates = sorted({row["GasDate"] for row in rows})
-        out = {"all_dates_count": len(all_dates), "last_3_dates": all_dates[-3:]}
-        for date in all_dates[-3:]:
-            date_rows = [ro for ro in rows if ro["GasDate"] == date]
+        out = {}
+        # 1. Nominations file - what demand exists?
+        nom_r = _get("https://www.nemweb.com.au/Reports/Current/GBB/GasBBNominationAndForecastNext7.CSV", timeout=20)
+        if nom_r:
+            nom_rows = list(_csv.DictReader(nom_r.text.splitlines()))
+            # Show demand by facility type for first nomination date
+            nom_dates = sorted({row.get("Gasdate","") for row in nom_rows if row.get("Gasdate","")})
+            out["nomination_dates"] = nom_dates
+            first_date = nom_dates[0] if nom_dates else ""
             by_type = {}
-            for row in date_rows:
-                ft = row["FacilityType"]
+            for row in nom_rows:
+                if row.get("Gasdate","") != first_date: continue
+                ft = row.get("FacilityType","")
                 by_type.setdefault(ft, {"count":0,"supply":0.0,"demand":0.0})
                 by_type[ft]["count"] += 1
                 try:
                     by_type[ft]["supply"] += float(row.get("Supply") or 0)
                     by_type[ft]["demand"] += float(row.get("Demand") or 0)
                 except: pass
-            out[date] = {k:{"count":v["count"],"supply":round(v["supply"],1),"demand":round(v["demand"],1)} for k,v in by_type.items()}
-        nom_r = _get("https://www.nemweb.com.au/Reports/Current/GBB/GasBBNominationAndForecastNext7.CSV", timeout=20)
-        if nom_r:
-            nom_rows = list(_csv.DictReader(nom_r.text.splitlines()))
-            nom_dates = sorted({row.get("Gasdate","") for row in nom_rows if row.get("Gasdate","")})
-            out["nomination_dates"] = nom_dates
+            out["nom_first_date_by_type"] = {k:{"count":v["count"],"supply":round(v["supply"],1),"demand":round(v["demand"],1)} for k,v in by_type.items()}
+
+        # 2. Actuals - show EGP pipeline rows with TransferIn/Out for direction
+        act_r = _get("https://www.nemweb.com.au/Reports/Current/GBB/GasBBActualFlowStorageLast31.CSV", timeout=30)
+        if act_r:
+            act_rows = list(_csv.DictReader(act_r.text.splitlines()))
+            all_dates = sorted({r["GasDate"] for r in act_rows})
+            latest = all_dates[-2]  # use second-to-last (complete day)
+            # Show key interstate pipeline rows
+            key_pipes = ["EGP", "TGP", "MSP", "SWQP", "VTS", "MAPS", "RBP"]
+            pipe_rows = [r for r in act_rows if r["GasDate"] == latest and r["FacilityName"] in key_pipes and r["FacilityType"] == "PIPE"]
+            out["key_pipe_rows_latest"] = [{"pipe": r["FacilityName"], "loc": r["LocationName"],
+                "state": r["State"], "supply": r["Supply"], "demand": r["Demand"],
+                "transferIn": r["TransferIn"], "transferOut": r["TransferOut"]} for r in pipe_rows]
+
+            # Check april 5 data completeness
+            apr5 = "2026/04/05"
+            apr5_rows = [r for r in act_rows if r["GasDate"] == apr5]
+            if apr5_rows:
+                by_type = {}
+                for r in apr5_rows:
+                    ft = r["FacilityType"]
+                    by_type.setdefault(ft, {"count":0,"supply":0.0})
+                    by_type[ft]["count"] += 1
+                    try: by_type[ft]["supply"] += float(r.get("Supply") or 0)
+                    except: pass
+                out["apr5_by_type"] = {k:{"count":v["count"],"supply":round(v["supply"],1)} for k,v in by_type.items()}
+            else:
+                out["apr5_by_type"] = "not in file"
+
         return out
 
     result = await loop.run_in_executor(None, _inspect)

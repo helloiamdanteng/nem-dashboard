@@ -2324,26 +2324,28 @@ async def gas_excel_debug():
     loop = asyncio.get_running_loop()
 
     def _inspect():
-        url = "https://www.aemo.com.au/-/media/files/gas/dwgm/dwgm-prices-and-demand.xlsx"
-        r = _get(url, timeout=60)
-        if not r:
-            return {"error": "fetch failed"}
-        out = {"bytes": len(r.content), "sheets": {}}
+        out = {}
         try:
+            url = "https://www.aemo.com.au/-/media/files/gas/dwgm/dwgm-prices-and-demand.xlsx"
+            r = _get(url, timeout=60)
+            if not r:
+                return {"error": "fetch failed"}
+            out["bytes"] = len(r.content)
             wb = _xl.load_workbook(_io.BytesIO(r.content), read_only=True, data_only=True)
             out["sheet_names"] = wb.sheetnames
-            for i, ws in enumerate(wb.worksheets[:3]):
-                rows = list(ws.iter_rows(min_row=1, max_row=5, values_only=True))
-                out["sheets"][ws.title] = {"first_5_rows": [list(r) for r in rows]}
-            # Show last 5 rows of sheet 2 (demand)
-            if len(wb.worksheets) > 1:
-                ws2 = wb.worksheets[1]
-                all_rows = list(ws2.iter_rows(values_only=True))
-                out["demand_sheet_last5"] = [list(r) for r in all_rows[-5:]]
-                out["demand_sheet_total_rows"] = len(all_rows)
+            # Just read first 6 rows of each sheet
+            for ws in wb.worksheets[:3]:
+                rows = []
+                for i, row in enumerate(ws.iter_rows(values_only=True)):
+                    rows.append([str(c) if c is not None else None for c in row[:10]])
+                    if i >= 5:
+                        break
+                out[ws.title] = rows
             wb.close()
         except Exception as e:
+            import traceback
             out["error"] = str(e)
+            out["traceback"] = traceback.format_exc()
         return out
 
     result = await loop.run_in_executor(None, _inspect)

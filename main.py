@@ -1,2643 +1,6017 @@
-"""
-NEM Dashboard - FastAPI backend
-Fast cache: prices, demand, gen, IC, Origin — refreshed every 5 min
-Slow cache: all generators, ST PASA week-ahead — refreshed every 30 min
-"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>NEM Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:#0a0e1a; --surface:#111827; --surface2:#1a2235; --border:#1e2d45;
+  --accent:#00d4ff; --accent2:#ff6b35; --text:#e2e8f0;
+  --text-muted:#64748b; --text-dim:#94a3b8;
+  --red:#ff4757; --green:#2ed573; --yellow:#ffd32a;
+  --qld:#f39c12; --nsw:#3498db; --vic:#2ed573; --sa:#e74c3c; --tas:#9b59b6;
+  --font-mono:'Space Mono',monospace; --font-sans:'DM Sans',sans-serif;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--bg); color:var(--text); font-family:var(--font-sans); min-height:100vh; overscroll-behavior:none; }
 
-import asyncio
-import io
-import logging
-import time
-import traceback
-from datetime import datetime, timezone
-from pathlib import Path
-from contextlib import asynccontextmanager
+.header {
+  position:sticky; top:0; z-index:100;
+  background:rgba(10,14,26,0.92); backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border); padding:12px 16px;
+  display:flex; align-items:center; justify-content:space-between;
+}
+.header-left { display:flex; align-items:center; gap:10px; }
+.logo { font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--accent); letter-spacing:0.1em; }
+.pulse-dot { width:8px; height:8px; border-radius:50%; background:var(--green); animation:pulse 2s infinite; }
+.pulse-dot.loading { background:var(--yellow); }
+.pulse-dot.error { background:var(--red); animation:none; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} }
+.last-updated { font-family:var(--font-mono); font-size:10px; color:var(--text-muted); }
+.refresh-btn { background:transparent; border:1px solid var(--border); color:var(--text-dim); border-radius:6px; padding:6px 10px; font-size:13px; cursor:pointer; }
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+.main { padding:12px 12px 80px; max-width:600px; margin:0 auto; }
 
-from scraper import scrape_all, scrape_gen, scrape_slow, scrape_scada_history, scrape_mtpasa_outages
+.section-title {
+  font-family:var(--font-mono); font-size:10px; font-weight:700; letter-spacing:0.15em;
+  text-transform:uppercase; color:var(--text-muted); margin:20px 0 10px;
+  display:flex; align-items:center; gap:8px;
+}
+.section-title::after { content:''; flex:1; height:1px; background:var(--border); }
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+.price-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; }
+.price-card {
+  background:var(--surface); border:1px solid var(--border); border-radius:10px;
+  padding:10px 6px; text-align:center; position:relative; overflow:hidden;
+}
+.price-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
+.price-card.qld::before{background:var(--qld)} .price-card.nsw::before{background:var(--nsw)}
+.price-card.vic::before{background:var(--vic)} .price-card.sa::before{background:var(--sa)}
+.price-card.tas::before{background:var(--tas)}
+.price-card .region { font-family:var(--font-mono); font-size:9px; font-weight:700; color:var(--text-muted); margin-bottom:4px; }
+.price-card.qld .region{color:var(--qld)} .price-card.nsw .region{color:var(--nsw)}
+.price-card.vic .region{color:var(--vic)} .price-card.sa  .region{color:var(--sa)}
+.price-card.tas .region{color:var(--tas)}
+.price-card .price { font-family:var(--font-mono); font-size:14px; font-weight:700; line-height:1; }
+.price-card .price.negative{color:var(--green)} .price-card .price.low{color:var(--text)}
+.price-card .price.medium{color:var(--yellow)} .price-card .price.high{color:var(--accent2)}
+.price-card .price.vhigh{color:var(--red)}
+.price-card .unit { font-family:var(--font-mono); font-size:8px; color:var(--text-muted); margin-top:2px; }
 
-fast_cache   = {"data": None, "last_updated": None, "error": None}
-mtpasa_cache = {"data": [],   "last_updated": None, "error": None}
-gen_cache  = {"data": None, "last_updated": None, "error": None}
-slow_cache = {"data": None, "last_updated": None, "error": None}
+.demand-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; }
+.demand-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:10px 6px; text-align:center; }
+.demand-card .region { font-family:var(--font-mono); font-size:9px; font-weight:700; color:var(--text-muted); margin-bottom:4px; }
+.demand-card .value { font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--accent); }
+.demand-card .unit { font-family:var(--font-mono); font-size:8px; color:var(--text-muted); margin-top:2px; }
 
-FAST_INTERVAL = 300    # 5 min
-GEN_INTERVAL  = 900    # 15 min
-SLOW_INTERVAL = 1800   # 30 min
+.chart-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:10px; }
+.chart-card .chart-title { font-family:var(--font-mono); font-size:11px; font-weight:700; color:var(--text-dim); margin-bottom:12px; }
+.chart-container { position:relative; height:180px; }
+
+.ic-list { display:flex; flex-direction:column; gap:8px; }
+.ic-row { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 14px; display:flex; align-items:center; justify-content:space-between; }
+.ic-name { font-family:var(--font-mono); font-size:11px; color:var(--text-dim); min-width:120px; }
+.ic-bar-wrap { flex:1; height:6px; background:var(--surface2); border-radius:3px; margin:0 12px; position:relative; }
+.ic-bar { position:absolute; top:0; height:100%; border-radius:3px; }
+.ic-bar.positive{background:var(--accent);left:50%} .ic-bar.negative{background:var(--accent2);right:50%}
+.ic-midpoint { position:absolute; top:-3px; left:50%; width:2px; height:12px; background:var(--border); transform:translateX(-50%); }
+.ic-value { font-family:var(--font-mono); font-size:12px; font-weight:700; min-width:65px; text-align:right; }
+.ic-value.positive{color:var(--accent)} .ic-value.negative{color:var(--accent2)}
+
+/* ── Fuel breakdown rows (Gen tab) ── */
+.fuel-row { display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid #1e2d45; }
+.fuel-dot  { width:10px; height:10px; border-radius:2px; flex-shrink:0; }
+.fuel-name { font-family:var(--font-mono); font-size:11px; color:#94a3b8; min-width:90px; }
+.fuel-bar-wrap { flex:1; height:6px; background:#1e2d45; border-radius:3px; overflow:hidden; }
+.fuel-bar  { height:100%; border-radius:3px; transition:width 0.4s; }
+.fuel-mw   { font-family:var(--font-mono); font-size:12px; font-weight:700; color:#e2e8f0; min-width:68px; text-align:right; }
+.fuel-pct  { font-family:var(--font-mono); font-size:10px; color:#64748b; min-width:36px; text-align:right; }
+
+/* ── Stations page ── */
+.fuel-group { margin-bottom:16px; }
+.fuel-group-header {
+  font-family:var(--font-mono); font-size:10px; font-weight:700; letter-spacing:0.12em;
+  text-transform:uppercase; padding:6px 10px; border-radius:6px 6px 0 0;
+  display:flex; align-items:center; justify-content:space-between;
+  background:var(--surface2); border:1px solid var(--border); border-bottom:none;
+}
+.fuel-group-total { font-size:11px; color:var(--text-dim); }
+.station-row {
+  background:var(--surface); border:1px solid var(--border); border-top:none;
+  padding:8px 10px; display:grid; grid-template-columns:1fr auto auto;
+  align-items:center; gap:8px;
+}
+.station-row:last-child { border-radius:0 0 6px 6px; }
+.station-name { font-family:var(--font-sans); font-size:12px; font-weight:500; }
+.station-region { font-family:var(--font-mono); font-size:9px; margin-top:2px; }
+.station-bar-wrap { width:80px; height:4px; background:var(--surface2); border-radius:2px; }
+.station-bar { height:100%; border-radius:2px; }
+.station-mw { font-family:var(--font-mono); font-size:12px; font-weight:700; text-align:right; min-width:60px; }
+.station-cap { font-family:var(--font-mono); font-size:9px; color:var(--text-muted); text-align:right; }
+
+/* ── Region filter pills ── */
+.region-pills { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+.region-pill {
+  font-family:var(--font-mono); font-size:10px; font-weight:700; padding:4px 10px;
+  border-radius:20px; border:1px solid; cursor:pointer; transition:opacity 0.15s;
+  background:transparent; opacity:0.45;
+}
+.region-pill.active { opacity:1; }
+
+/* ── Week ahead ── */
+.week-chart-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:10px; }
+.week-chart-card .chart-title { font-family:var(--font-mono); font-size:11px; font-weight:700; color:var(--text-dim); margin-bottom:12px; }
+.spinner { text-align:center; padding:60px 20px; color:var(--text-muted); font-family:var(--font-mono); font-size:12px; }
+.spinner-icon { font-size:28px; animation:spin 1.5s linear infinite; display:inline-block; }
+@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
 
 
-_FAST_EMPTY = {
-    "prices": {}, "demand": {}, "op_demand": {}, "region_summary": {},
-    "historical_prices": {}, "predispatch_prices": {}, "predispatch_demand": {},
-    "predispatch_gen": {}, "predispatch_ic": {}, "ic_flows": {}, "ic_history": {},
-    "origin_assets": {}, "tomorrow_prices": {}, "tomorrow_demand": {},
-    "dispatch_history": {}, "fuel_mix": {}, "predispatch_units": {},
-    "dispatch_prices_5min": {}, "demand_history": {}, "op_demand_history": {}, "predispatch_sensitivity": {},
-    "interconnectors": {}, "generation": {}, "fuel_colors": {}, "all_fuels": [],
-    "bdu_history": {},
+.bottom-nav {
+  position:fixed; bottom:0; left:0; right:0;
+  background:rgba(10,14,26,0.96); backdrop-filter:blur(12px);
+  border-top:1px solid var(--border);
+  display:flex;
+  overflow-x:scroll; overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+  scroll-behavior:smooth;
+  overscroll-behavior-x:contain;
+  overscroll-behavior-y:none;
+  touch-action:pan-x;
+  scrollbar-width:none;
+  padding:8px 4px calc(8px + env(safe-area-inset-bottom)); z-index:100;
+}
+.bottom-nav::-webkit-scrollbar { display:none; }
+.nav-btn { display:flex; flex-direction:column; align-items:center; gap:3px; background:none; border:none; cursor:pointer; padding:4px 10px; color:var(--text-muted); flex-shrink:0; }
+.nav-btn.active { color:var(--accent); }
+.nav-btn .icon { font-size:18px; }
+.nav-btn .label { font-size:10px; font-family:var(--font-mono); }
+
+.table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+table { width:100%; border-collapse:collapse; font-family:var(--font-mono); font-size:11px; }
+th { text-align:left; padding:6px 10px; color:var(--text-muted); font-weight:700; letter-spacing:0.08em; border-bottom:1px solid var(--border); white-space:nowrap; }
+td { padding:8px 10px; border-bottom:1px solid rgba(30,45,69,0.5); white-space:nowrap; }
+tr:last-child td { border-bottom:none; }
+/* ── Station modal ── */
+.station-modal-overlay {
+  display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7);
+  z-index:1000; align-items:center; justify-content:center;
+}
+.station-modal-overlay.open { display:flex; }
+.station-modal {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:12px; padding:20px; width:calc(100% - 32px);
+  max-width:600px; max-height:85vh; overflow-y:auto;
+  position:relative;
+}
+.station-modal-header {
+  display:flex; justify-content:space-between; align-items:flex-start;
+  margin-bottom:14px;
+}
+.station-modal-title { font-size:15px; font-weight:700; color:var(--text); }
+.station-modal-sub { font-size:11px; color:var(--text-muted); margin-top:3px; font-family:var(--font-mono); }
+.station-modal-close {
+  background:none; border:none; color:var(--text-muted); font-size:20px;
+  cursor:pointer; padding:0 4px; line-height:1;
+}
+</style>
+</head>
+<body>
+
+<!-- Station detail modal -->
+<div class="station-modal-overlay" id="stationModal" onclick="if(event.target===this)closeStationModal()">
+  <div class="station-modal">
+    <div class="station-modal-header">
+      <div>
+        <div class="station-modal-title" id="stationModalTitle">—</div>
+        <div class="station-modal-sub" id="stationModalSub">—</div>
+      </div>
+      <button class="station-modal-close" onclick="closeStationModal()">✕</button>
+    </div>
+    <div style="position:relative;height:220px;margin-bottom:12px">
+      <canvas id="stationModalChart"></canvas>
+    </div>
+    <div id="stationModalStats" style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);display:flex;gap:16px;flex-wrap:wrap"></div>
+  </div>
+</div>
+
+<header class="header">
+  <div class="header-left">
+    <div class="logo">⚡ NEM</div>
+    <div class="pulse-dot loading" id="statusDot"></div>
+    <button onclick="showPanel('about')" style="background:none;border:none;color:#475569;font-family:var(--font-mono);font-size:13px;cursor:pointer;padding:2px 4px;line-height:1" title="About">ℹ️</button>
+  </div>
+  <div class="last-updated" id="lastUpdated">Loading…</div>
+  <div style="display:flex;gap:6px;align-items:center">
+    <div style="display:flex;gap:6px;align-items:center">
+    <button class="refresh-btn" onclick="fetchData()" title="Refresh prices">↻</button>
+  </div>
+    <button class="refresh-btn" id="rescrapeBtn" onclick="triggerRescrape()" title="Force full history rescrape">⟳ Rescrape</button>
+  </div>
+</header>
+
+<main class="main" id="mainContent">
+  <div class="state-msg"><div class="icon">⚡</div><div>Fetching NEM data…</div></div>
+</main>
+
+<nav class="bottom-nav">
+  <button class="nav-btn" onclick="showPanel('origin')" id="nav-origin">
+    <span class="icon"><svg width="18" height="18" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><circle cx="50" cy="50" r="48" fill="#f97316"/><path d="M50 18 C32 18 18 32 18 50 C18 68 32 82 50 82 C68 82 82 68 82 50 C82 32 68 18 50 18 Z M50 34 C59.9 34 68 41.7 68 51.3 C68 59.2 62.6 65.7 55.2 67.6 L50 72 L44.8 67.6 C37.4 65.7 32 59.2 32 51.3 C32 41.7 40.1 34 50 34 Z" fill="white"/></svg></span><span class="label">Origin</span>
+  </button>
+  <button class="nav-btn active" onclick="showPanel('prices')" id="nav-prices">
+    <span class="icon">💲</span><span class="label">P&amp;D</span>
+  </button>
+  <button class="nav-btn" onclick="showPanel('generation')" id="nav-generation">
+    <span class="icon">⚡</span><span class="label">Gen</span>
+  </button>
+  <button class="nav-btn" onclick="showPanel('stations')" id="nav-stations">
+    <span class="icon">🏭</span><span class="label">DUIDs</span>
+  </button>
+  <button class="nav-btn" onclick="showPanel('batteries')" id="nav-batteries">
+    <span class="icon">🔋</span><span class="label">Batt</span>
+  </button>
+  <button class="nav-btn" onclick="showPanel('dminus1')" id="nav-dminus1">
+    <span class="icon">📆</span><span class="label">D−</span>
+  </button>
+  <button class="nav-btn" onclick="showPanel('dayahead')" id="nav-dayahead">
+    <span class="icon">📅</span><span class="label">D+</span>
+  </button>
+  <button class="nav-btn" onclick="showPanel('outages')" id="nav-outages">
+    <span class="icon">⚠️</span><span class="label">Outages</span>
+  </button>
+
+  <button class="nav-btn" onclick="showPanel('coalcal')" id="nav-coalcal">
+    <span class="icon">📊</span><span class="label">MTPASA</span>
+  </button>
+  <button class="nav-btn" onclick="showPanel('prices-hist')" id="nav-prices-hist">
+    <span class="icon">📈</span><span class="label">Avg$</span>
+  </button>
+  <button class="nav-btn" onclick="showPanel('gas')" id="nav-gas">
+    <span class="icon">🔥</span><span class="label">Gas</span>
+  </button>
+</nav>
+
+<script>
+const REGIONS = ['QLD1','NSW1','VIC1','SA1','TAS1'];
+const REGION_SHORT = {QLD1:'QLD',NSW1:'NSW',VIC1:'VIC',SA1:'SA',TAS1:'TAS',Unknown:'???'};
+const REGION_CLASS = {QLD1:'qld',NSW1:'nsw',VIC1:'vic',SA1:'sa',TAS1:'tas'};
+const REGION_COLORS = {QLD1:'#f39c12',NSW1:'#3498db',Unknown:'#64748b',VIC1:'#2ed573',SA1:'#e74c3c',TAS1:'#9b59b6'};
+const FUEL_ICONS = {"Black Coal":"⬛","Brown Coal":"🟫","Gas":"🔥","Hydro":"💧","Wind":"🌀","Solar":"☀️","Battery":"🔋","Liquid":"🛢️","Other":"⚙️"};
+
+let currentPanel = 'prices';
+let charts = {};
+let latestData = null;
+let genRegion = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']); // multi-select Set
+let genMultiSelect = false;
+let priceLogScale = false; // P&D price chart log scale toggle // when false, clicking a region selects only that one
+let genPriceFilter   = new Set(); // price lines off by default (gen page)
+let originPriceFilter   = new Set(); // price lines off by default (origin page)
+let originHideOffline   = true;      // hide offline stations by default
+let originPriceWhite  = false;     // WHITE toggle for origin price lines
+let genPriceWhite     = false;     // WHITE toggle for gen price lines
+let genShowRooftop = false;  // default: rooftop solar excluded
+let genData = null;
+let slowData = null;
+let stationsRegionFilter = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
+let _slowPollActive = false;
+let _genPollActive  = false;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function priceClass(v) {
+  if (v < 0) return 'negative';
+  if (v < 100) return 'low';
+  if (v < 300) return 'medium';
+  if (v < 1000) return 'high';
+  return 'vhigh';
+}
+function fmt(n, d=0) {
+  if (n === undefined || n === null) return '—';
+  return Number(n).toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+function fmtPrice(n) {
+  if (n === undefined || n === null) return '—';
+  const v = Number(n);
+  return (v < 0 ? '-$' : '$') + Math.abs(v).toFixed(2);
+}
+function fmtTime(iso) {
+  try {
+    return new Date(iso).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane'}) + ' AEST';
+  } catch { return ''; }
+}
+function nowAEST() {
+  return new Date().toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Australia/Brisbane'});
+}
+function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
+// Shared tooltip label formatter used across modal and weekly charts
+function tooltipLabel(c) {
+  if (c.raw === null) return null;
+  const lbl = c.dataset.label || '';
+  if (lbl.includes('Price') || lbl.includes('$')) return ` ${lbl}: $${Number(c.raw).toFixed(2)}/MWh`;
+  return ` ${lbl}: ${fmt(c.raw,0)} MW`;
+}
+
+const CHART_DEFAULTS = {
+  responsive:true, maintainAspectRatio:false,
+  interaction:{mode:'index',intersect:false},
+  plugins:{
+    legend:{display:false},
+    tooltip:{
+      backgroundColor:'#111827', borderColor:'#1e2d45', borderWidth:1,
+      titleColor:'#94a3b8', bodyColor:'#e2e8f0',
+      titleFont:{family:'Space Mono',size:10}, bodyFont:{family:'Space Mono',size:11}
+    }
+  },
+  scales:{
+    x:{ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxTicksLimit:8,maxRotation:0},grid:{color:'#1e2d4544'}},
+    y:{ticks:{color:'#94a3b8',font:{family:'Space Mono',size:10}},grid:{color:'#1e2d45'}}
+  }
+};
+
+function nowLinePlugin(nowIndex) {
+  return {
+    id:'nowLine',
+    afterDraw(chart) {
+      if (nowIndex < 0) return;
+      const {ctx:c,chartArea,scales} = chart;
+      const x = scales.x.getPixelForValue(nowIndex);
+      c.save();
+      c.beginPath(); c.moveTo(x,chartArea.top); c.lineTo(x,chartArea.bottom);
+      c.strokeStyle='rgba(255,255,255,0.25)'; c.lineWidth=1; c.setLineDash([3,3]); c.stroke();
+      c.setLineDash([]);
+      c.fillStyle='rgba(255,255,255,0.5)'; c.font='9px Space Mono';
+      c.fillText('NOW',x+3,chartArea.top+12); c.restore();
+    }
+  };
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+
+async function triggerRescrape() {
+  const btn = document.getElementById('rescrapeBtn');
+  if (btn) { btn.textContent = '⟳ Running'; btn.disabled = true; }
+  try {
+    const r = await fetch('/api/rescrape');
+    await r.json();
+    // Refresh data after 60s
+    setTimeout(() => {
+      fetchData();
+      if (btn) { btn.textContent = '⟳ Rescrape'; btn.disabled = false; }
+    }, 60000);
+  } catch(e) {
+    if (btn) { btn.textContent = '⟳ Rescrape'; btn.disabled = false; }
+  }
+}
+
+function showPanel(name) {
+  currentPanel = name;
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('nav-' + name);
+  if (btn) {
+    btn.classList.add('active');
+    // Scroll nav bar so selected button is centred (clamped to scroll bounds)
+    const nav = btn.closest('.bottom-nav');
+    if (nav) {
+      const btnMid = btn.offsetLeft + btn.offsetWidth / 2;
+      const target = btnMid - nav.clientWidth / 2;
+      nav.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
+    }
+  }
+  // coalcal doesn't need latestData - it fetches its own data
+  if (name === 'coalcal') renderPanel(name, latestData || {});
+  else if (latestData) renderPanel(name, latestData);
+}
+
+// ── Prices ────────────────────────────────────────────────────────────────────
+
+function renderPrices(data) {
+  const prices = data.prices || {};
+  const demand = data.demand || {};
+  if (!Object.keys(prices).length) {
+    return '<div class="state-msg"><div class="icon">⚡</div><div>Connecting to AEMO…</div></div>';
+  }
+  let html = '<div class="section-title">Latest Spot Prices ($/MWh)</div><div class="price-grid">';
+  for (const r of REGIONS) {
+    const p = prices[r];
+    const cls = p !== undefined ? priceClass(p) : 'low';
+    html += `<div class="price-card ${REGION_CLASS[r]}">
+      <div class="region">${REGION_SHORT[r]}</div>
+      <div class="price ${cls}">${p !== undefined ? fmtPrice(p) : '—'}</div>
+      <div class="unit">$/MWh</div></div>`;
+  }
+  html += '</div>';
+  html += '<div class="section-title">Price History + Predispatch</div>';
+  html += '<div class="chart-card"><div class="chart-title">30-min Trading — Actual (solid) · Predispatch (dashed)</div>';
+  html += '<div class="chart-container" style="height:250px"><canvas id="priceHistChart"></canvas></div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+  html += '<button onclick="toggleAllPriceRegions()" id="pr-NEM" data-on="1" style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;border:1px solid #94a3b8;background:#94a3b833;color:#94a3b8;cursor:pointer">NEM</button>';
+  for (const r of REGIONS) {
+    html += `<button onclick="togglePriceRegion('${r}')" id="pr-${r}" data-on="1"
+      style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;
+      border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;color:${REGION_COLORS[r]};cursor:pointer"
+      >${REGION_SHORT[r]}</button>`;
+  }
+  html += `<button onclick="togglePriceLogScale()"
+    style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;cursor:pointer;margin-left:auto;
+    border:1px solid ${priceLogScale ? '#94a3b8' : '#334155'};
+    background:${priceLogScale ? '#94a3b822' : 'transparent'};
+    color:${priceLogScale ? '#94a3b8' : '#475569'}">
+    ${priceLogScale ? '✓ ' : ''}Log
+  </button>`;
+  html += '</div></div>';
+  html += '<div class="section-title">Demand + Non-Sched Gen (MW)</div><div class="demand-grid">';
+  for (const r of REGIONS) {
+    const d = (data.op_demand || {})[r] ?? demand[r];
+    html += `<div class="demand-card">
+      <div class="region" style="color:${REGION_COLORS[r]}">${REGION_SHORT[r]}</div>
+      <div class="value">${d !== undefined ? fmt(d) : '—'}</div>
+      <div class="unit">MW</div></div>`;
+  }
+  html += '</div>';
+  html += '<div class="section-title">Demand + Non-Sched Gen History + Predispatch</div>';
+  html += '<div class="chart-card"><div class="chart-title">Demand + Non-Sched Gen — Actual (bright) · Predispatch (faded)</div>';
+  html += '<div class="chart-container" style="height:220px"><canvas id="demandHistChart"></canvas></div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+  html += '<button onclick="toggleAllDemandRegions()" id="dr-NEM" data-on="1" style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;border:1px solid #94a3b8;background:#94a3b833;color:#94a3b8;cursor:pointer">NEM</button>';
+  for (const r of REGIONS) {
+    html += `<button onclick="toggleDemandRegion('${r}')" id="dr-${r}" data-on="1"
+      style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;
+      border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;color:${REGION_COLORS[r]};cursor:pointer"
+      >${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div></div>';
+  html += '<div class="chart-card"><div class="chart-title">Wind + Solar — Actuals by state</div>';
+  html += '<div class="chart-container" style="height:220px"><canvas id="renewHistChart"></canvas></div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+  html += '<button onclick="toggleAllRenewRegions()" id="rr-NEM" data-on="1" style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;border:1px solid #94a3b8;background:#94a3b833;color:#94a3b8;cursor:pointer">NEM</button>';
+  for (const r of REGIONS) {
+    html += `<button onclick="toggleRenewRegion('${r}')" id="rr-${r}" data-on="${r === 'TAS1' ? '0' : '1'}"
+      style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;
+      border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;color:${REGION_COLORS[r]};cursor:pointer;
+      opacity:${r === 'TAS1' ? '0.35' : '1'}"
+      >${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div>';
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 0">';
+  html += '<button onclick="toggleRenewFuel(\'solar\')" id="rr-solar" data-on="0" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;border:1px solid #f59e0b;background:#f59e0b33;color:#f59e0b;cursor:pointer;opacity:0.35">☀ Solar</button>';
+  html += '<button onclick="toggleRenewFuel(\'wind\')" id="rr-wind" data-on="1" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;border:1px solid #34d399;background:#34d39933;color:#34d399;cursor:pointer">💨 Wind</button>';
+
+  html += '</div></div>';
+
+  // ── Price Sensitivity Chart ────────────────────────────────────────────────
+  const sensPillState = window._pdSensRegion || null;
+  html += '<div class="section-title" style="margin-top:16px">Price Sensitivities — Predispatch</div>';
+  html += '<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">';
+  for (const r of REGIONS) {
+    const active = sensPillState === r ? 'active' : '';
+    const col = REGION_COLORS[r];
+    html += `<button class="region-pill ${active}" style="color:${col};border-color:${col}"
+      onclick="setPdSensRegion('${r}')">${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div>';
+  if (sensPillState) {
+    html += '<div class="chart-card"><div class="chart-container" style="height:200px"><canvas id="pdSensChart"></canvas></div></div>';
+  } else {
+    html += '<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:12px 0">Select a region to view price sensitivities</div>';
+  }
+
+  return html;
+}
+
+function setPdSensRegion(r) {
+  window._pdSensRegion = (window._pdSensRegion === r) ? null : r;
+  if (latestData) renderPanel('prices', latestData);
+  // Chart is drawn after re-render injects the canvas
+  setTimeout(() => { if (latestData) drawPriceSensitivityChart(latestData); }, 50);
+}
+
+function drawPriceSensitivityChart(data) {
+  const region = window._pdSensRegion;
+  if (!region) return;
+  const ctx = document.getElementById('pdSensChart');
+  if (!ctx) return;
+  destroyChart('pdSens');
+
+  // Full 5-min spine for today + 5-min slots for PD horizon (fills 30-min PD values across 6 slots each)
+  // This gives even visual spacing across the whole chart
+  const allSlots = [];
+  for (let h = 0; h < 48; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  // Historical 5-min prices — direct lookup
+  const histMap = {};
+  ((data.historical_prices || {})[region] || []).forEach(p => { histMap[p.interval] = p.rrp; });
+
+  // Expand 30-min PD prices to fill every 5-min slot in the window
+  // e.g. PD value at 14:30 fills 14:00, 14:05, 14:10, 14:15, 14:20, 14:25
+  const pdMap = {};
+  ((data.predispatch_prices || {})[region] || []).forEach(p => {
+    const [hh, mm] = p.interval.split(':').map(Number);
+    for (let i = 0; i < 6; i++) {
+      let fm = mm + i * 5; let fh = hh;
+      if (fm >= 60) { fm -= 60; fh += 1; }
+      if (fh >= 48) return;
+      const slot = (fh<10?'0':'')+fh+':'+(fm<10?'0':'')+fm;
+      pdMap[slot] = p.rrp;
+    }
+  });
+
+  // Expand sensitivity scenarios the same way
+  const sensMap = {};
+  ((data.predispatch_sensitivity || {})[region] || []).forEach(p => {
+    const [hh, mm] = p.interval.split(':').map(Number);
+    for (let i = 0; i < 6; i++) {
+      let fm = mm + i * 5; let fh = hh;
+      if (fm >= 60) { fm -= 60; fh += 1; }
+      if (fh >= 48) return;
+      const slot = (fh<10?'0':'')+fh+':'+(fm<10?'0':'')+fm;
+      sensMap[slot] = p.scenarios;
+    }
+  });
+
+  // Predispatch base forecast (30-min, uses 00:00-23:30 + 24:00+ labels)
+  // sensMap and pdMap already built above with 5-min expansion
+
+  // Find now index
+  const nowStr = nowAEST();
+  // nowIdx on the 5-min spine
+  const nowIdx = allSlots.findIndex(l => l >= nowStr);
+
+  const color = REGION_COLORS[region];
+  const datasets = [];
+
+  // 1. Actual 5-min prices (solid line up to now)
+  datasets.push({
+    label: 'Actual',
+    data: allSlots.map((l,i) => i <= nowIdx ? (histMap[l] ?? null) : null),
+    borderColor: color, backgroundColor: color + '22',
+    borderWidth: 1, pointRadius: 0, tension: 0,
+    fill: false, spanGaps: true,
+  });
+
+  // 2. PD base forecast (dashed from now, 30-min slots)
+  datasets.push({
+    label: 'PD Forecast',
+    data: allSlots.map((l,i) => {
+      if (i < nowIdx) return null;
+      if (i === nowIdx) return histMap[l] ?? pdMap[l] ?? null;
+      return pdMap[l] ?? null;
+    }),
+    borderColor: color + 'aa', backgroundColor: 'transparent',
+    borderWidth: 1.5, borderDash: [6,3],
+    pointRadius: 0, tension: 0.2, fill: false, spanGaps: false,
+  });
+
+  // 3. Sensitivity scenario lines
+  const SENS_COLORS = {
+    '+100MW': '#22c55e', '+200MW': '#16a34a', '+400MW': '#15803d',
+    '-100MW': '#f97316', '-200MW': '#ea580c', '-400MW': '#c2410c',
+  };
+
+  // Collect all scenario labels present in the data
+  const scenarioLabels = new Set();
+  Object.values(sensMap).forEach(s => Object.keys(s).forEach(k => scenarioLabels.add(k)));
+
+  for (const scen of [...scenarioLabels].sort()) {
+    const col = SENS_COLORS[scen] || '#94a3b8';
+    datasets.push({
+      label: scen,
+      data: allSlots.map((l,i) => {
+        if (i < nowIdx) return null;
+        if (i === nowIdx) return histMap[l] ?? sensMap[l]?.[scen] ?? null;
+        return sensMap[l]?.[scen] ?? null;
+      }),
+      borderColor: col, backgroundColor: 'transparent',
+      borderWidth: 1, borderDash: [4, 3],
+      pointRadius: 0, tension: 0.2, fill: false, spanGaps: false,
+    });
+  }
+
+  const hasSens = scenarioLabels.size > 0;
+
+  charts.pdSens = new Chart(ctx, {
+    type: 'line',
+    data: { labels: allSlots, datasets },
+    options: { ...CHART_DEFAULTS,
+      plugins: { ...CHART_DEFAULTS.plugins,
+        legend: { display: true,
+          labels: { color:'#94a3b8', font:{family:'Space Mono',size:8}, boxWidth:8, padding:5 }
+        },
+        tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw !== null,
+          callbacks: {
+            title: cs => {
+              const l = cs[0]?.label || '';
+              const h = parseInt(l.split(':')[0]);
+              return h >= 24 ? String(h-24).padStart(2,'0')+':'+l.split(':')[1]+' (+1d)' : l;
+            },
+            label: c => c.raw===null ? null : ` ${c.dataset.label}: $${c.raw.toFixed(2)}/MWh`
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
+               autoSkip: false, maxTicksLimit: 1000,
+               callback: function(val) {
+                 const l = this.getLabelForValue(val);
+                 if (!l) return null;
+                 const h = parseInt(l.split(':')[0]);
+                 if (!l.endsWith(':00') || h % 3 !== 0) return null;
+                 return h >= 24 ? String(h-24).padStart(2,'0')+':00' : l;
+               }
+             },
+             grid: { color:'#1e293b', drawOnChartArea:true, drawTicks:false }
+        },
+        y: { ticks: { color:'#94a3b8', font:{family:'Space Mono',size:9},
+               callback: v => '$'+v.toFixed(0) },
+             grid: { color:'#1e293b' }
+        }
+      }
+    }
+  });
 }
 
 
-async def _append_prices_to_github(prices_5min: dict):
-    """
-    Append latest 5-min dispatch prices to today's daily file in GitHub.
-    File: data/prices/YYYY-MM-DD.json
-    Structure: { "date": "YYYY-MM-DD", "QLD1": {"HH:MM": rrp, ...}, ... }
-    """
-    import json, base64, os
-    from datetime import datetime, timezone, timedelta
-    import httpx
+function togglePriceLogScale() {
+  priceLogScale = !priceLogScale;
+  if (latestData) renderPanel('prices', latestData);
+}
 
-    AEST     = timezone(timedelta(hours=10))
-    today    = datetime.now(AEST).strftime("%Y-%m-%d")
-    GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-    GH_REPO  = os.environ.get("GITHUB_REPO", "")
-    GH_PATH  = f"data/prices/{today}.json"
-    GH_HEADERS = {
-        "Authorization": f"token {GH_TOKEN}",
-        "Accept": "application/vnd.github.v3+json",
+function togglePriceRegion(r) {
+  if (!charts.priceHist) return;
+  const btn = document.getElementById('pr-' + r);
+  const on = btn.dataset.on === '1';
+  btn.dataset.on = on ? '0' : '1';
+  btn.style.opacity = on ? '0.35' : '1';
+  charts.priceHist.data.datasets.forEach((ds, i) => {
+    if (ds.regionId === r) charts.priceHist.getDatasetMeta(i).hidden = on;
+  });
+  charts.priceHist.update();
+}
+
+function drawPriceChart(data) {
+  destroyChart('priceHist');
+  const ctx = document.getElementById('priceHistChart');
+  if (!ctx) return;
+
+  const hist      = data.historical_prices || {};
+  const pd        = data.predispatch_prices || {};
+  const livePrice = data.prices || {};
+  const now       = nowAEST();
+
+  // Build a 5-min spine for today
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  // Trim spine to last slot that has any data
+  const hasData = new Set();
+  for (const r of REGIONS) {
+    (hist[r] || []).forEach(p => hasData.add(p.interval));
+    (pd[r]   || []).forEach(p => hasData.add(p.interval));
+  }
+  const lastSlot = allSlots.filter(s => hasData.has(s)).pop();
+  if (!lastSlot) return; // nothing to draw yet
+
+  const labels = allSlots;  // full 24hr spine for consistent axis
+
+  // Snap "now" to nearest slot
+  const [nh, nm] = now.split(':').map(Number);
+  const nowMins  = nh * 60 + nm;
+  const nowSnap  = allSlots.reduce((a, b) => {
+    const [ah, am] = a.split(':').map(Number);
+    const [bh, bm] = b.split(':').map(Number);
+    return Math.abs(bh*60+bm - nowMins) < Math.abs(ah*60+am - nowMins) ? b : a;
+  });
+  const nowIdx = labels.indexOf(nowSnap);
+
+  const disp5 = data.dispatch_prices_5min || {};
+  const datasets = [];
+  for (const r of REGIONS) {
+    const color = REGION_COLORS[r];
+    // Layer 1: firm 30-min trading prices (thick solid)
+    const hm = {};
+    (hist[r] || []).forEach(p => { hm[p.interval] = p.rrp; });
+    // Layer 2: 5-min dispatch fill for the recent gap (thin solid, only slots not in trading)
+    const dm = {};
+    (disp5[r] || []).forEach(p => { if (hm[p.interval] === undefined) dm[p.interval] = p.rrp; });
+    // Inject live spot at nowSnap into whichever series owns that slot
+    if (livePrice[r] != null) {
+      if (hm[nowSnap] !== undefined) hm[nowSnap] = livePrice[r];
+      else dm[nowSnap] = livePrice[r];
     }
-
-    if not GH_TOKEN or not GH_REPO:
-        return
-
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            # Read existing file
-            r = await client.get(
-                f"https://api.github.com/repos/{GH_REPO}/contents/{GH_PATH}",
-                headers=GH_HEADERS,
-            )
-            if r.status_code == 200:
-                resp_json = r.json()
-                file_sha  = resp_json.get("sha", "")
-                existing  = json.loads(base64.b64decode(resp_json["content"]).decode())
-            else:
-                file_sha = ""
-                existing = {"date": today}
-
-            # Merge new prices in
-            for region, pts in prices_5min.items():
-                if region not in existing:
-                    existing[region] = {}
-                for pt in pts:
-                    existing[region][pt["interval"]] = pt["rrp"]
-
-            # Write back
-            encoded = base64.b64encode(
-                json.dumps(existing, separators=(',', ':')).encode()
-            ).decode()
-            payload = {
-                "message": f"prices: {today}",
-                "content": encoded,
-            }
-            if file_sha:
-                payload["sha"] = file_sha
-            await client.put(
-                f"https://api.github.com/repos/{GH_REPO}/contents/{GH_PATH}",
-                headers=GH_HEADERS,
-                json=payload,
-            )
-            logger.debug(f"prices: wrote {today}.json")
-    except Exception as e:
-        logger.warning(f"prices: GitHub write failed: {e}")
-
-
-async def _run_fast():
-    t0 = time.time()
-    try:
-        data = await asyncio.wait_for(
-            asyncio.get_running_loop().run_in_executor(None, scrape_all),
-            timeout=60,
-        )
-        fast_cache["data"] = data
-        fast_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
-        fast_cache["error"] = None
-        logger.info(f"Fast scrape done in {time.time()-t0:.1f}s")
-        # Append prices to GitHub rolling file (fire and forget)
-        prices_5min = data.get("dispatch_prices_5min", {})
-        if prices_5min:
-            asyncio.create_task(_append_prices_to_github(prices_5min))
-    except asyncio.TimeoutError:
-        logger.error("Fast scrape timed out after 60s")
-        fast_cache["error"] = "timeout"
-        if fast_cache["data"] is None:
-            fast_cache["data"] = dict(_FAST_EMPTY)
-            fast_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
-    except Exception as e:
-        logger.error(f"Fast scrape error: {e}\n{traceback.format_exc()}")
-        fast_cache["error"] = str(e)
-        if fast_cache["data"] is None:
-            fast_cache["data"] = dict(_FAST_EMPTY)
-            fast_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
-
-
-async def _gap_fill_prices():
-    """
-    Every slow scrape (30 min): check today's and yesterday's GitHub price files
-    and patch any missing 5-min intervals from TradingIS CURRENT.
-    Runs sequentially with delays to avoid 403s.
-    """
-    import json, base64, os, zipfile as _zf, io as _io
-    from datetime import timedelta
-    from scraper import (TRADING_CURRENT, NEM_REGIONS, AEST,
-                         _list_hrefs, _parse_aemo, _get as _scraper_get)
-    import httpx
-
-    AEST_TZ  = timezone(timedelta(hours=10))
-    now_aest = datetime.now(AEST_TZ)
-    GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-    GH_REPO  = os.environ.get("GITHUB_REPO", "")
-    GH_HEADERS = {
-        "Authorization": f"token {GH_TOKEN}",
-        "Accept": "application/vnd.github.v3+json",
+    // Layer 3: predispatch (dashed), bridged from last actual, future only
+    const pm = {};
+    (pd[r] || []).forEach(p => { pm[p.interval] = p.rrp; });
+    const lastActual = labels.slice().reverse().find(l => l <= nowSnap && (dm[l] !== undefined || hm[l] !== undefined));
+    if (lastActual && Object.keys(pm).length) {
+      pm[lastActual] = dm[lastActual] !== undefined ? dm[lastActual] : hm[lastActual];
     }
+    // Null all slots before the bridge — only draw PD from now onwards
+    const pdPriceData = labels.map(l => {
+      if (l < (lastActual || nowSnap)) return null;
+      return pm[l] !== undefined ? pm[l] : null;
+    });
 
-    if not GH_TOKEN or not GH_REPO:
-        return
+    // Trading — thick solid, no gap interpolation
+    datasets.push({
+      label: REGION_SHORT[r], regionId: r, isPD: false,
+      data: labels.map(l => hm[l] !== undefined ? hm[l] : null),
+      borderColor: color, backgroundColor: 'transparent',
+      borderWidth: 1, pointRadius: 0, tension: 0.2, spanGaps: false
+    });
+    // Dispatch 5-min fill — thinner solid
+    datasets.push({
+      label: REGION_SHORT[r]+' 5m', regionId: r, isPD: false,
+      data: labels.map(l => dm[l] !== undefined ? dm[l] : null),
+      borderColor: color+'cc', backgroundColor: 'transparent',
+      borderWidth: 1, pointRadius: 0, tension: 0.2, spanGaps: false
+    });
+    // Predispatch — dashed, spanGaps true to connect 30-min points on 5-min spine (future only)
+    datasets.push({
+      label: REGION_SHORT[r]+' PD', regionId: r, isPD: true,
+      data: pdPriceData,
+      borderColor: color+'99', backgroundColor: 'transparent',
+      borderWidth: 1, pointRadius: 0, tension: 0.2, spanGaps: true,
+      borderDash: [5, 5]
+    });
+  }
 
-    # Build full set of expected 5-min intervals for a day up to a cutoff time
-    def _expected_intervals(up_to_hhmm: str) -> set:
-        intervals = set()
-        h, m = 0, 5
-        while True:
-            s = f"{h:02d}:{m:02d}"
-            if s > up_to_hhmm:
-                break
-            intervals.add(s)
-            m += 5
-            if m >= 60:
-                m = 0
-                h += 1
-            if h >= 24:
-                break
-        return intervals
-
-    loop = asyncio.get_running_loop()
-
-    # Determine which dates to gap-fill: today + yesterday (near midnight)
-    today_str     = now_aest.strftime("%Y-%m-%d")
-    yesterday_str = (now_aest - timedelta(days=1)).strftime("%Y-%m-%d")
-    now_hhmm      = now_aest.strftime("%H:%M")
-    is_near_midnight = now_aest.hour == 0 and now_aest.minute < 35
-
-    dates_to_check = [today_str]
-    if is_near_midnight:
-        dates_to_check.append(yesterday_str)
-
-    # List CURRENT files once
-    try:
-        current_hrefs = await loop.run_in_executor(None, _list_hrefs, TRADING_CURRENT)
-    except Exception as e:
-        logger.warning(f"gap-fill: CURRENT listing failed: {e}")
-        return
-
-    # Build map: date → { hhmm → url } (last sequence per timestamp)
-    current_map: dict = {}
-    for href in current_hrefs:
-        fname = href.split('/')[-1]
-        parts = fname.split('_')
-        if len(parts) >= 3 and len(parts[2]) >= 12:
-            try:
-                fd   = datetime.strptime(parts[2][:8], "%Y%m%d").strftime("%Y-%m-%d")
-                hhmm = f"{parts[2][8:10]}:{parts[2][10:12]}"
-                current_map.setdefault(fd, {})[hhmm] = href
-            except ValueError:
-                pass
-
-    for date_str in dates_to_check:
-        is_today = date_str == today_str
-        up_to    = now_hhmm if is_today else "23:55"
-
-        # Read existing GitHub file
-        path = f"data/prices/{date_str}.json"
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.get(
-                    f"https://api.github.com/repos/{GH_REPO}/contents/{path}",
-                    headers=GH_HEADERS
-                )
-                if r.status_code == 200:
-                    rj       = r.json()
-                    file_sha = rj.get("sha", "")
-                    existing = json.loads(base64.b64decode(rj["content"]).decode())
-                else:
-                    file_sha = ""
-                    existing = {"date": date_str}
-        except Exception as e:
-            logger.warning(f"gap-fill: read {date_str} failed: {e}")
-            continue
-
-        # Find missing intervals for any region
-        expected    = _expected_intervals(up_to)
-        have        = set()
-        for region in NEM_REGIONS:
-            have |= set(existing.get(region, {}).keys())
-        missing = expected - have
-
-        if not missing:
-            logger.debug(f"gap-fill: {date_str} complete ({len(expected)} intervals)")
-            continue
-
-        logger.info(f"gap-fill: {date_str} missing {len(missing)} intervals: {sorted(missing)[:5]}...")
-
-        # Fetch missing intervals from CURRENT
-        day_current = current_map.get(date_str, {})
-        fetched_any = False
-
-        for hhmm in sorted(missing):
-            url = day_current.get(hhmm)
-            if not url:
-                continue
-            try:
-                await asyncio.sleep(1.5)  # gentle delay between requests
-                def _fetch(u=url):
-                    r = _scraper_get(u, timeout=15)
-                    if not r:
-                        return ""
-                    try:
-                        with _zf.ZipFile(_io.BytesIO(r.content)) as z:
-                            csvs = [n for n in z.namelist() if n.lower().endswith(".csv")]
-                            if csvs:
-                                with z.open(csvs[0]) as f:
-                                    return f.read().decode("utf-8", errors="replace")
-                    except Exception:
-                        return ""
-                    return ""
-
-                text = await loop.run_in_executor(None, _fetch)
-                if not text:
-                    continue
-
-                for row in _parse_aemo(text, "TRADING_PRICE"):
-                    region = row.get("REGIONID", "").strip()
-                    if region not in NEM_REGIONS: continue
-                    if row.get("INVALIDFLAG", "0") not in ("0", ""): continue
-                    dt_str  = row.get("SETTLEMENTDATE", "")
-                    rrp_str = row.get("RRP", "")
-                    if not dt_str or not rrp_str: continue
-                    try:
-                        dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                        existing.setdefault(region, {})[dt.strftime("%H:%M")] = round(float(rrp_str), 2)
-                        fetched_any = True
-                    except (ValueError, TypeError):
-                        continue
-            except Exception as e:
-                logger.warning(f"gap-fill: fetch {date_str} {hhmm} failed: {e}")
-
-        # Write back if we got anything
-        if fetched_any:
-            try:
-                encoded = base64.b64encode(
-                    json.dumps(existing, separators=(',', ':')).encode()
-                ).decode()
-                payload = {"message": f"gap-fill: {date_str}", "content": encoded}
-                if file_sha: payload["sha"] = file_sha
-                async with httpx.AsyncClient(timeout=10) as client:
-                    wr = await client.put(
-                        f"https://api.github.com/repos/{GH_REPO}/contents/{path}",
-                        headers=GH_HEADERS, json=payload
-                    )
-                logger.info(f"gap-fill: {date_str} patched, status={wr.status_code}")
-            except Exception as e:
-                logger.warning(f"gap-fill: write {date_str} failed: {e}")
-        else:
-            logger.info(f"gap-fill: {date_str} nothing fetched from CURRENT")
-
-
-async def _run_slow():
-    t0 = time.time()
-    try:
-        loop = asyncio.get_running_loop()
-        data = await asyncio.wait_for(
-            loop.run_in_executor(None, scrape_slow),
-            timeout=240  # MTPASA(45s) + BOM(15s) + STPASA + gas(30s) + margin
-        )
-        slow_cache["data"] = data
-        slow_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
-        slow_cache["error"] = None
-        logger.info(f"Slow scrape done in {time.time()-t0:.1f}s")
-        # Gap-fill prices in background (fire and forget)
-        asyncio.create_task(_gap_fill_prices())
-    except asyncio.TimeoutError:
-        logger.error("Slow scrape timed out after 120s")
-        slow_cache["error"] = "timeout"
-        # Populate with whatever partial data we have rather than staying empty
-        if slow_cache["data"] is None:
-            slow_cache["data"] = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "generators": {"grouped": {}, "summary": {}, "fuel_colors": {}, "reg_list_count": 0, "scada_count": 0},
-                "stpasa_demand": {},
-                "fuel_mix_today": {},
-                "fuel_colors": {},
-                "all_fuels": [],
-                "weather": {},
-                "gas": {},
+  charts.priceHist = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      ...CHART_DEFAULTS,
+      plugins: {
+        ...CHART_DEFAULTS.plugins,
+        tooltip: {
+          ...CHART_DEFAULTS.plugins.tooltip,
+          filter: i => i.raw !== null,
+          callbacks: { label: c => c.raw === null ? null : ` ${c.dataset.label}: $${c.raw.toFixed(2)}/MWh` }
+        }
+      },
+      scales: {
+        x: {
+          ticks: {
+            color: '#64748b',
+            font: { family: 'Space Mono', size: 9 },
+            maxRotation: 0,
+            autoSkip: false,
+            maxTicksLimit: 1000,
+            callback: function(val) {
+              const l = this.getLabelForValue(val);
+              if (!l) return null;
+              const h = parseInt(l.split(':')[0]);
+              return (l.endsWith(':00') && h % 3 === 0) ? l : null;
             }
-            slow_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
+          },
+          grid: { color: '#1e293b',
+            drawOnChartArea: true,
+            drawTicks: false,
+          }
+        },
+        y: {
+          type: priceLogScale ? 'logarithmic' : 'linear',
+          ticks: {
+            color: '#94a3b8',
+            font: { family: 'Space Mono', size: 10 },
+            callback: v => '$' + v.toFixed(0)
+          },
+          grid: { color: '#1e2d45' }
+        }
+      }
+    },
+    plugins: [nowLinePlugin(nowIdx)]
+  });
+  // Default TAS off
+  charts.priceHist.data.datasets.forEach((ds, i) => {
+    if (ds.regionId === 'TAS1') charts.priceHist.getDatasetMeta(i).hidden = true;
+  });
+  charts.priceHist.update();
+  const prBtn = document.getElementById('pr-TAS1');
+  if (prBtn) { prBtn.dataset.on = '0'; prBtn.style.opacity = '0.35'; }
+}
+
+// ── Generation ────────────────────────────────────────────────────────────────
+
+function renderGeneration(data) {
+  const fc = (genData && genData.fuel_colors) || data.fuel_colors || {};
+  const icIds = Object.keys(data.ic_history || {}).sort();
+  const IC_COLORS = ['#00d4ff','#ff6b35','#2ed573','#ffd32a','#9b59b6','#e74c3c'];
+  let html = '<div class="section-title">NEM Generation — 24hr Fuel Mix</div>';
+  // ── Spot prices at top ───────────────────────────────────────────────────────
+  html += '<div class="price-grid" style="margin-bottom:8px">';
+  for (const r of REGIONS) {
+    const p = (data.prices || {})[r];
+    const cls = p !== undefined ? priceClass(p) : 'low';
+    html += `<div class="price-card ${REGION_CLASS[r]}">
+      <div class="region">${REGION_SHORT[r]}</div>
+      <div class="price ${cls}">${p !== undefined ? fmtPrice(p) : '—'}</div>
+      <div class="unit">$/MWh</div></div>`;
+  }
+  html += '</div>';
 
 
-async def fast_loop():
-    while True:
-        try:
-            await _run_fast()
-        except Exception as e:
-            logger.error(f"Fast scrape error: {e}\n{traceback.format_exc()}")
-            fast_cache["error"] = str(e)
-        await asyncio.sleep(FAST_INTERVAL)
+  // Region selector + rooftop toggle
+  html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+  html += '<div class="region-pills" style="margin-bottom:0;flex:1">';
+  const isGenNEM = REGIONS.every(r => genRegion.has(r));
+  html += `<button class="region-pill ${isGenNEM ? 'active' : ''}" style="color:#94a3b8;border-color:#94a3b8" onclick="toggleAllGenRegions()">NEM</button>`;
+  for (const r of REGIONS) {
+    const color = REGION_COLORS[r];
+    const active = genRegion.has(r) ? 'active' : '';
+    html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="toggleGenRegion('${r}')">${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div>';
+  html += `<button onclick="toggleGenRooftop()" style="
+    font-family:var(--font-mono);font-size:10px;padding:5px 10px;border-radius:20px;cursor:pointer;white-space:nowrap;
+    border:1px solid ${genShowRooftop ? '#ffd700' : '#475569'};
+    background:${genShowRooftop ? '#ffd70022' : 'transparent'};
+    color:${genShowRooftop ? '#ffd700' : '#94a3b8'}">
+    ☀️ RT Solar
+  </button>`;
+  html += '</div>';
+
+  // Select Multiple toggle
+  html += `<div style="margin-top:5px;margin-bottom:2px">
+    <button onclick="toggleGenMultiSelect()"
+      style="font-family:var(--font-mono);font-size:9px;padding:3px 10px;border-radius:20px;cursor:pointer;
+      border:1px solid ${genMultiSelect ? '#94a3b8' : '#334155'};
+      background:${genMultiSelect ? '#94a3b822' : 'transparent'};
+      color:${genMultiSelect ? '#94a3b8' : '#475569'}">
+      ${genMultiSelect ? '✓ ' : ''}Select Multiple
+    </button>
+  </div>`;
+
+  // Main 24hr chart
+  html += '<div class="chart-card"><div class="chart-title">Loading…</div>';
+  html += '<div class="chart-container" style="height:280px"><canvas id="fuelChart"></canvas></div>';
+  html += '</div>';
+
+  // Price toggle buttons — below chart
+  html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;align-items:center">';
+  const allPricesOff = genPriceFilter.size === 0;
+  html += `<button onclick="toggleGenPriceOff()"
+    style="font-family:var(--font-mono);font-size:10px;padding:3px 8px;border-radius:20px;cursor:pointer;
+    border:1px solid #475569;background:${allPricesOff ? '#47556933' : 'transparent'};
+    color:${allPricesOff ? '#94a3b8' : '#475569'}">OFF</button>`;
+  for (const r of REGIONS) {
+    const color = REGION_COLORS[r];
+    const on = genPriceFilter.has(r);
+    html += `<button onclick="toggleGenPrice('${r}')"
+      style="font-family:var(--font-mono);font-size:10px;padding:3px 8px;border-radius:20px;cursor:pointer;
+      border:1px solid ${on ? color : '#475569'};background:${on ? color+'33' : 'transparent'};
+      color:${on ? color : '#475569'}">${REGION_SHORT[r]}$</button>`;
+  }
+  html += `<button onclick="toggleGenPriceWhite()"
+    style="font-family:var(--font-mono);font-size:10px;padding:3px 8px;border-radius:20px;cursor:pointer;margin-left:auto;
+    border:1px solid ${genPriceWhite ? '#ffffff' : '#475569'};background:${genPriceWhite ? '#ffffff22' : 'transparent'};
+    color:${genPriceWhite ? '#ffffff' : '#475569'}">WHITE</button>`;
+  html += '</div>';
+
+  // Legend
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+  for (const [fuel, color] of Object.entries(fc)) {
+    if (fuel === 'Rooftop Solar' && !genShowRooftop) continue;
+    html += `<div style="display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10px;color:#94a3b8"><div style="width:10px;height:10px;border-radius:2px;background:${color}"></div>${fuel}</div>`;
+  }
+  html += `<div style="display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10px;color:#94a3b8"><div style="width:18px;height:2px;background:#ffffff;border-radius:1px"></div>Demand + Non-Sched</div>`;
+  html += '</div>';
+
+  // Current snapshot breakdown
+  html += '<div id="fuelBreakdown" style="margin-top:8px"></div>';
+
+  // Interconnector chart
+  html += '<div class="section-title" style="margin-top:16px">Interconnector Flows — Today</div>';
+  html += '<div class="chart-card"><div class="chart-title">Actuals (solid) · Predispatch (dashed)</div>';
+  html += '<div class="chart-container" style="height:240px"><canvas id="icTimeChart"></canvas></div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+  icIds.forEach((id, i) => {
+    const color = IC_COLORS[i % IC_COLORS.length];
+    const safeId = id.replace(/[^a-z0-9]/gi,'_');
+    html += `<button id="ic-btn-${safeId}" data-active="0" onclick="toggleIcHighlight('${id}')"
+      style="display:flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10px;
+      color:${color};background:transparent;border:1px solid ${color}33;border-radius:20px;
+      padding:3px 8px;cursor:pointer;transition:all 0.15s">
+      <div style="width:16px;height:2px;background:${color};border-radius:1px;flex-shrink:0"></div>${id}
+    </button>`;
+  });
+  html += '</div></div>';
 
 
-async def _run_gen():
-    t0 = time.time()
-    try:
-        loop = asyncio.get_running_loop()
-        data = await asyncio.wait_for(loop.run_in_executor(None, scrape_gen), timeout=60)
-        gen_cache["data"] = data
-        gen_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
-        gen_cache["error"] = None
-        logger.info(f"Gen scrape done in {time.time()-t0:.1f}s — "
-                    f"scada={data.get('scada_count',0)} reg={data.get('reg_count',0)}")
-    except asyncio.TimeoutError:
-        logger.error("Gen scrape timed out")
-        gen_cache["error"] = "timeout"
-        if gen_cache["data"] is None:
-            gen_cache["data"] = {"fuel_mix": {}, "nem_totals": {}, "grouped": {},
-                                 "fuel_colors": {}, "all_fuels": [], "scada_count": 0, "reg_count": 0}
-    except Exception as e:
-        logger.error(f"Gen scrape error: {e}")
-        gen_cache["error"] = str(e)
+  return html;
+}
 
+function selectGenRegion(region) {
+  currentGenRegion = region;
+  if (latestData) drawGenChart(latestData);
+}
 
-async def gen_loop():
-    await asyncio.sleep(5)   # let fast scrape finish first
-    # Backfill 24hr SCADA history once at startup so chart is immediately populated
-    try:
-        loop = asyncio.get_running_loop()
-        logger.info("Starting SCADA history backfill…")
-        await asyncio.wait_for(
-            loop.run_in_executor(None, scrape_scada_history), timeout=120
-        )
-        logger.info("SCADA history backfill complete")
-    except Exception as e:
-        logger.warning(f"SCADA history backfill failed: {e}")
-    while True:
-        try:
-            await _run_gen()
-        except Exception as e:
-            logger.error(f"Gen loop error: {e}")
-            gen_cache["error"] = str(e)
-        await asyncio.sleep(GEN_INTERVAL)
+function toggleGenRegion(r) {
+  if (genMultiSelect) {
+    // Multi-select: add/remove from set
+    if (genRegion.has(r)) { genRegion.delete(r); }
+    else { genRegion.add(r); }
+  } else {
+    // Single-select: switch to just this region, auto-enable its price
+    const alreadyOnlyThis = genRegion.size === 1 && genRegion.has(r);
+    if (alreadyOnlyThis) {
+      // Clicking the already-selected single region → go back to NEM
+      genRegion = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
+      genPriceFilter.clear();
+    } else {
+      genRegion = new Set([r]);
+      genPriceFilter = new Set([r]); // auto-enable price for this region
+    }
+  }
+  if (latestData) renderPanel('generation', latestData);
+}
 
+function toggleGenMultiSelect() {
+  genMultiSelect = !genMultiSelect;
+  if (genMultiSelect) {
+    // Switching ON multi-select: clear any price overlays
+    genPriceFilter.clear();
+  } else {
+    // Switching OFF multi-select: reset to NEM if multiple regions selected
+    if (genRegion.size !== 1) {
+      genRegion = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
+      genPriceFilter.clear();
+    }
+  }
+  if (latestData) renderPanel('generation', latestData);
+}
 
-async def mtpasa_loop():
-    await asyncio.sleep(10)  # let fast/gen start first
-    while True:
-        try:
-            loop = asyncio.get_running_loop()
-            data = await asyncio.wait_for(
-                loop.run_in_executor(None, scrape_mtpasa_outages),
-                timeout=120
-            )
-            mtpasa_cache["data"] = data
-            mtpasa_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
-            mtpasa_cache["error"] = None
-            logger.info(f"MTPASA scrape done: {len(data)} units")
-        except asyncio.TimeoutError:
-            logger.warning("MTPASA scrape timed out")
-            mtpasa_cache["error"] = "timeout"
-        except Exception as e:
-            logger.warning(f"MTPASA scrape error: {e}")
-            mtpasa_cache["error"] = str(e)
-        await asyncio.sleep(1800)  # refresh every 30 min
+function toggleAllGenRegions() {
+  const allOn = REGIONS.every(r => genRegion.has(r));
+  if (allOn) {
+    genRegion = new Set();
+  } else {
+    genRegion = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
+  }
+  if (latestData) renderPanel('generation', latestData);
+}
 
+function toggleGenRooftop() {
+  genShowRooftop = !genShowRooftop;
+  if (latestData) renderPanel('generation', latestData);
+}
 
-async def slow_loop():
-    while True:
-        try:
-            await _run_slow()
-        except Exception as e:
-            logger.error(f"Slow scrape error: {e}\n{traceback.format_exc()}")
-            slow_cache["error"] = str(e)
-        await asyncio.sleep(SLOW_INTERVAL)
+function toggleGenPrice(r) {
+  if (genPriceFilter.has(r)) { genPriceFilter.delete(r); }
+  else { genPriceFilter.add(r); }
+  if (latestData) renderPanel('generation', latestData);
+}
 
+function toggleGenPriceOff() {
+  genPriceFilter.clear();
+  if (latestData) renderPanel('generation', latestData);
+}
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Kick off all scrapes in background — don't block startup
-    # Server binds immediately; /api/data returns 202 until data arrives
-    fast_task   = asyncio.create_task(fast_loop())
-    gen_task    = asyncio.create_task(gen_loop())
-    slow_task   = asyncio.create_task(slow_loop())
-    mtpasa_task = asyncio.create_task(mtpasa_loop())
-    yield
-    fast_task.cancel()
-    gen_task.cancel()
-    slow_task.cancel()
-    mtpasa_task.cancel()
+function toggleOriginPrice(r) {
+  if (originPriceFilter.has(r)) { originPriceFilter.delete(r); }
+  else { originPriceFilter.add(r); }
+  if (latestData) renderPanel('origin', latestData);
+}
 
+function toggleOriginHideOffline() {
+  originHideOffline = !originHideOffline;
+  if (latestData) renderPanel('origin', latestData);
+}
 
-app = FastAPI(title="NEM Dashboard", lifespan=lifespan)
+function toggleOriginPriceOff() {
+  originPriceFilter.clear();
+  if (latestData) renderPanel('origin', latestData);
+}
 
-static_dir = Path(__file__).parent / "static"
-static_dir.mkdir(exist_ok=True)
-(static_dir / "data").mkdir(exist_ok=True)  # ensure views.json directory exists
-app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+function toggleOriginPriceWhite() {
+  originPriceWhite = !originPriceWhite;
+  if (latestData) renderPanel('origin', latestData);
+}
 
+function toggleGenPriceWhite() {
+  genPriceWhite = !genPriceWhite;
+  if (latestData) renderPanel('generation', latestData);
+}
 
-@app.get("/api/data")
-async def get_data():
-    if fast_cache["data"] is None:
-        return JSONResponse(
-            content={"error": fast_cache.get("error", "Data not yet available"), "loading": True},
-            status_code=503 if fast_cache["error"] else 202,
-        )
-    return JSONResponse(content={
-        **fast_cache["data"],
-        "last_updated": fast_cache["last_updated"],
-        "cache_error":  fast_cache.get("error"),
-    })
+function drawGenChart(data) {
+  destroyChart('gen');
+  const ctx = document.getElementById('fuelChart');
+  if (!ctx) return;
 
+  if (!genData || genData._unavailable) {
+    const card = ctx.closest('.chart-card');
+    if (card) card.querySelector('.chart-title').textContent =
+      genData?._unavailable ? 'Generation data unavailable' : 'Loading fuel mix… (updates every 15 min)';
+    ctx.style.display = 'none';
+    return;
+  }
+  ctx.style.display = '';
 
-@app.get("/api/gen")
-async def get_gen():
-    if gen_cache["data"] is None:
-        return JSONResponse(
-            content={"loading": True, "error": gen_cache.get("error")},
-            status_code=202,
-        )
-    from scraper import _get_fuel_history
-    return JSONResponse(content={
-        **gen_cache["data"],
-        "fuel_history":  _get_fuel_history(),   # always fresh — gen cache is 15min stale
-        "last_updated": gen_cache["last_updated"],
-        "cache_error":  gen_cache.get("error"),
-    })
+  const fc         = genData.fuel_colors || {};
+  const FUEL_ORDER = ['Wind','Solar','Brown Coal','Black Coal','Gas','Hydro','Battery','Rooftop Solar','Liquid','Other'];
+  // Filter rooftop solar unless toggled on
+  const fuelOrderFiltered = FUEL_ORDER.filter(f => f !== 'Rooftop Solar' || genShowRooftop);
+  const fuelHist   = genData.fuel_history || {};
+  const fuelMix    = genData.fuel_mix || {};
+  const activeRegions = REGIONS.filter(r => genRegion.has(r));
+  const regionLabel = activeRegions.length === REGIONS.length ? 'NEM' : activeRegions.map(r => REGION_SHORT[r]).join('+');
+  const card = ctx.closest('.chart-card');
 
+  // Count actual history points
+  const histPts = Math.max(...activeRegions.map(r => (fuelHist[r] || []).length));
 
-@app.get("/api/slow")
-async def get_slow():
-    if slow_cache["data"] is None:
-        return JSONResponse(
-            content={"loading": True, "error": slow_cache.get("error")},
-            status_code=202,
-        )
-    return JSONResponse(content={
-        **slow_cache["data"],
-        "mtpasa_outages": mtpasa_cache["data"],
-        "last_updated": slow_cache["last_updated"],
-        "cache_error":  slow_cache.get("error"),
-    })
+  // ── MODE A: stacked bar (current snapshot) when history < 4 points ──────────
+  if (histPts < 4) {
+    // Aggregate fuel mix across active regions
+    const totals = {};
+    for (const r of activeRegions) {
+      for (const [fuel, mw] of Object.entries(fuelMix[r] || {})) {
+        totals[fuel] = (totals[fuel] || 0) + mw;
+      }
+    }
+    const activeFuels = fuelOrderFiltered.filter(f => (totals[f] || 0) > 10);
+    const totalMW = activeFuels.reduce((s, f) => s + totals[f], 0);
 
+    if (card) card.querySelector('.chart-title').textContent =
+      `${regionLabel} — Current snapshot ${fmt(Math.round(totalMW))} MW · history accumulating…`;
 
-@app.get("/api/rescrape")
-async def rescrape():
-    """Force a full rescrape: backfill history + fast + gen + slow caches."""
-    import asyncio
-    from scraper import scrape_scada_history, scrape_dispatch_history
+    charts.gen = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: [regionLabel],
+        datasets: activeFuels.map(fuel => ({
+          label: fuel,
+          data: [Math.round(totals[fuel] || 0)],
+          backgroundColor: (fc[fuel] || '#95a5a6') + 'cc',
+          borderColor:     (fc[fuel] || '#95a5a6'),
+          borderWidth: 1,
+        }))
+      },
+      options: {
+        ...CHART_DEFAULTS,
+        plugins: {
+          ...CHART_DEFAULTS.plugins,
+          legend: { display: true, position: 'bottom',
+            labels: { color: '#94a3b8', font: { family: 'Space Mono', size: 9 }, boxWidth: 10, padding: 6 }
+          },
+          tooltip: {
+            ...CHART_DEFAULTS.plugins.tooltip,
+            callbacks: {
+              label: c => ` ${c.dataset.label}: ${fmt(c.raw)} MW (${Math.round(c.raw/totalMW*100)}%)`
+            }
+          }
+        },
+        scales: {
+          x: { stacked: true,
+               ticks: { color: '#64748b', font: { family: 'Space Mono', size: 9 }, maxRotation: 0,
+               autoSkip: false, maxTicksLimit: 1000,
+            callback: function(val) {
+              const l = this.getLabelForValue(val);
+              if (!l) return null;
+              const h = parseInt(l.split(':')[0]);
+              return (l.endsWith(':00') && h % 2 === 0) ? l : null;
+            }
+               },
+               grid: { color: '#1e293b', drawOnChartArea: true, drawTicks: false } },
+          y: { stacked: true,
+               ticks: { color:'#64748b', font:{family:'Space Mono',size:9} },
+               grid: { color:'#1e293b' },
+               title: { display:true, text:'MW', color:'#64748b', font:{family:'Space Mono',size:9} } }
+        }
+      }
+    });
+    renderFuelSnapshot(activeRegions, fuelMix, fc, fuelOrderFiltered);
+    return;
+  }
 
-    async def _run():
-        loop = asyncio.get_running_loop()
-        # Run backfills in parallel
-        await asyncio.gather(
-            loop.run_in_executor(None, scrape_scada_history),
-            loop.run_in_executor(None, scrape_dispatch_history),
-        )
-        # Then fast scrape
-        await _run_fast()
-        # Then gen scrape
-        await _run_gen()
-        # Then slow scrape (includes weather)
-        await _run_slow()
+  // ── MODE B: 24hr stacked area (once history is rich enough) ─────────────────
+  // Full 5-min spine so x-axis is always proportional
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
 
-    asyncio.create_task(_run())
-    return {"status": "rescrape started — allow ~60s for data to refresh"}
+  const histLookup = {};
+  for (const r of activeRegions) {
+    histLookup[r] = {};
+    for (const pt of (fuelHist[r] || [])) histLookup[r][pt.interval] = pt;
+  }
 
+  // Demand line — uses op_demand_history (DEMAND_AND_NONSCHEDGEN) same source as P&D demand chart
+  const demHist = data.op_demand_history || data.demand_history || {};
+  const demHistLookup = {};
+  for (const r of activeRegions) {
+    demHistLookup[r] = {};
+    for (const pt of (demHist[r] || [])) demHistLookup[r][pt.interval] = pt.demand;
+  }
 
-@app.get("/api/health")
-async def health():
+  // Predispatch demand (also scheduled)
+  const pdDemand = data.predispatch_demand || {};
+  const pdDemLookup = {};
+  for (const r of activeRegions) {
+    pdDemLookup[r] = {};
+    for (const pt of (pdDemand[r] || [])) pdDemLookup[r][pt.interval] = pt.demand;
+  }
+
+  // BDU (battery) history for charging as negative area
+  const bduHist = data.bdu_history || {};
+  const bduLookup  = {};  // battery charging load
+  const pumpLookup = {};  // pump hydro load
+  for (const r of activeRegions) {
+    bduLookup[r]  = {};
+    pumpLookup[r] = {};
+    for (const pt of (bduHist[r] || [])) {
+      if (pt.load      !== undefined) bduLookup[r][pt.interval]  = pt.load;
+      if (pt.pump_load !== undefined) pumpLookup[r][pt.interval] = pt.pump_load;
+    }
+  }
+
+  // Last actual slot (fuel history)
+  const lastActualSlot = allSlots.slice().reverse().find(l =>
+    activeRegions.some(r => histLookup[r]?.[l])
+  ) || '';
+  const lastActualIdx = allSlots.indexOf(lastActualSlot);
+
+  // Battery charge totals per slot (summed across regions)
+  const battChargeMap = {};
+  for (const slot of allSlots) {
+    const hasData = activeRegions.some(r => bduLookup[r]?.[slot] !== undefined);
+    if (!hasData) continue;
+    const total = activeRegions.reduce((s,r) => s + (bduLookup[r]?.[slot] ?? 0), 0);
+    if (total > 0) battChargeMap[slot] = -Math.round(total);
+  }
+  const pumpChargeMap = {};
+  for (const slot of allSlots) {
+    const hasData = activeRegions.some(r => pumpLookup[r]?.[slot] !== undefined);
+    if (!hasData) continue;
+    const total = activeRegions.reduce((s,r) => s + (pumpLookup[r]?.[slot] ?? 0), 0);
+    if (total > 0) pumpChargeMap[slot] = -Math.round(total);
+  }
+
+  const activeFuels = fuelOrderFiltered.filter(fuel =>
+    fuel !== 'Battery' &&  // Battery gen handled separately below
+    activeRegions.some(r => (fuelHist[r]||[]).some(pt => (pt[fuel]||0) > 0))
+  );
+
+  // ── Stacked fuel area datasets (non-battery actuals) ────────────────────────
+  const actualDatasets = activeFuels.map(fuel => {
+    const color = fc[fuel] || '#95a5a6';
     return {
-        "status":           "ok" if fast_cache["data"] else "loading",
-        "fast_updated":     fast_cache["last_updated"],
-        "slow_updated":     slow_cache["last_updated"],
-        "fast_has_data":    fast_cache["data"] is not None,
-        "slow_has_data":    slow_cache["data"] is not None,
-        "fast_error":       fast_cache.get("error"),
-        "slow_error":       slow_cache.get("error"),
+      label: fuel,
+      data: allSlots.map(l => {
+        const hasData = activeRegions.some(r => histLookup[r]?.[l]);
+        if (!hasData) return null;
+        let total = 0;
+        for (const r of activeRegions) total += histLookup[r]?.[l]?.[fuel] || 0;
+        return Math.round(total);
+      }),
+      backgroundColor: color + 'cc', borderColor: color,
+      borderWidth: 0.5, fill: true, pointRadius: 0,
+      tension: 0.2, stack: 'actual', spanGaps: false, yAxisID: 'y', order: 1,
+    };
+  });
+
+  // Battery discharging (positive, stacked with generation)
+  const battColor = fc['Battery'] || '#9b59b6';
+  const battGenDataset = {
+    label: 'Battery',
+    data: allSlots.map(l => {
+      const hasData = activeRegions.some(r => histLookup[r]?.[l]);
+      if (!hasData) return null;
+      let total = 0;
+      for (const r of activeRegions) total += histLookup[r]?.[l]?.['Battery'] || 0;
+      return Math.round(total);
+    }),
+    backgroundColor: battColor + 'cc', borderColor: battColor,
+    borderWidth: 0.5, fill: true, pointRadius: 0,
+    tension: 0.2, stack: 'actual', spanGaps: false, yAxisID: 'y', order: 1,
+  };
+
+  // Battery charging (negative, below x-axis) — uses BDU load data
+  const battChargeDataset = {
+    label: 'Battery (charging)',
+    data: allSlots.map(l => {
+      const hasActual = activeRegions.some(r => histLookup[r]?.[l]);
+      if (!hasActual) return null;
+      return battChargeMap[l] ?? null;  // null when no charging (not 0)
+    }),
+    backgroundColor: '#a855f755', borderColor: '#a855f7',
+    borderWidth: 0.5, fill: 'origin', pointRadius: 0,
+    tension: 0.2, stack: 'negative', spanGaps: false, yAxisID: 'y', order: 1,
+  };
+
+  // Pump hydro load (negative — from bdu_history pump_load field, same 5-min resolution as battery)
+  const pumpHydroDataset = {
+    label: 'Pump Hydro',
+    data: allSlots.map(l => {
+      const hasActual = activeRegions.some(r => histLookup[r]?.[l]);
+      if (!hasActual) return null;
+      return pumpChargeMap[l] ?? null;
+    }),
+    backgroundColor: '#06b6d455', borderColor: '#06b6d4',
+    borderWidth: 1, fill: '-1', pointRadius: 0,
+    tension: 0.2, stack: 'negative', spanGaps: false, yAxisID: 'y', order: 1,
+  };
+
+  // ── Scheduled demand lines ──────────────────────────────────────────────────
+  // Scheduled demand + battery charging = total electrical demand on the system
+  const demValMap = {};
+  for (const slot of allSlots) {
+    const hasData = activeRegions.some(r => demHistLookup[r]?.[slot] !== undefined);
+    if (!hasData) continue;
+    const schedDem = activeRegions.reduce((s,r) => s + (demHistLookup[r]?.[slot] ?? 0), 0);
+    demValMap[slot] = Math.round(schedDem);
+  }
+  const pdValMap = {};
+  for (const slot of allSlots) {
+    const hasPd = activeRegions.some(r => pdDemLookup[r]?.[slot] !== undefined);
+    if (hasPd) pdValMap[slot] = Math.round(activeRegions.reduce((s,r) => s + (pdDemLookup[r]?.[slot] ?? 0), 0));
+  }
+
+  const lastDemSlot = allSlots.slice().reverse().find(l => demValMap[l] !== undefined) || '';
+  const lastDemSlotIdx = lastDemSlot ? allSlots.indexOf(lastDemSlot) : -1;
+
+  const demActualDataset = {
+    label: 'Demand + NonSched',
+    data: allSlots.map((l, i) => i <= lastDemSlotIdx ? (demValMap[l] ?? null) : null),
+    borderColor: '#ffffff', backgroundColor: 'transparent',
+    borderWidth: 2, pointRadius: 0, tension: 0.2,
+    spanGaps: false, fill: false, yAxisID: 'y', order: -1,
+  };
+
+  const demPdDataset = {
+    label: 'Demand forecast',
+    data: allSlots.map((l, i) => {
+      if (i > lastDemSlotIdx && pdValMap[l] !== undefined) return pdValMap[l];
+      return null;
+    }),
+    borderColor: '#ffffff66', backgroundColor: 'transparent',
+    borderWidth: 1.5, pointRadius: 0, tension: 0.2,
+    spanGaps: true, fill: false, yAxisID: 'y', order: -1,
+    borderDash: [6, 4],
+  };
+
+  const allDatasets = [...actualDatasets, battGenDataset, battChargeDataset, pumpHydroDataset, demActualDataset, demPdDataset];
+
+  // ── Price line datasets per region (only for toggled-on states) ──────────────
+  const priceDatasets = [];
+  if (genPriceFilter.size > 0) {
+    const histPricesMap = data.historical_prices || {};
+    const pdPricesMap   = data.predispatch_prices || {};
+    const livePrices    = data.prices             || {};
+    for (const r of REGIONS) {
+      if (!genPriceFilter.has(r)) continue;
+      const color = genPriceWhite ? '#ffffff' : REGION_COLORS[r];
+      const hm = {};
+      (histPricesMap[r] || []).forEach(p => { hm[p.interval] = p.rrp; });
+      const pdm = {};
+      (pdPricesMap[r] || []).forEach(p => { if (p.interval > (nowAEST()||'')) pdm[p.interval] = p.rrp; });
+      priceDatasets.push({
+        label: `${REGION_SHORT[r]} Price`,
+        data: allSlots.map(t => hm[t] ?? null),
+        borderColor: color, backgroundColor: 'transparent',
+        borderWidth: 1, pointRadius: 0, tension: 0.2,
+        spanGaps: true, fill: false, yAxisID: 'yPrice', order: 0,
+      });
+      priceDatasets.push({
+        label: `${REGION_SHORT[r]} Price (fcast)`,
+        data: allSlots.map(t => pdm[t] ?? null),
+        borderColor: genPriceWhite ? '#ffffff66' : color + '99', backgroundColor: 'transparent',
+        borderWidth: 1, borderDash: [4,3], pointRadius: 0, tension: 0.2,
+        spanGaps: true, fill: false, yAxisID: 'yPrice', order: 0,
+      });
+    }
+  }
+  allDatasets.push(...priceDatasets);
+  const nowIdx = allSlots.findIndex(l => l >= nowAEST());
+  const pdDemCount = activeRegions.reduce((s,r) => s + Object.keys(pdDemLookup[r]||{}).length, 0);
+  if (card) card.querySelector('.chart-title').textContent =
+    `${regionLabel} — fuel mix actuals · demand ${pdDemCount > 0 ? '+ forecast' : ''}`;
+
+  charts.gen = new Chart(ctx, {
+    type: 'line',
+    data: { labels: allSlots, datasets: allDatasets },
+    options: {
+      ...CHART_DEFAULTS,
+      plugins: {
+        ...CHART_DEFAULTS.plugins,
+              legend: { display: false },
+        tooltip: {
+          ...CHART_DEFAULTS.plugins.tooltip,
+          filter: i => i.raw !== null && i.raw !== 0,
+          callbacks: {
+            title: items => items[0]?.label || '',
+            label: c => {
+              if (c.raw === null || c.raw <= 0) return null;
+              const lbl = String(c.dataset.label||'');
+              if (lbl === 'Demand forecast PD') return ` ⋯ Demand + Non-Sched forecast: ${fmt(c.raw)} MW`;
+              if (lbl === 'Demand + Non-Sched') return ` Demand + Non-Sched: ${fmt(c.raw)} MW`;
+              return ` ${lbl}: ${fmt(c.raw)} MW`;
+            },
+          }
+        }
+      },
+      scales: {
+        x: { stacked: true,
+             ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
+               callback:(v,i) => allSlots[i]?.endsWith(':00') ? allSlots[i] : null },
+             grid:{color:'#1e2d4544'} },
+        y: { stacked: true,
+             ticks: { color:'#64748b', font:{family:'Space Mono',size:9} },
+             grid: { color:'#1e293b' },
+             title: { display:true, text:'MW', color:'#64748b', font:{family:'Space Mono',size:9} } },
+        ...(genPriceFilter.size > 0 ? { yPrice: {
+          type:'linear', position:'right',
+          ticks:{ color:'#94a3b8', font:{family:'Space Mono',size:9}, callback: v=>'$'+v.toFixed(0) },
+          grid:{ drawOnChartArea:false },
+          title:{ display:true, text:'$/MWh', color:'#94a3b8', font:{family:'Space Mono',size:8} }
+        }} : {}),
+
+      }
+    },
+    plugins: [nowLinePlugin(nowIdx)]
+  });
+
+  renderFuelSnapshot(activeRegions, fuelMix, fc, fuelOrderFiltered);
+}
+
+function renderFuelSnapshot(activeRegions, fuelMix, fc, FUEL_ORDER) {
+  const el = document.getElementById('fuelBreakdown');
+  if (!el) return;
+
+  const totals = {};
+  for (const r of activeRegions) {
+    for (const [fuel, mw] of Object.entries(fuelMix[r] || {})) {
+      totals[fuel] = (totals[fuel] || 0) + mw;
+    }
+  }
+  const activeFuels = FUEL_ORDER.filter(f => (totals[f] || 0) > 10);
+  const totalMW = activeFuels.reduce((s, f) => s + totals[f], 0);
+
+  let html = `<div style="font-family:var(--font-mono);font-size:10px;color:#475569;margin-bottom:6px">CURRENT SNAPSHOT — ${fmt(Math.round(totalMW))} MW total</div>`;
+  for (const fuel of activeFuels) {
+    const mw = totals[fuel] || 0;
+    const pct = totalMW > 0 ? Math.round(mw / totalMW * 100) : 0;
+    const color = fc[fuel] || '#95a5a6';
+    html += `<div class="fuel-row">
+      <div class="fuel-dot" style="background:${color}"></div>
+      <div class="fuel-name">${fuel}</div>
+      <div class="fuel-bar-wrap"><div class="fuel-bar" style="width:${pct}%;background:${color}88"></div></div>
+      <div class="fuel-mw">${fmt(Math.round(mw))}</div>
+      <div class="fuel-pct">${pct}%</div>
+    </div>`;
+  }
+  el.innerHTML = html;
+}
+
+// ── Demand ────────────────────────────────────────────────────────────────────
+
+function renderDemand(data) {
+  const demand   = data.demand    || {};
+  const opDemand = data.op_demand || {};
+  const raw = data.raw_summary || {};
+  let html = '<div class="section-title">Demand + Non-Scheduled Generation (MW)</div><div class="demand-grid">';
+  for (const r of REGIONS) {
+    const op = opDemand[r];
+    const sc = demand[r];
+    html += `<div class="demand-card">
+      <div class="region" style="color:${REGION_COLORS[r]}">${REGION_SHORT[r]}</div>
+      <div class="value">${op !== undefined ? fmt(op) : (sc !== undefined ? fmt(sc) : '—')}</div>
+      <div class="unit">MW</div>
+      ${sc !== undefined && op !== undefined ? `<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-top:2px">sched ${fmt(sc)}</div>` : ''}
+    </div>`;
+  }
+  html += '</div>';
+  html += '<div class="section-title">Demand + Non-Sched Gen History + Predispatch</div>';
+  html += '<div class="chart-card"><div class="chart-title">Demand + Non-Scheduled Gen — Actual (solid) · Predispatch (dashed)</div>';
+  html += '<div class="chart-container" style="height:250px"><canvas id="demandHistChart"></canvas></div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+  html += '<button onclick="toggleAllDemandRegions()" id="dr-NEM2" data-on="1" style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;border:1px solid #94a3b8;background:#94a3b833;color:#94a3b8;cursor:pointer">NEM</button>';
+  for (const r of REGIONS) {
+    html += `<button onclick="toggleDemandRegion('${r}')" id="dr-${r}" data-on="1"
+      style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;
+      border:1px solid ${REGION_COLORS[r]};background:${REGION_COLORS[r]}33;color:${REGION_COLORS[r]};cursor:pointer"
+      >${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div></div>';
+  html += '<div class="chart-card"><div class="chart-title">Demand Details</div>';
+  html += '<div class="table-wrap"><table><tr><th>Region</th><th>Demand+NonSched</th><th>Forecast</th><th>Initial Supply</th></tr>';
+  for (const r of REGIONS) {
+    const rw = raw[r] || {};
+    const d = demand[r] !== undefined ? demand[r] : rw.TOTALDEMAND;
+    html += `<tr>
+      <td style="color:${REGION_COLORS[r]};font-weight:700">${REGION_SHORT[r]}</td>
+      <td>${fmt(d)} MW</td><td>${fmt(rw.DEMANDFORECAST)} MW</td><td>${fmt(rw.INITIALSUPPLY)} MW</td></tr>`;
+  }
+  html += '</table></div></div>';
+  return html;
+}
+
+function toggleDemandRegion(r) {
+  if (!charts.demandHist) return;
+  const btn = document.getElementById('dr-' + r);
+  const on = btn.dataset.on === '1';
+  btn.dataset.on = on ? '0' : '1';
+  btn.style.opacity = on ? '0.35' : '1';
+  charts.demandHist.data.datasets.forEach((ds, i) => {
+    if (ds.regionId === r) charts.demandHist.getDatasetMeta(i).hidden = on;
+  });
+  charts.demandHist.update();
+}
+
+function drawDemandChart(data) {
+  destroyChart('demandHist');
+  const ctx = document.getElementById('demandHistChart');
+  if (!ctx) return;
+
+  const dispHist   = data.dispatch_history   || {};
+  const opHist     = data.op_demand_history  || {};
+  const snapHist   = data.demand_history     || {};
+  const pd         = data.predispatch_demand || {};
+  const liveDemand = data.demand    || {};
+  const liveOp     = data.op_demand || {};
+  const now = nowAEST();
+
+  // Build 5-min spine
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  const hasData = new Set();
+  for (const r of REGIONS) {
+    const src = (dispHist[r] && dispHist[r].length) ? dispHist[r] : (snapHist[r] || []);
+    src.forEach(p => { if (p.interval) hasData.add(p.interval); });
+    (pd[r] || []).forEach(p => { if (p.interval) hasData.add(p.interval); });
+  }
+  const lastSlot = allSlots.filter(s => hasData.has(s)).pop();
+  if (!lastSlot) {
+    ctx.closest('.chart-card').querySelector('.chart-title').textContent = 'Demand history — loading…';
+    ctx.style.display = 'none';
+    return;
+  }
+  ctx.style.display = '';
+  const labels = allSlots;  // full 24hr spine for consistent axis
+
+  const [nh, nm] = now.split(':').map(Number);
+  const nowMins  = nh * 60 + nm;
+  const nowSnap  = allSlots.reduce((a, b) => {
+    const [ah, am] = a.split(':').map(Number);
+    const [bh, bm] = b.split(':').map(Number);
+    return Math.abs(bh*60+bm - nowMins) < Math.abs(ah*60+am - nowMins) ? b : a;
+  });
+  const nowIdx = labels.indexOf(nowSnap);
+
+  const datasets = [];
+  for (const r of REGIONS) {
+    const color = REGION_COLORS[r];
+    const src = (dispHist[r] && dispHist[r].length) ? dispHist[r] : (snapHist[r] || []);
+
+    // Operational demand (DEMAND_AND_NONSCHEDGEN) — primary series
+    const opHm = {};
+    (opHist[r] || []).forEach(p => {
+      if (p.interval !== undefined && p.demand != null) opHm[p.interval] = p.demand;
+    });
+    if (liveOp[r] != null) opHm[nowSnap] = liveOp[r];
+
+    // Scheduled demand (TOTALDEMAND) — secondary/context series
+    const hm = {};
+    src.forEach(p => {
+      if (p.interval !== undefined) {
+        const val = p.demand !== undefined ? p.demand : p.totaldemand;
+        if (val !== null && val !== undefined) hm[p.interval] = val;
+      }
+    });
+    if (liveDemand[r] != null) hm[nowSnap] = liveDemand[r];
+
+    // Find the last slot that has ANY actual data (op or scheduled)
+    const lastActualD = labels.slice().reverse().find(l =>
+      opHm[l] !== undefined || hm[l] !== undefined
+    );
+
+    // Predispatch — 30-min points, future only
+    const pm = {};
+    (pd[r] || []).forEach(p => { if (p.interval) pm[p.interval] = p.demand; });
+
+    // Bridge: copy the last actual value into pm so the dashed line connects
+    if (lastActualD && Object.keys(pm).length) {
+      pm[lastActualD] = opHm[lastActualD] ?? hm[lastActualD];
     }
 
-
-@app.get("/api/debug")
-async def debug():
-    import csv, io
-    from scraper import _list_hrefs, _read_zip, _parse_aemo, DISPATCH_IS_URL, PREDISPATCH_URL, TRADING_CURRENT, ST_PASA_URL
-    from zoneinfo import ZoneInfo
-
-    result = {}
-    aest = ZoneInfo("Australia/Brisbane")  # UTC+10 fixed, matches AEMO
-    now = datetime.now(aest)
-    today_str = now.strftime("%Y%m%d")
-    result["now_aest"] = now.isoformat()
-
-    # Direct test of scrape_trading_history
-    try:
-        from scraper import scrape_trading_history
-        th = scrape_trading_history()
-        result["trading_history_test"] = {
-            "price_regions": list(th["prices"].keys()),
-            "price_counts": {r: len(v) for r, v in th["prices"].items()},
-            "price_sample": {r: v[:2] for r, v in th["prices"].items()},
-            "fetch_stats": th.get("fetch_stats", {}),
-        }
-    except Exception:
-        result["trading_history_error"] = traceback.format_exc()
-
-    # Trading archive timing
-    try:
-        t0 = time.time()
-        all_zips = _list_hrefs(TRADING_CURRENT)
-        today_zips = [u for u in all_zips if today_str in u]
-        result["trading_total_zips"] = len(all_zips)
-        result["trading_today_zips"] = len(today_zips)
-        result["trading_list_ms"] = round((time.time()-t0)*1000)
-        test_url = today_zips[-1] if today_zips else (all_zips[-1] if all_zips else None)
-        if test_url:
-            result["trading_test_url"] = test_url
-            t1 = time.time()
-            text = _read_zip(test_url)
-            result["trading_fetch_ms"] = round((time.time()-t1)*1000)
-            # Show all table names AND their columns
-            tables = {}
-            reader = csv.reader(io.StringIO(text))
-            for row in reader:
-                if row and row[0].strip().upper() == "I" and len(row) >= 5:
-                    key = f"{row[1].strip()}_{row[2].strip()}".upper()
-                    tables[key] = [c.strip().upper() for c in row[4:] if c.strip()]
-            result["trading_tables_with_cols"] = tables
-            # Sample actual rows
-            for tbl in ["TRADING_PRICE", "TRADING_REGIONSUM"]:
-                rows = _parse_aemo(text, tbl)
-                result[f"{tbl}_count"] = len(rows)
-                result[f"{tbl}_sample"] = rows[:2] if rows else []
-    except Exception:
-        result["trading_error"] = traceback.format_exc()
-
-    # Also check DispatchIS (the live file)
-    try:
-        dispatch_urls = _list_hrefs(DISPATCH_IS_URL)
-        if dispatch_urls:
-            result["dispatch_latest_url"] = dispatch_urls[-1]
-            t1 = time.time()
-            text = _read_zip(dispatch_urls[-1])
-            result["dispatch_fetch_ms"] = round((time.time()-t1)*1000)
-            tables = {}
-            reader = csv.reader(io.StringIO(text))
-            for row in reader:
-                if row and row[0].strip().upper() == "I" and len(row) >= 5:
-                    key = f"{row[1].strip()}_{row[2].strip()}".upper()
-                    tables[key] = [c.strip().upper() for c in row[4:] if c.strip()]
-            result["dispatch_tables_with_cols"] = tables
-            for tbl in ["DISPATCH_PRICE", "DISPATCH_REGIONSUM"]:
-                rows = _parse_aemo(text, tbl)
-                result[f"{tbl}_count"] = len(rows)
-                result[f"{tbl}_sample"] = rows[:2] if rows else []
-    except Exception:
-        result["dispatch_error"] = traceback.format_exc()
-
-    # ST PASA listing
-    try:
-        t0 = time.time()
-        pasa_urls = _list_hrefs(ST_PASA_URL)
-        result["stpasa_total"] = len(pasa_urls)
-        result["stpasa_list_ms"] = round((time.time()-t0)*1000)
-        result["stpasa_sample"] = pasa_urls[-2:] if pasa_urls else []
-    except Exception:
-        result["stpasa_error"] = traceback.format_exc()
-
-    # Cache summary
-    if fast_cache["data"]:
-        d = fast_cache["data"]
-        result["fast_cache"] = {
-            "prices":        d.get("prices", {}),
-            "demand":        d.get("demand", {}),
-            "hist_prices":   {r: len(v) for r, v in d.get("historical_prices", {}).items()},
-            "hist_prices_sample": {r: v[:2] for r, v in d.get("historical_prices", {}).items()},
-            "hist_fetch_stats": d.get("price_fetch_stats", {}),
-            "pd_prices":     {r: len(v) for r, v in d.get("predispatch_prices", {}).items()},
-            "dispatch_hist": {r: len(v) for r, v in d.get("dispatch_history", {}).items()},
-            "dispatch_hist_sample": {r: v[:2] for r, v in d.get("dispatch_history", {}).items()},
-            "demand_hist":   {r: len(v) for r, v in d.get("demand_history", {}).items()},
-            "demand_fetch_stats": d.get("demand_fetch_stats", {}),
-            "fuel_mix":      {r: len(v) for r, v in d.get("fuel_mix_history", {}).items()},
-            "ic_history":    {k: len(v) for k, v in d.get("ic_history", {}).items()},
-        }
-    if gen_cache["data"]:
-        gd = gen_cache["data"]
-        result["gen_cache"] = {
-            "scada_count":   gd.get("scada_count", 0),
-            "reg_count":     gd.get("reg_count", 0),
-            "fuel_mix_regions": list(gd.get("fuel_mix", {}).keys()),
-            "fuel_mix_sample": gd.get("fuel_mix", {}),
-            "fuel_history_pts": {r: len(v) for r, v in gd.get("fuel_history", {}).items()},
-            "gen_error":     gen_cache.get("error"),
-        }
-    else:
-        result["gen_cache"] = {"status": "no data yet", "error": gen_cache.get("error")}
-
-    if slow_cache["data"]:
-        d = slow_cache["data"]
-        result["slow_cache"] = {
-            "stpasa_pts":    {r: len(v) for r, v in d.get("stpasa_demand", {}).items()},
-        }
-
-    return JSONResponse(content=result)
-
-
-@app.get("/api/reg-sources-debug")
-async def reg_sources_debug():
-    """Test all registration list sources to find what works from Render."""
-    import asyncio, time as _time
-    from scraper import _get, _list_hrefs, NEMWEB_BASE
-
-    loop = asyncio.get_running_loop()
-    def _fetch():
-        results = {}
-        # Test SEMP CSV
-        url = f"{NEMWEB_BASE}/REPORTS/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV"
-        r = _get(url, timeout=10)
-        results["semp_csv"] = {"status": r.status_code if r else "failed", "size": len(r.content) if r else 0}
-
-        # Test DVD directory listing
-        for path in [f"{NEMWEB_BASE}/REPORTS/CURRENT/DVD/", f"{NEMWEB_BASE}/REPORTS/ARCHIVE/DVD/"]:
-            try:
-                files = _list_hrefs(path)
-                detail = [f for f in files if "DUDETAIL" in f.upper()]
-                results[f"dvd_{path.split('/')[-2]}"] = {"file_count": len(files), "dudetail_count": len(detail), "sample": detail[-2:] if detail else []}
-            except Exception as e:
-                results[f"dvd_{path.split('/')[-2]}"] = {"error": str(e)}
-        return results
-
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/reg-test")
-async def reg_test():
-    """Directly test AEMO registration list download and parse."""
-    import time as _time
-    result = {}
-    try:
-        from scraper import AEMO_REG_LIST_URL, SESSION
-        result["url"] = AEMO_REG_LIST_URL
-        t0 = _time.time()
-        r = SESSION.get(AEMO_REG_LIST_URL, timeout=30, allow_redirects=True)
-        result["status_code"] = r.status_code
-        result["content_type"] = r.headers.get("Content-Type", "")
-        result["content_length"] = len(r.content)
-        result["fetch_ms"] = round((_time.time() - t0) * 1000)
-        result["final_url"] = r.url
-
-        if r.status_code != 200:
-            result["error"] = f"HTTP {r.status_code}"
-            return JSONResponse(content=result)
-
-        # Try xlrd
-        try:
-            import xlrd
-            wb = xlrd.open_workbook(file_contents=r.content)
-            result["xlrd_sheets"] = wb.sheet_names()
-            # Try each sheet
-            sheet_info = {}
-            for name in wb.sheet_names():
-                sh = wb.sheet_by_name(name)
-                # First 5 rows, first 8 cols
-                rows_sample = []
-                for i in range(min(5, sh.nrows)):
-                    rows_sample.append([str(sh.cell_value(i, j)) for j in range(min(8, sh.ncols))])
-                sheet_info[name] = {"nrows": sh.nrows, "ncols": sh.ncols, "sample": rows_sample}
-            result["sheets"] = sheet_info
-        except Exception as e:
-            result["xlrd_error"] = str(e)
-            # Try openpyxl as fallback diagnostic
-            try:
-                import openpyxl
-                wb2 = openpyxl.load_workbook(io.BytesIO(r.content), read_only=True)
-                result["openpyxl_sheets"] = wb2.sheetnames
-            except Exception as e2:
-                result["openpyxl_error"] = str(e2)
-
-    except Exception as e:
-        result["exception"] = str(e)
-        import traceback as tb
-        result["traceback"] = tb.format_exc()
-
-    return JSONResponse(content=result)
-
-
-
-@app.get("/api/scada-debug")
-async def scada_debug():
-    """Show raw SCADA DUIDs and which ones match/miss the registry."""
-    from scraper import _fetch_full_scada, NEM_UNITS
-    loop = asyncio.get_running_loop()
-    scada = await loop.run_in_executor(None, _fetch_full_scada)
-    matched, unmatched = {}, {}
-    for duid, mw in scada.items():
-        info = NEM_UNITS.get(duid.upper())
-        if info:
-            matched[duid] = {**info, "mw": mw}
-        else:
-            unmatched[duid] = mw
-    # Sort unmatched by MW desc to see biggest missing generators
-    top_unmatched = dict(sorted(unmatched.items(), key=lambda x: abs(x[1] or 0), reverse=True)[:100])
-    return JSONResponse(content={
-        "total_scada": len(scada),
-        "matched": len(matched),
-        "unmatched": len(unmatched),
-        "top_unmatched_by_mw": top_unmatched,
-        "matched_fuel_summary": {
-            fuel: round(sum(v["mw"] or 0 for v in matched.values() if v["fuel"] == fuel), 1)
-            for fuel in set(v["fuel"] for v in matched.values())
-        }
-    })
-
-
-@app.get("/api/gen-debug")
-async def gen_debug():
-    """Show what DUIDs are classified as 'Other' in the current gen cache, plus top unmatched."""
-    from scraper import _fetch_full_scada, NEM_UNITS, _infer_fuel_from_duid
-    data = gen_cache.get("data") or {}
-    grouped = data.get("grouped", {})
-    other_by_region = {}
-    for region, fuels in grouped.items():
-        others = fuels.get("Other", [])
-        if others:
-            other_by_region[region] = sorted(others, key=lambda x: x.get("mw") or 0, reverse=True)[:20]
-
-    # Live check: fetch SCADA and show top unmatched DUIDs
-    loop = asyncio.get_running_loop()
-    scada = await loop.run_in_executor(None, _fetch_full_scada)
-    unmatched = {}
-    for duid, mw in scada.items():
-        if not NEM_UNITS.get(duid.upper()):
-            inferred = _infer_fuel_from_duid(duid)
-            unmatched[duid] = {"mw": mw, "inferred_fuel": inferred}
-    top_unmatched = dict(sorted(unmatched.items(), key=lambda x: abs(x[1]["mw"] or 0), reverse=True)[:30])
-
-    # Check fuel_history for QLD Black Coal specifically
-    from scraper import _fuel_history
-    qld_hist = _fuel_history.get("QLD1", {})
-    sample_slot = sorted(qld_hist.keys())[-1] if qld_hist else None
-    qld_fuels = qld_hist.get(sample_slot, {}) if sample_slot else {}
-
-    # Check which SCADA DUIDs map to QLD Black Coal
-    qld_coal_scada = {}
-    for duid, mw in scada.items():
-        info = NEM_UNITS.get(duid.upper(), {})
-        if info.get("region") == "QLD1" and info.get("fuel") == "Black Coal":
-            qld_coal_scada[duid] = {"mw": mw, "station": info.get("station")}
-
-    # Show fuel_mix totals from gen_cache vs what SCADA should give
-    gen_data = gen_cache.get("data") or {}
-    fuel_mix_totals = {}
-    for region, fuels in gen_data.get("fuel_mix", {}).items():
-        fuel_mix_totals[region] = {f: round(mw,1) for f,mw in fuels.items() if mw > 0}
-    fuel_mix_grand_total = sum(sum(f.values()) for f in fuel_mix_totals.values())
-
-    # SCADA total vs fuel_mix total
-    scada_total = sum(abs(v) for v in scada.values() if v and v > 0)
-
-    return JSONResponse(content={
-        "other_by_region": other_by_region,
-        "top_unmatched_scada_duids": top_unmatched,
-        "nem_units_count": len(NEM_UNITS),
-        "scada_total_mw": round(scada_total, 1),
-        "fuel_mix_total_mw": round(fuel_mix_grand_total, 1),
-        "fuel_mix_by_region": fuel_mix_totals,
-        "qld_fuel_history_slot": sample_slot,
-        "qld_fuel_history_fuels": qld_fuels,
-        "qld_coal_scada_duids": qld_coal_scada,
-    })
-
-
-@app.get("/api/station/{duid}")
-async def station_detail(duid: str):
-    from scraper import _duid_history, NEM_UNITS
-    duid = duid.strip().upper()
-    info = NEM_UNITS.get(duid, {})
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    now_label = datetime.now(ZoneInfo("Australia/Brisbane")).strftime("%H:%M")
-    history = _duid_history.get(duid, {})
-    history_series = [{"interval": k, "mw": v} for k, v in sorted(history.items()) if k <= now_label]
-    return JSONResponse(content={
-        "duid": duid, "station": info.get("station", duid),
-        "fuel": info.get("fuel", "Other"), "region": info.get("region", ""),
-        "capacity": info.get("capacity"), "history": history_series, "predispatch": [],
-    })
-
-
-@app.get("/api/stations/batch")
-async def station_batch(duids: str):
-    """Return history for multiple DUIDs in one request. duids=DUID1,DUID2,..."""
-    from scraper import _duid_history, NEM_UNITS
-    result = []
-    for duid in duids.upper().split(","):
-        duid = duid.strip()
-        if not duid:
-            continue
-        info = NEM_UNITS.get(duid, {})
-        history = _duid_history.get(duid, {})
-        from datetime import datetime as _dt2
-        from zoneinfo import ZoneInfo as _ZI
-        _now = _dt2.now(_ZI("Australia/Brisbane")).strftime("%H:%M")
-        result.append({
-            "duid": duid, "station": info.get("station", duid),
-            "fuel": info.get("fuel", "Other"), "region": info.get("region", ""),
-            "capacity": info.get("capacity"),
-            "history": [{"interval": k, "mw": v} for k, v in sorted(history.items()) if k <= _now],
-            "predispatch": [],
-        })
-    return JSONResponse(content=result)
-
-
-@app.get("/api/historical_prices")
-async def historical_prices(date: str):
-    """Fetch 30-min trading prices for a given date (YYYYMMDD)."""
-    import re
-    if not re.match(r'^\d{8}$', date):
-        return JSONResponse(status_code=400, content={"error": "date must be YYYYMMDD"})
-    from scraper import scrape_historical_prices
-    loop = asyncio.get_running_loop()
-    try:
-        data = await asyncio.wait_for(
-            loop.run_in_executor(None, scrape_historical_prices, date),
-            timeout=60
-        )
-        return data
-    except asyncio.TimeoutError:
-        return JSONResponse(status_code=504, content={"error": "timeout"})
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
-
-
-@app.get("/api/pasa-structure-debug")
-async def pasa_structure_debug():
-    """Inspect PDPASA and STPASA DUID availability file structures."""
-    import asyncio
-    from scraper import _read_zip, _parse_aemo, NEMWEB_BASE
-
-    loop = asyncio.get_running_loop()
-
-    def _fetch():
-        import csv, io, requests
-        results = {}
-        targets = {
-            "PDPASA": f"{NEMWEB_BASE}/REPORTS/CURRENT/PDPASA_DUIDAvailability/PUBLIC_PDPASA_DUIDAVAILABILITY_202603232100_0000000509352436.zip",
-            "STPASA": f"{NEMWEB_BASE}/REPORTS/CURRENT/STPASA_DUIDAvailability/PUBLIC_STPASA_DUIDAVAILABILITY_202603232000_0000000509348868.zip",
-        }
-        for name, url in targets.items():
-            text = _read_zip(url)
-            if not text:
-                results[name] = {"error": "failed to read"}
-                continue
-            # Get all table names and columns
-            tables = {}
-            reader = csv.reader(io.StringIO(text))
-            for row in reader:
-                if row and row[0].strip().upper() == 'I' and len(row) >= 3:
-                    tbl = row[2].strip().upper()
-                    cols = [c.strip() for c in row[4:] if c.strip()]
-                    tables[tbl] = cols
-            # Sample rows from DUID tables
-            samples = {}
-            for tbl in tables:
-                if 'DUID' in tbl:
-                    rows = list(_parse_aemo(text, tbl))
-                    samples[tbl] = rows[:3]
-            results[name] = {"tables": tables, "samples": samples}
-        return results
-
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/pasa-probe-debug")
-async def pasa_probe_debug():
-    """Probe known PDPASA and STPASA DUID availability paths on NEMWeb."""
-    import asyncio
-    from scraper import _get, _list_hrefs, NEMWEB_BASE
-
-    loop = asyncio.get_running_loop()
-
-    def _fetch():
-        # Try known paths for DUID-level availability data
-        candidates = [
-            f"{NEMWEB_BASE}/REPORTS/CURRENT/PDPASA_DUIDAvailability/",
-            f"{NEMWEB_BASE}/REPORTS/CURRENT/PDPASA_DUID/",
-            f"{NEMWEB_BASE}/REPORTS/CURRENT/Short_Term_PASA_DUID/",
-            f"{NEMWEB_BASE}/REPORTS/CURRENT/STPASA_DUIDAvailability/",
-            f"{NEMWEB_BASE}/REPORTS/CURRENT/PD_PASA/",
-            f"{NEMWEB_BASE}/REPORTS/CURRENT/Predispatch_PASA/",
-            f"{NEMWEB_BASE}/REPORTS/CURRENT/MTPASA_DUIDAvailability/",  # known good - control
-        ]
-        results = {}
-        for url in candidates:
-            r = _get(url, timeout=10)
-            if r:
-                import re
-                zips = re.findall(r'href="([^"]+\.zip)"', r.text, re.IGNORECASE)
-                results[url] = {"status": r.status_code, "zip_count": len(zips), "sample": zips[-1] if zips else None}
-            else:
-                results[url] = {"status": "failed"}
-        return results
-
-    result = await loop.run_in_executor(None, _fetch)
-    return result
-
-@app.get("/api/pasa-dirs-debug")
-async def pasa_dirs_debug():
-    """List all PASA-related directories on NEMWeb to find DUID availability."""
-    import asyncio
-    from scraper import _get, NEMWEB_BASE
-    import re
-
-    loop = asyncio.get_running_loop()
-
-    def _fetch():
-        # List the CURRENT directory to find all PASA-related folders
-        r = _get(f"{NEMWEB_BASE}/REPORTS/CURRENT/")
-        if not r:
-            return {"error": "failed to list CURRENT"}
-        folders = re.findall(r'href="([^"]+)"', r.text)
-        pasa = [f for f in folders if 'PASA' in f.upper() or 'AVAIL' in f.upper()]
-        return {"pasa_folders": pasa, "all_count": len(folders)}
-
-    result = await loop.run_in_executor(None, _fetch)
-    return result
-
-@app.get("/api/yallourn-debug")
-async def yallourn_debug():
-    """Check what STPASA, PDPASA and MTPASA show for Yallourn units."""
-    import asyncio
-    from scraper import scrape_pasa_duid_availability, _list_hrefs, _read_zip, _parse_aemo, NEM_UNITS, MTPASA_DUID_URL, AEST
-    from datetime import datetime
-
-    loop = asyncio.get_running_loop()
-
-    def _fetch():
-        now_aest = datetime.now(AEST)
-        today_str = now_aest.strftime("%Y/%m/%d")
-        now_label = now_aest.strftime("%Y-%m-%d %H:%M")
-
-        duids = ["YWPS1","YWPS2","YWPS3","YWPS4"]
-
-        # STPASA
-        st = scrape_pasa_duid_availability("STPASA")
-        st_slots = st.get("slots", {})
-        st_max = st.get("max_avail", {})
-
-        # PDPASA
-        pd = scrape_pasa_duid_availability("PDPASA")
-        pd_slots = pd.get("slots", {})
-
-        # MTPASA
-        files = _list_hrefs(MTPASA_DUID_URL)
-        text = _read_zip(sorted(files)[-1])
-        mtpasa = {}
-        for row in _parse_aemo(text, "MTPASA_DUIDAVAILABILITY"):
-            duid = row.get("DUID","").strip()
-            if duid in duids:
-                day = row.get("DAY","").strip()[:10]
-                avail = float(row.get("PASAAVAILABILITY") or 0)
-                state = row.get("UNITSTATE","").strip()
-                if duid not in mtpasa: mtpasa[duid] = []
-                mtpasa[duid].append({"day": day, "avail": avail, "state": state})
-
-        result = {}
-        for duid in duids:
-            cap = NEM_UNITS.get(duid, {}).get("capacity", 0)
-            # STPASA first interval
-            duid_st = st_slots.get(duid, {})
-            st_first_dt = sorted(duid_st.keys())[0] if duid_st else None
-            st_first_val = duid_st[st_first_dt] if st_first_dt else None
-            # PDPASA first interval
-            duid_pd = pd_slots.get(duid, {})
-            pd_first_dt = sorted(duid_pd.keys())[0] if duid_pd else None
-            pd_first_val = duid_pd[pd_first_dt] if pd_first_dt else None
-            # MTPASA
-            mt = sorted(mtpasa.get(duid, []), key=lambda x: x["day"])
-            past = [e for e in mt if e["day"] <= today_str]
-            cur_mt = past[-1] if past else (mt[0] if mt else None)
-
-            result[duid] = {
-                "capacity": cap,
-                "threshold_70": round(cap * 0.70),
-                "stpasa_first_dt": st_first_dt,
-                "stpasa_first_avail": st_first_val,
-                "pdpasa_first_dt": pd_first_dt,
-                "pdpasa_first_avail": pd_first_val,
-                "mtpasa_current": cur_mt,
-                "mtpasa_next_3": [e for e in mt if e["day"] > today_str][:3],
-            }
-        return result
-
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/tnps1-debug2")
-async def tnps1_debug2():
-    """Check return date logic for TNPS1."""
-    import asyncio
-    from scraper import scrape_pasa_duid_availability, _list_hrefs, _read_zip, _parse_aemo, NEM_UNITS, MTPASA_DUID_URL, AEST
-    from datetime import datetime
-    loop = asyncio.get_running_loop()
-    def _fetch():
-        now = datetime.now(AEST)
-        today_str = now.strftime("%Y/%m/%d")
-        cap = NEM_UNITS.get("TNPS1", {}).get("capacity", 480)
-        threshold = cap * 0.70
-
-        pd = scrape_pasa_duid_availability("PDPASA")
-        st = scrape_pasa_duid_availability("STPASA")
-        pd_slots = pd.get("slots", {}).get("TNPS1", {})
-        st_slots = st.get("slots", {}).get("TNPS1", {})
-
-        # Build STPASA daily 00:30
-        daily_st = {s[:10]: st_slots[s] for s in st_slots if s[11:] == "00:30"}
-
-        # MTPASA
-        files = _list_hrefs(MTPASA_DUID_URL)
-        text = _read_zip(sorted(files)[-1])
-        mt = {}
-        for row in _parse_aemo(text, "MTPASA_DUIDAVAILABILITY"):
-            if row.get("DUID","").strip() == "TNPS1":
-                d = row.get("DAY","").strip()[:10]
-                mt[d] = float(row.get("PASAAVAILABILITY") or 0)
-
-        # Find outage start
-        pd_first_below = next((s[:10].replace("-","/") for s in sorted(pd_slots) if pd_slots[s] < threshold), None)
-        st_first_below = next((d.replace("-","/") for d in sorted(daily_st) if daily_st[d] < threshold), None)
-        mt_first_below = next((d for d in sorted(mt) if mt[d] < threshold), None)
-        outage_start = min([d for d in [pd_first_below, st_first_below, mt_first_below] if d]) if any([pd_first_below, st_first_below, mt_first_below]) else None
-
-        # Find return - scan STPASA then MTPASA for first slot >= threshold after outage_start
-        outage_label = outage_start.replace("/","-") if outage_start else ""
-        stpasa_return = next((d.replace("-","/") for d in sorted(daily_st) if d > outage_label and daily_st[d] >= threshold), None)
-        mtpasa_return = next((d for d in sorted(mt) if d.replace("/","-") > outage_label and mt[d] >= threshold), None)
-
-        return {
-            "capacity": cap, "threshold_70": threshold,
-            "pdpasa_first_5": sorted(pd_slots.items())[:5],
-            "stpasa_daily_first_5": sorted(daily_st.items())[:5],
-            "mtpasa_first_5": sorted(mt.items())[:5],
-            "pd_first_below_threshold": pd_first_below,
-            "st_first_below_threshold": st_first_below,
-            "mt_first_below_threshold": mt_first_below,
-            "outage_start": outage_start,
-            "stpasa_return": stpasa_return,
-            "mtpasa_return": mtpasa_return,
-        }
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/tnps1-debug")
-async def tnps1_debug():
-    """Check exactly what PDPASA and STPASA show for TNPS1."""
-    import asyncio
-    from scraper import scrape_pasa_duid_availability, NEM_UNITS, AEST
-    from datetime import datetime
-    loop = asyncio.get_running_loop()
-    def _fetch():
-        now = datetime.now(AEST).strftime("%Y-%m-%d %H:%M")
-        pd = scrape_pasa_duid_availability("PDPASA")
-        st = scrape_pasa_duid_availability("STPASA")
-        pd_slots = pd.get("slots", {}).get("TNPS1", {})
-        st_slots = st.get("slots", {}).get("TNPS1", {})
-        cap = NEM_UNITS.get("TNPS1", {}).get("capacity", 0)
-        pd_sorted = sorted(pd_slots.items())
-        st_sorted = sorted(st_slots.items())
-        return {
-            "now": now,
-            "capacity": cap,
-            "threshold_70": round(cap * 0.70),
-            "pdpasa_first_5": pd_sorted[:5],
-            "pdpasa_in_file": bool(pd_slots),
-            "stpasa_first_5": st_sorted[:5],
-            "stpasa_in_file": bool(st_slots),
-        }
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/trading-window-debug")
-async def trading_window_debug():
-    """Check how far back TradingIS CURRENT goes."""
-    import asyncio
-    from scraper import _list_hrefs, TRADING_CURRENT
-    loop = asyncio.get_running_loop()
-    def _fetch():
-        files = _list_hrefs(TRADING_CURRENT)
-        dates = sorted(set(
-            f.split("PUBLIC_TRADINGIS_")[1][:8]
-            for f in files if "PUBLIC_TRADINGIS_" in f
-        ))
-        return {
-            "total_files": len(files),
-            "earliest_date": dates[0] if dates else None,
-            "latest_date": dates[-1] if dates else None,
-            "all_dates": dates,
-        }
-    return await loop.run_in_executor(None, _fetch)
-
-
-@app.get("/api/trading-archive-range")
-async def trading_archive_range():
-    """Check full date range of TradingIS archive weekly files."""
-    import asyncio
-    from scraper import _list_hrefs, TRADING_ARCHIVE
-    loop = asyncio.get_running_loop()
-    def _fetch():
-        files = sorted(_list_hrefs(TRADING_ARCHIVE))
-        # Extract date ranges from filenames
-        import re
-        ranges = []
-        for f in files:
-            m = re.search(r'(\d{8})_(\d{8})', f)
-            if m:
-                ranges.append({"start": m.group(1), "end": m.group(2), "url": f})
-        return {
-            "total_files": len(files),
-            "oldest": ranges[0] if ranges else None,
-            "newest": ranges[-1] if ranges else None,
-            "all_ranges": [(r["start"], r["end"]) for r in ranges],
-        }
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/trading-archive-debug")
-async def trading_archive_debug():
-    """Check how far back TradingIS archive goes."""
-    import asyncio
-    from scraper import _list_hrefs, TRADING_ARCHIVE, NEMWEB_BASE
-    loop = asyncio.get_running_loop()
-    def _fetch():
-        results = {}
-        # Check archive root for available months
-        try:
-            dirs = _list_hrefs(TRADING_ARCHIVE)
-            results["archive_months"] = sorted(dirs)[-6:] if dirs else []
-            results["total_months"] = len(dirs)
-        except Exception as e:
-            results["archive_error"] = str(e)
-
-        # Try fetching a specific old month to see if it works
-        for ym in ["202603", "202601", "202501", "202401", "202301"]:
-            url = f"{TRADING_ARCHIVE}{ym}/"
-            try:
-                files = _list_hrefs(url)
-                results[f"month_{ym}"] = {"count": len(files), "sample": sorted(files)[:2]}
-            except Exception as e:
-                results[f"month_{ym}"] = {"error": str(e)}
-        return results
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/mmsdm-debug")
-async def mmsdm_debug():
-    """Check MMSDM archive for historical dispatch prices."""
-    import asyncio
-    from scraper import _list_hrefs, NEMWEB_BASE
-    loop = asyncio.get_running_loop()
-    def _fetch():
-        results = {}
-        # MMSDM is published monthly with ~1 month lag
-        # Try several possible URL patterns
-        urls_to_try = {
-            "mmsdm_2026_02": f"{NEMWEB_BASE}/Data/MMSDM/2026/MMSDM_2026_02/MMSDM_Historical_Data_SQLLoader/DATA/PUBLIC_DVD_DISPATCHPRICE_202602010000.zip",
-            "mmsdm_root_2026": f"{NEMWEB_BASE}/Data/MMSDM/2026/",
-            "mmsdm_root": f"{NEMWEB_BASE}/Data/MMSDM/",
-            "nemweb_data": f"{NEMWEB_BASE}/Data/",
-            # Alternative: Electricity Statement of Opportunities or other
-            "archive_5min": f"{NEMWEB_BASE}/REPORTS/ARCHIVE/5MIN/",
-            "current_5min": f"{NEMWEB_BASE}/REPORTS/CURRENT/5MIN/",
-        }
-        for name, url in urls_to_try.items():
-            try:
-                import requests
-                r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True)
-                results[name] = {"status": r.status_code, "url": url, "content_length": len(r.content), "preview": r.text[:200]}
-            except Exception as e:
-                results[name] = {"error": str(e), "url": url}
-        return results
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/tradingis-structure-debug")
-async def tradingis_structure_debug():
-    """Check tables and columns inside a TradingIS file."""
-    import asyncio, csv, io
-    from scraper import _list_hrefs, _read_zip, NEMWEB_BASE
-    loop = asyncio.get_running_loop()
-    def _fetch():
-        url = f"{NEMWEB_BASE}/REPORTS/CURRENT/TradingIS_Reports/"
-        files = sorted(_list_hrefs(url))
-        # Pick a file from a few days ago
-        old_files = [f for f in files if "20260320" in f]
-        sample = old_files[0] if old_files else files[10]
-        text = _read_zip(sample)
-        tables = {}
-        current_table = None
-        current_headers = []
-        sample_rows = {}
-        for row in csv.reader(io.StringIO(text)):
-            if not row: continue
-            if row[0].strip().upper() == 'I' and len(row) >= 3:
-                current_table = row[2].strip().upper()
-                current_headers = [c.strip() for c in row[4:] if c.strip()]
-                tables[current_table] = current_headers
-            if row[0].strip().upper() == 'D' and current_table and current_table not in sample_rows:
-                d = dict(zip(current_headers, row[4:]))
-                sample_rows[current_table] = d
-        return {"file": sample, "tables": tables, "sample_rows": sample_rows}
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/trading-files-debug")
-async def trading_files_debug():
-    """Check what's in TradingIS CURRENT and what date range it covers."""
-    import asyncio
-    from scraper import _list_hrefs, NEMWEB_BASE
-    loop = asyncio.get_running_loop()
-    def _fetch():
-        url = f"{NEMWEB_BASE}/REPORTS/CURRENT/TradingIS_Reports/"
-        files = _list_hrefs(url)
-        # Get date range from filenames
-        dated = sorted([f for f in files if "PUBLIC_TRADING" in f.upper() or "PUBLIC_DISPATCHPRICE" in f.upper()])
-        # Sample file names to see structure
-        sample = dated[:3] + dated[-3:]
-        # Extract unique dates
-        import re
-        dates = sorted(set(re.search(r'_(\d{8})', f).group(1)
-                          for f in dated if re.search(r'_(\d{8})', f)))
-        return {
-            "total": len(files),
-            "sample_files": sample,
-            "date_range": {"first": dates[0] if dates else None, "last": dates[-1] if dates else None},
-            "unique_dates_count": len(dates),
-            "all_prefixes": sorted(set(f.split('/')[-1][:30] for f in files[:20])),
-        }
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/dispatch-sources-debug")
-async def dispatch_sources_debug():
-    """Check alternative sources for historical 5-min dispatch prices."""
-    import asyncio
-    from scraper import _list_hrefs, NEMWEB_BASE
-    loop = asyncio.get_running_loop()
-    def _fetch():
-        results = {}
-        # AEMO keeps historical dispatch prices in the MMS DVD format
-        # Try MMSDM archive which has PUBLIC_DVD_DISPATCHPRICE files
-        sources = {
-            "mmsdm_202603": f"{NEMWEB_BASE}/Data/MMSDM/2026/MMSDM_2026_03/MMSDM_Historical_Data_SQLLoader/DATA/",
-            "mmsdm_202602": f"{NEMWEB_BASE}/Data/MMSDM/2026/MMSDM_2026_02/MMSDM_Historical_Data_SQLLoader/DATA/",
-            "archive_trading": f"{NEMWEB_BASE}/REPORTS/ARCHIVE/TradingIS_Reports/202603/",
-            "current_trading": f"{NEMWEB_BASE}/REPORTS/CURRENT/TradingIS_Reports/",
-        }
-        for name, url in sources.items():
-            try:
-                files = _list_hrefs(url)
-                dispatch = [f for f in files if "DISPATCHPRICE" in f.upper() or "DISPATCH_PRICE" in f.upper()]
-                results[name] = {
-                    "url": url,
-                    "total_files": len(files),
-                    "dispatch_price_files": len(dispatch),
-                    "sample": dispatch[:2],
-                }
-            except Exception as e:
-                results[name] = {"url": url, "error": str(e)}
-        return results
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/dispatch-archive-debug")
-async def dispatch_archive_debug():
-    """Check DispatchIS archive URL structure and how far back it goes."""
-    import asyncio
-    from scraper import _list_hrefs, NEMWEB_BASE, DISPATCH_IS_URL
-    loop = asyncio.get_running_loop()
-    def _fetch():
-        results = {}
-        # 1. Check CURRENT window
-        try:
-            current = _list_hrefs(DISPATCH_IS_URL)
-            current_dates = sorted(set(f.split("PUBLIC_DISPATCHIS_")[1][:8]
-                for f in current if "PUBLIC_DISPATCHIS_" in f))
-            results["current_dates"] = current_dates
-        except Exception as e:
-            results["current_error"] = str(e)
-
-        # 2. Check archive - try recent months
-        for ym in ["202603", "202602", "202601", "202512"]:
-            url = f"{NEMWEB_BASE}/REPORTS/ARCHIVE/DispatchIS_Reports/{ym}/"
-            try:
-                files = _list_hrefs(url)
-                dates = sorted(set(f.split("PUBLIC_DISPATCHIS_")[1][:8]
-                    for f in files if "PUBLIC_DISPATCHIS_" in f))
-                results[f"archive_{ym}"] = {"count": len(files), "dates_sample": dates[:3] + dates[-3:]}
-            except Exception as e:
-                results[f"archive_{ym}"] = {"error": str(e)}
-        return results
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/dispatch-price-debug3")
-async def dispatch_price_debug3():
-    """Check PRICE table columns and sample rows."""
-    import asyncio, csv, io
-    from scraper import _list_hrefs, _read_zip, DISPATCH_IS_URL
-    loop = asyncio.get_running_loop()
-    def _fetch():
-        files = _list_hrefs(DISPATCH_IS_URL)
-        matching = sorted([f for f in files if "20260324" in f and "PUBLIC_DISPATCHIS" in f.upper()])
-        if not matching:
-            return {"error": "no files"}
-        text = _read_zip(matching[0])
-        headers, rows = [], []
-        for row in csv.reader(io.StringIO(text)):
-            if not row: continue
-            if row[0].strip().upper() == 'I' and len(row) >= 3 and row[2].strip().upper() == 'PRICE':
-                headers = [c.strip() for c in row[4:] if c.strip()]
-            if row[0].strip().upper() == 'D' and len(row) >= 3 and row[2].strip().upper() == 'PRICE':
-                d = dict(zip(headers, row[4:]))
-                rows.append(d)
-                if len(rows) >= 3: break
-        return {"headers": headers, "sample_rows": rows}
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/dispatch-price-debug2")
-async def dispatch_price_debug2():
-    """Check what tables are inside a DispatchIS file."""
-    import asyncio
-    from scraper import _list_hrefs, _read_zip, DISPATCH_IS_URL
-    loop = asyncio.get_running_loop()
-    def _fetch():
-        files = _list_hrefs(DISPATCH_IS_URL)
-        # Get a file from yesterday
-        matching = sorted([f for f in files if "20260324" in f and "PUBLIC_DISPATCHIS" in f.upper()])
-        if not matching:
-            return {"error": "no files found"}
-        url = matching[0]
-        text = _read_zip(url)
-        # Find all table names (I rows)
-        import csv, io
-        tables = set()
-        for row in csv.reader(io.StringIO(text)):
-            if row and row[0].strip().upper() == 'I' and len(row) >= 3:
-                tables.add(row[2].strip().upper())
-        return {"file": url, "tables": sorted(tables)}
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/dispatch-price-debug")
-async def dispatch_price_debug(date: str = "20260324"):
-    """Debug historical dispatch prices fetch."""
-    import asyncio
-    from scraper import _list_hrefs, NEM_REGIONS, NEMWEB_BASE, DISPATCH_IS_URL, AEST
-    from datetime import datetime, timedelta
-    loop = asyncio.get_running_loop()
-    def _fetch():
-        now = datetime.now(AEST)
-        today = now.date()
-        from datetime import datetime as _dt
-        req_date = _dt.strptime(date, "%Y%m%d").date()
-        ym = req_date.strftime("%Y%m")
-
-        # Try both URLs
-        current_url = DISPATCH_IS_URL
-        archive_url = f"{NEMWEB_BASE}/REPORTS/ARCHIVE/DispatchIS_Reports/{ym}/"
-
-        current_files, archive_files = [], []
-        try:
-            all_current = _list_hrefs(current_url)
-            current_files = sorted([f for f in all_current if date in f and "PUBLIC_DISPATCHIS" in f.upper()])[:3]
-        except Exception as e:
-            current_files = [f"ERROR: {e}"]
-        try:
-            all_archive = _list_hrefs(archive_url)
-            archive_files = sorted([f for f in all_archive if date in f and "PUBLIC_DISPATCHIS" in f.upper()])[:3]
-        except Exception as e:
-            archive_files = [f"ERROR: {e}"]
-
-        return {
-            "date": date,
-            "today": str(today),
-            "req_date": str(req_date),
-            "current_url": current_url,
-            "archive_url": archive_url,
-            "current_matching_files": current_files,
-            "archive_matching_files": archive_files,
-        }
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/outage-debug")
-async def outage_debug():
-    """Show first 20 outages with is_current flag to debug filter."""
-    import asyncio
-    from scraper import scrape_mtpasa_outages
-    loop = asyncio.get_running_loop()
-    def _fetch():
-        results = scrape_mtpasa_outages()
-        # Show all outages, flag is_current
-        return [{
-            "duid": r["duid"],
-            "station": r["station"],
-            "fuel": r["fuel"],
-            "avail_today": r["avail_today"],
-            "capacity": r["capacity"],
-            "avail_source": r["avail_source"],
-            "is_current": r.get("is_current"),
-            "outage_start": r.get("outage_start"),
-        } for r in results[:30]]
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/stpasa-snapshot")
-async def stpasa_snapshot():
-    """Check the first STPASA interval - what is available/unavailable right now."""
-    import asyncio
-    from scraper import _list_hrefs, _read_zip, _parse_aemo, NEM_UNITS, STPASA_DUID_URL, AEST
-    from datetime import datetime
-
-    loop = asyncio.get_running_loop()
-
-    def _fetch():
-        files = _list_hrefs(STPASA_DUID_URL)
-        if not files:
-            return {"error": "no files"}
-        latest = sorted(files)[-1]
-        text = _read_zip(latest)
-
-        # Get all rows, find the first (earliest) INTERVAL_DATETIME
-        rows = list(_parse_aemo(text, "DUIDAVAILABILITY"))
-        if not rows:
-            return {"error": "no rows"}
-
-        # Find the first interval datetime
-        first_dt = min(r.get("INTERVAL_DATETIME","") for r in rows if r.get("INTERVAL_DATETIME"))
-        last_dt  = max(r.get("INTERVAL_DATETIME","") for r in rows if r.get("INTERVAL_DATETIME"))
-
-        # Get all DUIDs at the first interval
-        first_rows = [r for r in rows if r.get("INTERVAL_DATETIME","") == first_dt]
-
-        # Find unavailable ones (< 70% of nameplate)
-        unavailable = []
-        for r in first_rows:
-            duid = r.get("DUID","").strip()
-            unit = NEM_UNITS.get(duid, {})
-            cap = unit.get("capacity", 0)
-            if cap <= 0:
-                continue
-            avail = float(r.get("GENERATION_PASA_AVAILABILITY") or 0)
-            if avail < cap * 0.70:
-                unavailable.append({
-                    "duid": duid,
-                    "station": unit.get("station", duid),
-                    "fuel": unit.get("fuel","?"),
-                    "region": unit.get("region","?"),
-                    "capacity": cap,
-                    "avail": avail,
-                    "pct": round(avail/cap*100, 1),
-                })
-
-        unavailable.sort(key=lambda x: x["avail"] - x["capacity"])
-        return {
-            "file": latest,
-            "first_interval": first_dt,
-            "last_interval": last_dt,
-            "total_duids_in_file": len(set(r.get("DUID") for r in rows)),
-            "unavailable_count": len(unavailable),
-            "unavailable": unavailable[:50],
-        }
-
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/eraring-debug2")
-async def eraring_debug2():
-    """Check earliest/latest STPASA slots for Eraring."""
-    import asyncio
-    from scraper import scrape_pasa_duid_availability, NEM_UNITS, AEST
-    from datetime import datetime
-
-    loop = asyncio.get_running_loop()
-
-    def _fetch():
-        now_aest = datetime.now(AEST)
-        now_label = now_aest.strftime("%Y-%m-%d %H:%M")
-
-        stpasa_result = scrape_pasa_duid_availability("STPASA")
-        stpasa_slots = stpasa_result.get("slots", {})
-
-        result = {}
-        for duid in ["ER01","ER02","ER03","ER04"]:
-            duid_slots = stpasa_slots.get(duid, {})
-            all_slots = sorted(duid_slots.keys())
-            past = [k for k in all_slots if k <= now_label]
-            future = [k for k in all_slots if k > now_label]
-            result[duid] = {
-                "now": now_label,
-                "total_slots": len(all_slots),
-                "earliest": all_slots[0] if all_slots else None,
-                "latest": all_slots[-1] if all_slots else None,
-                "past_count": len(past),
-                "future_count": len(future),
-                "first_future": future[0] if future else None,
-                "first_future_avail": duid_slots[future[0]] if future else None,
-                "sample_future": {k: duid_slots[k] for k in future[:5]},
-            }
-        return result
-
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/eraring-debug")
-async def eraring_debug():
-    """Check what MTPASA and STPASA show for Eraring units right now."""
-    import asyncio
-    from scraper import scrape_pasa_duid_availability, _list_hrefs, _read_zip, _parse_aemo, NEM_UNITS, MTPASA_DUID_URL, AEST
-    from datetime import datetime
-
-    loop = asyncio.get_running_loop()
-
-    def _fetch():
-        now_aest = datetime.now(AEST)
-        today_str = now_aest.strftime("%Y/%m/%d")
-        now_label = now_aest.strftime("%Y-%m-%d %H:%M")
-
-        # Fetch MTPASA
-        files = _list_hrefs(MTPASA_DUID_URL)
-        latest = sorted(files)[-1]
-        text = _read_zip(latest)
-
-        eraring_duids = ["ER01","ER02","ER03","ER04"]
-        mtpasa = {}
-        for row in _parse_aemo(text, "MTPASA_DUIDAVAILABILITY"):
-            duid = row.get("DUID","").strip()
-            if duid in eraring_duids:
-                day = row.get("DAY","").strip()[:10]
-                avail = float(row.get("PASAAVAILABILITY") or 0)
-                state = row.get("UNITSTATE","").strip()
-                if duid not in mtpasa:
-                    mtpasa[duid] = []
-                mtpasa[duid].append({"day": day, "avail": avail, "state": state})
-
-        # Fetch STPASA
-        stpasa_result = scrape_pasa_duid_availability("STPASA")
-        stpasa_slots = stpasa_result.get("slots", {})
-
-        result = {}
-        for duid in eraring_duids:
-            cap = NEM_UNITS.get(duid, {}).get("capacity", 750)
-            mt = sorted(mtpasa.get(duid, []), key=lambda x: x["day"])
-            # Current MTPASA: last entry on or before today
-            past = [e for e in mt if e["day"] <= today_str]
-            cur_mt = past[-1] if past else (mt[0] if mt else None)
-            # STPASA current
-            duid_st = stpasa_slots.get(duid, {})
-            past_st = sorted([k for k in duid_st if k <= now_label])
-            cur_st = duid_st[past_st[-1]] if past_st else None
-            result[duid] = {
-                "capacity": cap,
-                "threshold_70pct": round(cap * 0.70),
-                "mtpasa_current": cur_mt,
-                "mtpasa_next_5": [e for e in mt if e["day"] > today_str][:5],
-                "stpasa_current": cur_st,
-                "stpasa_in_file": duid in stpasa_slots,
-            }
-        return {"today": today_str, "duids": result}
-
-    return await loop.run_in_executor(None, _fetch)
-
-@app.get("/api/stpasa-debug")
-async def stpasa_debug():
-    """Inspect STPASA file tables and columns."""
-    import asyncio
-    from scraper import _list_hrefs, _read_zip, _parse_aemo, ST_PASA_URL
-
-    loop = asyncio.get_running_loop()
-
-    def _fetch():
-        urls = _list_hrefs(ST_PASA_URL)
-        pasa_urls = sorted([u for u in urls if "STPASA" in u.upper()])
-        if not pasa_urls:
-            return {"error": "no STPASA files"}
-        url = pasa_urls[-1]
-        text = _read_zip(url)
-
-        import csv, io
-        tables = {}
-        reader = csv.reader(io.StringIO(text))
-        for row in reader:
-            if row and row[0].strip().upper() == 'I' and len(row) >= 3:
-                tbl = row[2].strip().upper()
-                cols = [c.strip() for c in row[4:] if c.strip()]
-                tables[tbl] = cols
-
-        # Sample first 2 rows from DUIDAVAILABILITY if it exists
-        samples = {}
-        for tbl in tables:
-            if 'DUID' in tbl or 'AVAIL' in tbl:
-                rows = list(_parse_aemo(text, tbl))
-                samples[tbl] = rows[:2]
-
-        return {"file": url, "tables": tables, "samples": samples}
-
-    result = await loop.run_in_executor(None, _fetch)
-    return result
-
-@app.get("/api/mtpasa-debug")
-async def mtpasa_debug():
-    from scraper import _list_hrefs, MTPASA_DUID_URL
-    files = _list_hrefs(MTPASA_DUID_URL)
-    latest = sorted(files)[-1] if files else None
-    return {"total_files": len(files), "latest_file": latest, "all_files": files[-5:]}
-
-@app.get("/api/rescrape")
-async def rescrape():
-    """Force immediate re-run of all scrape jobs including history backfill."""
-    import asyncio
-    from scraper import scrape_all, scrape_gen, scrape_slow, scrape_scada_history, scrape_mtpasa_outages
-    loop = asyncio.get_running_loop()
-
-    async def _run():
-        # Kick off all jobs concurrently
-        await asyncio.gather(
-            loop.run_in_executor(None, scrape_scada_history),
-            return_exceptions=True
-        )
-        # Then fast + gen
-        data = await loop.run_in_executor(None, scrape_all)
-        fast_cache["data"] = data
-        fast_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
-        gen_data = await loop.run_in_executor(None, scrape_gen)
-        gen_cache["data"] = gen_data
-        gen_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
-
-    asyncio.create_task(_run())
-    return {"status": "rescrape triggered — history backfill + fast + gen running in background"}
-
-@app.get("/api/pd-sens-debug")
-async def pd_sens_debug():
-    from scraper import _fetch_predispatch, _parse_aemo
-    text = _fetch_predispatch()
-    tables = set()
-    import csv, io
-    reader = csv.reader(io.StringIO(text))
-    for row in reader:
-        if row and row[0].strip().upper() == 'I' and len(row) >= 3:
-            tables.add(row[2].strip().upper())
-    # Check PRICESENSITIVITIES columns
-    sens_rows = list(_parse_aemo(text, 'PREDISPATCH_PRICESENSITIVITIES'))[:2]
-    return {"tables": sorted(tables), "sens_sample": sens_rows}
-
-@app.get("/api/sens-debug2")
-async def sens_debug2():
-    """Read scenario definitions from the sensitivities file."""
-    from scraper import _list_hrefs, _read_zip, _parse_aemo, PREDISPATCH_SENS_URL
-    import csv, io
-    files = _list_hrefs(PREDISPATCH_SENS_URL)
-    if not files: return {"error": "no files"}
-    text = _read_zip(files[-1])
-    
-    # Dump ALL I-rows (table headers) to see every table and its columns
-    result = {"file": files[-1], "all_tables": {}}
-    reader = csv.reader(io.StringIO(text))
-    for row in reader:
-        if row and row[0].strip().upper() == 'I' and len(row) >= 3:
-            tbl = row[2].strip().upper()
-            cols = [c.strip() for c in row[4:] if c.strip()]
-            result["all_tables"][tbl] = cols
-    
-    # Sample first 3 D-rows from every table
-    result["samples"] = {}
-    for tbl in result["all_tables"]:
-        rows = list(_parse_aemo(text, tbl))
-        result["samples"][tbl] = rows[:3]
-    
-    return result
-
-@app.get("/api/sens-debug")
-async def sens_debug():
-    from scraper import _list_hrefs, _read_zip, _parse_aemo, PREDISPATCH_SENS_URL, get_latest_file_url
-    import csv, io
-    result = {}
-    try:
-        files = _list_hrefs(PREDISPATCH_SENS_URL)
-        result['total_files'] = len(files)
-        result['sample_files'] = files[-3:] if files else []
-    except Exception as e:
-        result['list_error'] = str(e)
-        return result
-    if not files:
-        return result
-    url = files[-1]
-    result['fetching'] = url
-    text = _read_zip(url)
-    result['text_len'] = len(text)
-    # List tables
-    tables = {}
-    reader = csv.reader(io.StringIO(text))
-    for row in reader:
-        if row and row[0].strip().upper() == 'I' and len(row) >= 3:
-            tbl = row[2].strip().upper()
-            cols = [c.strip() for c in row[4:] if c.strip()]
-            tables[tbl] = cols[:20]
-    result['tables'] = tables
-    # Sample first NSW1 row from any sensitivity table
-    for tbl_key in tables:
-        rows = list(_parse_aemo(text, tbl_key))
-        nsw = [r for r in rows if r.get('REGIONID','').strip() == 'NSW1'][:1]
-        if nsw:
-            result['nsw_sample_' + tbl_key] = nsw[0]
-            break
-    return result
-
-# Cache for MTPASA calendar data (refreshed with slow cache)
-_mtpasa_cal_cache: dict = {"data": None, "last_updated": None}
-
-def _build_mtpasa_calendar() -> dict:
-    """Blocking function — run in executor. Fetches and parses MTPASA data."""
-    import requests, zipfile, io
-    from scraper import _list_hrefs, _parse_aemo, NEM_UNITS, MTPASA_DUID_URL, AEST
-    from datetime import datetime
-
-    # Use a fresh session — the global SESSION is not thread-safe under concurrent load
-    def _get_zip(url):
-        try:
-            s = requests.Session()
-            s.headers.update({"User-Agent": "NEM-Dashboard/1.0"})
-            r = s.get(url, timeout=30)
-            r.raise_for_status()
-            with zipfile.ZipFile(io.BytesIO(r.content)) as z:
-                csvs = [n for n in z.namelist() if n.lower().endswith(".csv")]
-                if not csvs: return ""
-                with z.open(csvs[0]) as f:
-                    return f.read().decode("utf-8", errors="replace")
-        except Exception as e:
-            logger.warning(f"_build_mtpasa_calendar: fetch failed {url}: {e}")
-            return ""
-
-    files = _list_hrefs(MTPASA_DUID_URL)
-    if not files:
-        return {}
-    latest = sorted(files)[-1]
-    text   = _get_zip(latest)
-    if not text:
-        return {}
-
-    duid_days: dict = {}
-    for row in _parse_aemo(text, "MTPASA_DUIDAVAILABILITY"):
-        duid = row.get("DUID", "").strip()
-        if not duid:
-            continue
-        unit = NEM_UNITS.get(duid, {})
-        if not unit or not unit.get("capacity"):
-            continue
-        day   = row.get("DAY", "").strip()[:10]
-        try:
-            avail = round(float(row.get("PASAAVAILABILITY") or 0))
-        except ValueError:
-            avail = 0
-        state = row.get("UNITSTATE", "").strip() or "Unknown"
-        if duid not in duid_days:
-            duid_days[duid] = {}
-        duid_days[duid][day] = {"avail": avail, "state": state}
-
-    result = {}
-    for duid, days in duid_days.items():
-        unit = NEM_UNITS.get(duid, {})
-        result[duid] = {
-            "station":  unit.get("station", duid),
-            "fuel":     unit.get("fuel", "Other"),
-            "region":   unit.get("region", ""),
-            "capacity": int(unit.get("capacity") or 0),
-            "days":     [{"day": k, "avail": v["avail"], "state": v["state"]}
-                         for k, v in sorted(days.items())]
-        }
-    return {"source": latest, "as_of": datetime.now(AEST).isoformat(), "duids": result}
-
-@app.get("/api/mtpasa-calendar")
-async def mtpasa_calendar():
-    """Return cached MTPASA calendar data. Fetches in background if stale."""
-    import asyncio
-    # Return cached data immediately if available
-    if _mtpasa_cal_cache["data"]:
-        return _mtpasa_cal_cache["data"]
-    # First call: fetch in executor so we don't block the event loop
-    loop = asyncio.get_running_loop()
-    data = await loop.run_in_executor(None, _build_mtpasa_calendar)
-    if data:
-        _mtpasa_cal_cache["data"] = data
-    return data or {"error": "Failed to fetch MTPASA data"}
-
-# Cache for historical price averages — expensive to compute (~53 file fetches)
-_price_avg_cache = {"data": None, "last_updated": None}
-
-@app.get("/api/prices-rolling")
-async def prices_rolling(days: int = 14):
-    """
-    Return daily price files from GitHub for the last N days.
-    Each day: { region: { "HH:MM": rrp } }
-    Returns: { "YYYY-MM-DD": { region: { "HH:MM": rrp } } }
-    """
-    import json, base64, os
-    from datetime import datetime, timezone, timedelta
-    import httpx
-
-    AEST     = timezone(timedelta(hours=10))
-    GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-    GH_REPO  = os.environ.get("GITHUB_REPO", "")
-    GH_HEADERS = {
-        "Authorization": f"token {GH_TOKEN}",
-        "Accept": "application/vnd.github.v3+json",
+    // PD data: null for every slot strictly before the bridge point
+    const pdData = labels.map(l =>
+      l < lastActualD ? null : (pm[l] !== undefined ? pm[l] : null)
+    );
+
+    // Operational demand — bold solid line
+    if (Object.keys(opHm).length) {
+      datasets.push({
+        label: REGION_SHORT[r] + ' Op', regionId: r,
+        data: labels.map(l => opHm[l] !== undefined ? opHm[l] : null),
+        borderColor: color, backgroundColor: color + '18',
+        borderWidth: 1, pointRadius: 0, tension: 0.2, spanGaps: false,
+        fill: false,
+      });
+    } else {
+      // Fallback to scheduled demand if operational not available
+      datasets.push({
+        label: REGION_SHORT[r], regionId: r,
+        data: labels.map(l => l <= lastActualD ? (hm[l] !== undefined ? hm[l] : null) : null),
+        borderColor: color, backgroundColor: 'transparent',
+        borderWidth: 1, pointRadius: 0, tension: 0.2, spanGaps: false,
+      });
     }
 
-    if not GH_TOKEN or not GH_REPO:
-        return JSONResponse(content={"error": "GitHub not configured"})
+    // Predispatch — dashed, spanGaps true to connect sparse 30-min points
+    datasets.push({
+      label: REGION_SHORT[r] + ' PD', regionId: r,
+      data: pdData,
+      borderColor: color + '88', backgroundColor: 'transparent',
+      borderWidth: 1, pointRadius: 0, tension: 0.2, spanGaps: true,
+      borderDash: [5, 5]
+    });
+  }
 
-    now_aest = datetime.now(AEST)
-    dates = [
-        (now_aest - timedelta(days=i)).strftime("%Y-%m-%d")
-        for i in range(days)
-    ]
-
-    result = {}
-    async with httpx.AsyncClient(timeout=10) as client:
-        for date_str in dates:
-            path = f"data/prices/{date_str}.json"
-            try:
-                r = await client.get(
-                    f"https://api.github.com/repos/{GH_REPO}/contents/{path}",
-                    headers=GH_HEADERS,
-                )
-                if r.status_code == 200:
-                    data = json.loads(base64.b64decode(r.json()["content"]).decode())
-                    data.pop("date", None)
-                    result[date_str] = data
-            except Exception:
-                pass
-
-    return JSONResponse(content=result)
-
-
-@app.get("/api/historical_price_averages")
-async def historical_price_averages(refresh: bool = False):
-    """Monthly average electricity prices from TradingIS archive (~12 months)."""
-    import asyncio
-    from datetime import datetime, timezone, timedelta
-    from scraper import scrape_historical_price_averages
-
-    # Serve cache if fresh (< 24h old) and not forced refresh
-    if not refresh and _price_avg_cache["data"] and _price_avg_cache["last_updated"]:
-        age = datetime.now(timezone.utc) - _price_avg_cache["last_updated"]
-        if age < timedelta(hours=6):
-            return JSONResponse(content=_price_avg_cache["data"])
-
-    loop = asyncio.get_running_loop()
-    try:
-        data = await asyncio.wait_for(
-            loop.run_in_executor(None, lambda: scrape_historical_price_averages(days=90)),
-            timeout=300.0
-        )
-        _price_avg_cache["data"] = data
-        _price_avg_cache["last_updated"] = datetime.now(timezone.utc)
-        return JSONResponse(content=data)
-    except asyncio.TimeoutError:
-        return JSONResponse(status_code=504, content={"error": "timeout"})
-    except Exception as e:
-        logger.error(f"historical_price_averages error: {e}")
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
-@app.get("/api/historical_day")
-async def historical_day(date: str):
-    """Fetch full day of historical data for D-1 page: prices, demand, fuel mix."""
-    import re
-    if not re.match(r'^\d{8}$', date):
-        return JSONResponse(status_code=400, content={"error": "date must be YYYYMMDD"})
-    from scraper import scrape_historical_day
-    loop = asyncio.get_running_loop()
-    try:
-        data = await asyncio.wait_for(
-            loop.run_in_executor(None, scrape_historical_day, date),
-            timeout=120.0
-        )
-        return JSONResponse(content=data)
-    except asyncio.TimeoutError:
-        return JSONResponse(status_code=504, content={"error": "timeout"})
-    except Exception as e:
-        logger.error(f"historical_day error: {e}")
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
-@app.get("/api/historical_dispatch_prices")
-async def historical_dispatch_prices(date: str):
-    """Fetch 5-min dispatch prices for a given date (YYYYMMDD)."""
-    import re
-    if not re.match(r'^\d{8}$', date):
-        return JSONResponse(status_code=400, content={"error": "date must be YYYYMMDD"})
-    from scraper import scrape_historical_dispatch_prices
-    loop = asyncio.get_running_loop()
-    try:
-        data = await asyncio.wait_for(
-            loop.run_in_executor(None, scrape_historical_dispatch_prices, date),
-            timeout=60.0
-        )
-        return JSONResponse(content=data)
-    except asyncio.TimeoutError:
-        return JSONResponse(status_code=504, content={"error": "timeout fetching dispatch prices"})
-    except Exception as e:
-        logger.error(f"historical_dispatch_prices error: {e}")
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
-
-@app.get("/api/origin")
-async def origin_history():
-    """Return Origin asset history — separate from fast cache to keep /api/data lean."""
-    from scraper import _duid_history, ORIGIN_DUIDS
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    now_label = datetime.now(ZoneInfo("Australia/Brisbane")).strftime("%H:%M")
-    result = {}
-    for duid in ORIGIN_DUIDS:
-        history = _duid_history.get(duid, {})
-        if history:
-            result[duid] = [{"interval": k, "mw": v} for k, v in sorted(history.items()) if k <= now_label]
-    return JSONResponse(content=result)
-
-
-@app.get("/api/price-avg-debug")
-async def price_avg_debug():
-    """Debug endpoint — tests each step of scrape_historical_price_averages."""
-    import time
-    from scraper import (TRADING_ARCHIVE, _list_hrefs, _read_zip_all,
-                         _parse_aemo, NEM_REGIONS, AEST)
-    from datetime import datetime, timedelta
-
-    results = {}
-    now_aest = datetime.now(AEST)
-    cutoff   = (now_aest - timedelta(days=30)).date()
-    loop     = asyncio.get_running_loop()
-
-    # Step 1: list archive
-    t0 = time.time()
-    try:
-        hrefs = await loop.run_in_executor(None, _list_hrefs, TRADING_ARCHIVE)
-        relevant = []
-        for href in hrefs:
-            fname = href.split('/')[-1]
-            parts = fname.replace('.zip','').split('_')
-            if len(parts) >= 4:
-                try:
-                    end_date = datetime.strptime(parts[-1], "%Y%m%d").date()
-                    if end_date >= cutoff:
-                        relevant.append(href)
-                except ValueError:
-                    pass
-        results["step1_listing"] = {
-            "total_hrefs": len(hrefs),
-            "relevant": len(relevant),
-            "relevant_files": [h.split('/')[-1] for h in relevant],
-            "ms": round((time.time()-t0)*1000)
+  charts.demandHist = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      ...CHART_DEFAULTS,
+      plugins: {
+        ...CHART_DEFAULTS.plugins,
+        tooltip: {
+          ...CHART_DEFAULTS.plugins.tooltip,
+          filter: i => i.raw !== null,
+          callbacks: { label: c => c.raw === null ? null : ` ${c.dataset.label}: ${fmt(c.raw)} MW` }
         }
-    except Exception as e:
-        results["step1_listing"] = {"error": str(e)}
-        return JSONResponse(content=results)
-
-    if not relevant:
-        results["error"] = "no relevant ZIPs"
-        return JSONResponse(content=results)
-
-    # Step 2: download most recent ZIP and inspect
-    t0 = time.time()
-    test_url = relevant[-1]
-    try:
-        import zipfile as _zf, io as _io
-        from scraper import _get, _read_zip_of_zips
-        r = await loop.run_in_executor(None, lambda: _get(test_url, timeout=60))
-        if not r:
-            results["step2_zip"] = {"error": "no response", "url": test_url}
-            return JSONResponse(content=results)
-        raw_bytes = len(r.content)
-        # Inspect ZIP contents
-        zip_files = []
-        try:
-            with _zf.ZipFile(_io.BytesIO(r.content)) as z:
-                zip_files = z.namelist()
-        except Exception as ze:
-            results["step2_zip"] = {"error": f"zip open failed: {ze}", "url": test_url, "bytes": raw_bytes}
-            return JSONResponse(content=results)
-
-        results["step2_zip"] = {
-            "url": test_url,
-            "bytes": raw_bytes,
-            "zip_file_count": len(zip_files),
-            "zip_files_sample": zip_files[:5],
-            "ms": round((time.time()-t0)*1000)
+      },
+      scales: {
+        x: {
+          ticks: {
+            color: '#64748b',
+            font: { family: 'Space Mono', size: 9 },
+            maxRotation: 0,
+            autoSkip: false,
+            maxTicksLimit: 1000,
+            callback: function(val) {
+              const l = this.getLabelForValue(val);
+              if (!l) return null;
+              const h = parseInt(l.split(':')[0]);
+              return (l.endsWith(':00') && h % 3 === 0) ? l : null;
+            }
+          },
+          grid: { color: '#1e293b',
+            drawOnChartArea: true,
+            drawTicks: false,
+          }
+        },
+        y: {
+          ticks: { color:'#64748b', font:{family:'Space Mono',size:9} },
+          title: { display:true, text:'MW', color:'#64748b', font:{family:'Space Mono',size:9} },
+          grid: { color: '#1e293b' }
         }
-    except Exception as e:
-        results["step2_zip"] = {"error": str(e)}
-        return JSONResponse(content=results)
-
-    # Step 3: read one inner ZIP and parse
-    t0 = time.time()
-    try:
-        text = await loop.run_in_executor(None, _read_zip_of_zips, test_url)
-        lines = text.split('\n') if text else []
-        d_count = sum(1 for l in lines if l.startswith('D,'))
-        rows = list(_parse_aemo(text, "TRADING_PRICE")) if text else []
-        results["step3_parse"] = {
-            "kb": len(text)//1024 if text else 0,
-            "total_lines": len(lines),
-            "d_rows": d_count,
-            "trading_price_rows": len(rows),
-            "sample": rows[:2],
-            "ms": round((time.time()-t0)*1000)
-        }
-    except Exception as e:
-        results["step3_parse"] = {"error": str(e)}
-
-    return JSONResponse(content=results)
-
-
-
-
-
-
-@app.get("/api/backfill-prices")
-async def backfill_prices(days: int = 90, secret: str = ""):
-    """
-    One-off backfill: fetch TradingIS archive + CURRENT files and write
-    daily price files to GitHub. Runs as a background task.
-    Protect with ?secret=yourtoken to avoid accidental triggers.
-    """
-    import os
-    if secret != os.environ.get("BACKFILL_SECRET", "backfill"):
-        return JSONResponse(status_code=403, content={"error": "wrong secret"})
-
-    async def _run():
-        import json, base64, zipfile as _zf, csv as _csv, io as _io, time as _time, re as _re
-        from datetime import timedelta
-        from scraper import (TRADING_ARCHIVE, NEMWEB_BASE, NEM_REGIONS, AEST,
-                             _list_hrefs, _read_zip_of_zips, _read_zip, _parse_aemo)
-        import httpx
-
-        now_aest = datetime.now(timezone(timedelta(hours=10)))
-        cutoff   = (now_aest - timedelta(days=days)).date()
-        today    = now_aest.date()
-        GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-        GH_REPO  = os.environ.get("GITHUB_REPO", "")
-        GH_HEADERS = {
-            "Authorization": f"token {GH_TOKEN}",
-            "Accept": "application/vnd.github.v3+json",
-        }
-
-        if not GH_TOKEN or not GH_REPO:
-            logger.error("backfill: GitHub not configured")
-            return
-
-        logger.info(f"backfill: starting {cutoff} → {today}")
-        daily: dict = {}
-        loop = asyncio.get_running_loop()
-
-        # ── Phase 1: weekly archive ZIPs ─────────────────────────────────────
-        logger.info("backfill: Phase 1 — listing TradingIS archive")
-        all_hrefs = await loop.run_in_executor(None, _list_hrefs, TRADING_ARCHIVE)
-        relevant = []
-        for href in all_hrefs:
-            fname = href.split('/')[-1]
-            parts = fname.replace('.zip', '').split('_')
-            if len(parts) >= 4:
-                try:
-                    sd = datetime.strptime(parts[-2], "%Y%m%d").date()
-                    ed = datetime.strptime(parts[-1], "%Y%m%d").date()
-                    if ed >= cutoff and sd < today:
-                        relevant.append((sd, ed, href))
-                except ValueError:
-                    pass
-        relevant.sort()
-        logger.info(f"backfill: {len(relevant)} weekly ZIPs to fetch")
-
-        archive_end = cutoff
-        for i, (sd, ed, url) in enumerate(relevant):
-            logger.info(f"backfill: [{i+1}/{len(relevant)}] {url.split('/')[-1]}")
-            text = await loop.run_in_executor(None, _read_zip_of_zips, url)
-            if not text:
-                logger.warning(f"backfill: skip {url.split('/')[-1]} — no data")
-                continue
-            rows = _parse_aemo(text, "TRADING_PRICE")
-            logger.info(f"backfill:   {len(rows)} rows")
-            for row in rows:
-                region = row.get("REGIONID", "").strip()
-                if region not in NEM_REGIONS: continue
-                if row.get("INVALIDFLAG", "0") not in ("0", ""): continue
-                dt_str = row.get("SETTLEMENTDATE", "")
-                rrp_str = row.get("RRP", "")
-                if not dt_str or not rrp_str: continue
-                try:
-                    dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                    dd = dt.date()
-                    if dd < cutoff or dd >= today: continue
-                    daily.setdefault(dt.strftime("%Y-%m-%d"), {}).setdefault(region, {})[dt.strftime("%H:%M")] = round(float(rrp_str), 2)
-                    if dd > archive_end: archive_end = dd
-                except (ValueError, TypeError): continue
-            logger.info(f"backfill:   {len(daily)} days accumulated")
-
-        logger.info(f"backfill: archive covers up to {archive_end}")
-
-        # ── Phase 2: CURRENT files for gap ───────────────────────────────────
-        gap_start = archive_end + timedelta(days=1)
-        gap_end   = today - timedelta(days=1)
-
-        if gap_start <= gap_end:
-            logger.info(f"backfill: Phase 2 — CURRENT files {gap_start} → {gap_end}")
-            TRADING_CURRENT = f"{NEMWEB_BASE}/REPORTS/CURRENT/TradingIS_Reports/"
-            current_hrefs = await loop.run_in_executor(None, _list_hrefs, TRADING_CURRENT)
-            seen: dict = {}
-            for href in current_hrefs:
-                fname = href.split('/')[-1]
-                parts = fname.split('_')
-                if len(parts) >= 3 and len(parts[2]) >= 8:
-                    try:
-                        fd = datetime.strptime(parts[2][:8], "%Y%m%d").date()
-                        if gap_start <= fd <= gap_end:
-                            seen[parts[2]] = href
-                    except ValueError: pass
-            gap_urls = sorted(seen.values())
-            logger.info(f"backfill: {len(gap_urls)} CURRENT files for gap")
-
-            ok = fail = 0
-            for j, url in enumerate(gap_urls):
-                try:
-                    def _fetch_one(u=url):
-                        import time as _t
-                        _t.sleep(2)
-                        return _read_zip(u)
-                    text = await loop.run_in_executor(None, _fetch_one)
-                    if text:
-                        rows = _parse_aemo(text, "TRADING_PRICE")
-                        for row in rows:
-                            region = row.get("REGIONID", "").strip()
-                            if region not in NEM_REGIONS: continue
-                            if row.get("INVALIDFLAG", "0") not in ("0", ""): continue
-                            dt_str = row.get("SETTLEMENTDATE", "")
-                            rrp_str = row.get("RRP", "")
-                            if not dt_str or not rrp_str: continue
-                            try:
-                                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                                daily.setdefault(dt.strftime("%Y-%m-%d"), {}).setdefault(row.get("REGIONID","").strip(), {})[dt.strftime("%H:%M")] = round(float(rrp_str), 2)
-                            except (ValueError, TypeError): continue
-                        ok += 1
-                    else:
-                        fail += 1
-                    if j % 50 == 0:
-                        logger.info(f"backfill: CURRENT [{j+1}/{len(gap_urls)}] ok={ok} fail={fail} days={len(daily)}")
-                except Exception as e:
-                    logger.warning(f"backfill: CURRENT error: {e}")
-                    fail += 1
-            logger.info(f"backfill: Phase 2 done ok={ok} fail={fail}")
-
-        # ── Phase 3: upload to GitHub ─────────────────────────────────────────
-        dates = sorted(daily.keys())
-        logger.info(f"backfill: Phase 3 — uploading {len(dates)} files to GitHub")
-
-        async with httpx.AsyncClient(timeout=15) as client:
-            for j, date_str in enumerate(dates):
-                path = f"data/prices/{date_str}.json"
-                day_data = {"date": date_str, **daily[date_str]}
-                try:
-                    # Read existing
-                    r = await client.get(
-                        f"https://api.github.com/repos/{GH_REPO}/contents/{path}",
-                        headers=GH_HEADERS
-                    )
-                    sha = ""
-                    if r.status_code == 200:
-                        rj = r.json()
-                        sha = rj.get("sha", "")
-                        existing = json.loads(base64.b64decode(rj["content"]).decode())
-                        for region, intervals in daily[date_str].items():
-                            existing.setdefault(region, {}).update(intervals)
-                        day_data = existing
-
-                    encoded = base64.b64encode(json.dumps(day_data, separators=(',',':')).encode()).decode()
-                    payload = {"message": f"backfill: {date_str}", "content": encoded}
-                    if sha: payload["sha"] = sha
-                    wr = await client.put(
-                        f"https://api.github.com/repos/{GH_REPO}/contents/{path}",
-                        headers=GH_HEADERS, json=payload
-                    )
-                    status = "ok" if wr.status_code in (200,201) else f"err={wr.status_code}"
-                    if j % 10 == 0:
-                        logger.info(f"backfill: [{j+1}/{len(dates)}] {date_str} {status}")
-                    await asyncio.sleep(0.5)
-                except Exception as e:
-                    logger.warning(f"backfill: upload {date_str} failed: {e}")
-
-        logger.info(f"backfill: COMPLETE — {len(dates)} days uploaded")
-
-    asyncio.create_task(_run())
-    return JSONResponse(content={
-        "status": "backfill started",
-        "days": days,
-        "message": "Watch Render logs for progress. Will take 30-120 minutes."
-    })
-
-
-# Cache for gas data — refreshed on demand, valid for 6 hours
-_gas_cache = {"data": None, "last_updated": None}
-
-@app.get("/api/gas")
-async def gas_data(refresh: bool = False):
-    """Return gas market data. Fetched on demand, cached for 6 hours."""
-    from scraper import scrape_gas
-    from datetime import timezone, timedelta
-
-    # Serve cache if fresh
-    if not refresh and _gas_cache["data"] and _gas_cache["last_updated"]:
-        age = datetime.now(timezone.utc) - _gas_cache["last_updated"]
-        if age < timedelta(hours=6):
-            return JSONResponse(content=_gas_cache["data"])
-
-    loop = asyncio.get_running_loop()
-    try:
-        data = await asyncio.wait_for(
-            loop.run_in_executor(None, scrape_gas),
-            timeout=60.0
-        )
-        _gas_cache["data"] = data
-        _gas_cache["last_updated"] = datetime.now(timezone.utc)
-        return JSONResponse(content=data)
-    except asyncio.TimeoutError:
-        if _gas_cache["data"]:
-            return JSONResponse(content=_gas_cache["data"])
-        return JSONResponse(status_code=504, content={"error": "timeout"})
-    except Exception as e:
-        logger.error(f"gas_data error: {e}")
-        if _gas_cache["data"]:
-            return JSONResponse(content=_gas_cache["data"])
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
-
-_gbb_cache: dict = {"data": None, "last_updated": None}
-
-@app.get("/api/gbb")
-async def gbb_data(refresh: bool = False):
-    """Return GBB storage levels and state summary. Cached for 1 hour."""
-    from scraper import scrape_gbb
-    from datetime import timezone, timedelta
-
-    if not refresh and _gbb_cache["data"] and _gbb_cache["last_updated"]:
-        age = datetime.now(timezone.utc) - _gbb_cache["last_updated"]
-        if age < timedelta(hours=1):
-            return JSONResponse(content=_gbb_cache["data"])
-
-    loop = asyncio.get_running_loop()
-    try:
-        data = await asyncio.wait_for(
-            loop.run_in_executor(None, scrape_gbb),
-            timeout=30.0
-        )
-        _gbb_cache["data"] = data
-        _gbb_cache["last_updated"] = datetime.now(timezone.utc)
-        return JSONResponse(content=data)
-    except asyncio.TimeoutError:
-        if _gbb_cache["data"]:
-            return JSONResponse(content=_gbb_cache["data"])
-        return JSONResponse(status_code=504, content={"error": "timeout"})
-    except Exception as e:
-        logger.error(f"gbb_data error: {e}")
-        if _gbb_cache["data"]:
-            return JSONResponse(content=_gbb_cache["data"])
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
-
-@app.get("/api/gas-debug")
-async def gas_debug():
-    """Inspect STTM and VicGas CSV contents in detail."""
-    import zipfile as _zf, io as _io, csv as _csv
-    from scraper import STTM_BASE, VICGAS_BASE, _get
-
-    loop = asyncio.get_running_loop()
-
-    def _inspect():
-        out = {}
-        # STTM CURRENTDAY — int676 all rows, int678 all rows
-        url = f"{STTM_BASE}/CURRENTDAY.ZIP"
-        r = _get(url, timeout=30)
-        if r:
-            with _zf.ZipFile(_io.BytesIO(r.content)) as z:
-                out["sttm_files"] = z.namelist()
-                for prefix, key in [("int676", "int676_rows"), ("int678", "int678_rows"), ("int651", "int651_rows")]:
-                    matches = [n for n in z.namelist() if prefix in n.lower()]
-                    if matches:
-                        with z.open(matches[0]) as f:
-                            out[key] = list(_csv.DictReader(_io.TextIOWrapper(f, errors="replace")))
-        # VicGas INT041 all rows
-        r041 = _get(f"{VICGAS_BASE}/INT041_V4_MARKET_AND_REFERENCE_PRICES_1.CSV", timeout=15)
-        if r041:
-            out["vicgas_int041_rows"] = list(_csv.DictReader(_io.StringIO(r041.text)))
-        # VicGas INT037B first 5 lines
-        r037 = _get(f"{VICGAS_BASE}/INT037B_V4_INDICATIVE_MKT_PRICE_1.CSV", timeout=15)
-        if r037:
-            out["vicgas_int037b_first5"] = r037.text.splitlines()[:5]
-        # VicGas INT050 all rows
-        r050 = _get(f"{VICGAS_BASE}/INT050_V4_SCHED_WITHDRAWALS_1.CSV", timeout=15)
-        if r050:
-            out["vicgas_int050_rows"] = list(_csv.DictReader(_io.StringIO(r050.text)))
-        return out
-
-    result = await loop.run_in_executor(None, _inspect)
-    return JSONResponse(content=result)
-
-
-@app.get("/api/gbb-debug")
-async def gbb_debug():
-    """Investigate QLD double-counting and date gaps in GBB data."""
-    import csv as _csv
-    from scraper import _get
-    loop = asyncio.get_running_loop()
-
-    def _inspect():
-        url = "https://www.nemweb.com.au/Reports/Current/GBB/GasBBActualFlowStorageLast31.CSV"
-        r = _get(url, timeout=30)
-        if not r:
-            return {"error": "fetch failed"}
-        rows = list(_csv.DictReader(r.text.splitlines()))
-        all_dates = sorted({row["GasDate"] for row in rows})
-
-        # What dates exist?
-        # QLD rows on latest date - show all location names and facility types
-        latest = all_dates[-1]
-        qld_latest = [row for row in rows if row["GasDate"] == latest and row["State"] == "QLD"]
-        qld_by_type = {}
-        for row in qld_latest:
-            ft = row["FacilityType"]
-            qld_by_type.setdefault(ft, {"supply": 0.0, "demand": 0.0, "rows": []})
-            qld_by_type[ft]["supply"] += float(row.get("Supply") or 0)
-            qld_by_type[ft]["demand"] += float(row.get("Demand") or 0)
-            qld_by_type[ft]["rows"].append({
-                "facility": row["FacilityName"],
-                "location": row["LocationName"],
-                "supply": row["Supply"],
-                "demand": row["Demand"],
-                "transferIn": row["TransferIn"],
-                "transferOut": row["TransferOut"],
-            })
-
-        # Check if today's date (2026/03/29) has any rows
-        today_rows = [row for row in rows if row["GasDate"] == "2026/03/29"]
-        today_by_type = {}
-        for row in today_rows:
-            ft = row["FacilityType"]
-            today_by_type.setdefault(ft, 0)
-            today_by_type[ft] += 1
-
-        # Show PIPE rows for QLD - likely the double count source
-        pipe_qld = [r for r in qld_latest if r["FacilityType"] == "PIPE"]
-        pipe_qld_summary = [{"facility": r["FacilityName"], "location": r["LocationName"],
-                              "supply": r["Supply"], "demand": r["Demand"]} for r in pipe_qld[:20]]
-
-        return {
-            "all_dates": all_dates,
-            "latest_date": latest,
-            "today_row_count": len(today_rows),
-            "today_by_type": today_by_type,
-            "qld_totals_by_type": {k: {"supply": round(v["supply"],1), "demand": round(v["demand"],1), "row_count": len(v["rows"])} for k,v in qld_by_type.items()},
-            "qld_pipe_rows_sample": pipe_qld_summary,
-            "qld_lngexport_rows": [r for r in qld_by_type.get("LNGEXPORT", {}).get("rows", [])],
-        }
-
-    result = await loop.run_in_executor(None, _inspect)
-    return JSONResponse(content=result)
-
-
-async def gas_excel_debug():
-    """Inspect AEMO DWGM Excel file structure."""
-    import io as _io, openpyxl as _xl
-    from scraper import _get
-    loop = asyncio.get_running_loop()
-
-    def _inspect():
-        out = {}
-        try:
-            url = "https://www.aemo.com.au/-/media/files/gas/dwgm/dwgm-prices-and-demand.xlsx"
-            r = _get(url, timeout=60)
-            if not r:
-                return {"error": "fetch failed"}
-            out["bytes"] = len(r.content)
-            wb = _xl.load_workbook(_io.BytesIO(r.content), read_only=True, data_only=True)
-            out["sheet_names"] = wb.sheetnames
-            for ws in wb.worksheets[:3]:
-                first_rows, last_rows = [], []
-                for i, row in enumerate(ws.iter_rows(values_only=True)):
-                    r2 = [str(c) if c is not None else None for c in row[:6]]
-                    if i < 4:
-                        first_rows.append(r2)
-                    last_rows.append(r2)
-                    if len(last_rows) > 5:
-                        last_rows.pop(0)
-                out[ws.title] = {"first": first_rows, "last": last_rows}
-            wb.close()
-        except Exception as e:
-            import traceback
-            out["error"] = str(e)
-            out["traceback"] = traceback.format_exc()
-        return out
-
-    result = await loop.run_in_executor(None, _inspect)
-    return JSONResponse(content=result)
-
-
-@app.get("/api/weather-debug")
-async def weather_debug():
-    """Test weather scraping directly and return raw result."""
-    from scraper import scrape_weather
-    loop = asyncio.get_running_loop()
-    try:
-        data = await asyncio.wait_for(
-            loop.run_in_executor(None, scrape_weather),
-            timeout=30.0
-        )
-        return JSONResponse(content={"ok": True, "data": data})
-    except Exception as e:
-        return JSONResponse(content={"ok": False, "error": str(e)})
-
-
-@app.get("/api/pd-debug")
-async def pd_debug():
-    """Find where AEMO publishes unit-level dispatch forecasts."""
-    from scraper import _list_hrefs, _read_zip, NEMWEB_BASE
-    import csv, io, re
-    loop = asyncio.get_running_loop()
-
-    dirs_to_probe = [
-        f"{NEMWEB_BASE}/Reports/CURRENT/P5_Reports/",
-        f"{NEMWEB_BASE}/Reports/CURRENT/PredispatchIS_Reports/",
-        f"{NEMWEB_BASE}/Reports/CURRENT/DispatchIS_Reports/",
-    ]
-
-    results = {}
-    for dir_url in dirs_to_probe:
-        label = dir_url.split("/CURRENT/")[-1].rstrip("/")
-        hrefs = await loop.run_in_executor(None, _list_hrefs, dir_url)
-        # Group by prefix
-        by_prefix = {}
-        for h in hrefs:
-            p = re.sub(r'_\d{8,}.*', '', h.split('/')[-1])
-            by_prefix.setdefault(p, []).append(h)
-
-        prefix_tables = {}
-        for prefix, files in by_prefix.items():
-            try:
-                text = await asyncio.wait_for(
-                    loop.run_in_executor(None, _read_zip, files[-1]), timeout=15)
-                keys = []
-                for row in csv.reader(io.StringIO(text or "")):
-                    if row and row[0].strip().upper() == "I" and len(row) >= 3:
-                        key = f"{row[1].strip()}_{row[2].strip()}".upper()
-                        if key not in keys:
-                            keys.append(key)
-                prefix_tables[prefix] = {"tables": keys, "files": len(files)}
-            except Exception as e:
-                prefix_tables[prefix] = {"error": str(e), "files": len(files)}
-
-        results[label] = prefix_tables
-
-    return results
-
-
-@app.get("/api/station-debug")
-async def station_debug():
-    from scraper import _duid_history
-    total_duids = len(_duid_history)
-    sample = {}
-    for duid in list(_duid_history.keys())[:10]:
-        pts = len(_duid_history[duid])
-        last = sorted(_duid_history[duid].keys())[-1] if _duid_history[duid] else None
-        sample[duid] = {"pts": pts, "last": last}
-    return JSONResponse(content={
-        "total_duids": total_duids,
-        "sample": sample,
-    })
-
-
-@app.api_route("/api/views", methods=["GET", "POST"])
-async def record_view(request: Request):
-    import json, hashlib, os, base64
-    from datetime import datetime, timezone, timedelta
-    import httpx
-
-    AEST      = timezone(timedelta(hours=10))
-    now_aest  = datetime.now(AEST)
-    today     = now_aest.strftime("%Y-%m-%d")
-    month     = now_aest.strftime("%Y-%m")
-
-    forwarded = request.headers.get("x-forwarded-for")
-    raw_ip    = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
-    ip_hash   = hashlib.sha256(raw_ip.encode()).hexdigest()[:16]
-
-    GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-    GH_REPO  = os.environ.get("GITHUB_REPO", "")   # e.g. "danielteng/nem-dashboard"
-    GH_PATH  = "data/views.json"
-    GH_HEADERS = {
-        "Authorization": f"token {GH_TOKEN}",
-        "Accept": "application/vnd.github.v3+json",
+      }
+    },
+    plugins: [nowLinePlugin(nowIdx)]
+  });
+  // Default TAS off
+  charts.demandHist.data.datasets.forEach((ds, i) => {
+    if (ds.regionId === 'TAS1') charts.demandHist.getDatasetMeta(i).hidden = true;
+  });
+  charts.demandHist.update();
+  const drBtn = document.getElementById('dr-TAS1');
+  if (drBtn) { drBtn.dataset.on = '0'; drBtn.style.opacity = '0.35'; }
+}
+
+// ── Interconnectors ───────────────────────────────────────────────────────────
+
+function renderInterconnectors(data) {
+  const ics = data.interconnectors || {};
+  const icIds = Object.keys(ics).sort();
+  let html = '<div class="section-title">Interconnector Flows — Today</div>';
+  html += '<div class="chart-card"><div class="chart-title">Daily actuals (bright) · Predispatch (faded)</div>';
+  html += '<div class="chart-container" style="height:300px"><canvas id="icTimeChart"></canvas></div>';
+  // Legend
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+  const IC_COLORS = ['#00d4ff','#ff6b35','#2ed573','#ffd32a','#9b59b6','#e74c3c'];
+  icIds.forEach((id, i) => {
+    const color = IC_COLORS[i % IC_COLORS.length];
+    html += `<div style="display:flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10px;color:${color}"><div style="width:16px;height:2px;background:${color};border-radius:1px"></div>${id}</div>`;
+  });
+  html += '</div></div>';
+  // Current snapshot bars
+  html += '<div class="section-title">Current Snapshot</div>';
+  if (icIds.length === 0) return html + '<div class="state-msg"><div class="icon">🔗</div><div>No data</div></div>';
+  const sorted = Object.entries(ics).sort((a,b) => Math.abs(b[1].flow)-Math.abs(a[1].flow));
+  const maxFlow = Math.max(...sorted.map(([,v]) => Math.abs(v.flow)), 1);
+  html += '<div class="ic-list">';
+  for (const [id, val] of sorted) {
+    const flow = val.flow || 0, pos = flow >= 0;
+    const pct = Math.min(Math.abs(flow)/maxFlow*50, 50);
+    html += `<div class="ic-row">
+      <div class="ic-name">${id}</div>
+      <div class="ic-bar-wrap"><div class="ic-midpoint"></div><div class="ic-bar ${pos?"positive":"negative"}" style="width:${pct}%"></div></div>
+      <div class="ic-value ${pos?"positive":"negative"}">${flow>0?"+":""}${fmt(flow)} <span style="font-size:9px;opacity:0.6">MW</span></div>
+    </div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+function drawRenewablesChart(data) {
+  destroyChart('renewHist');
+  const ctx = document.getElementById('renewHistChart');
+  if (!ctx) return;
+
+  const solarHist = data.solar_history || {};
+  const windHist  = data.wind_history  || {};
+  const pdGen     = data.predispatch_gen || {};
+
+
+  const nowStr    = nowAEST();
+
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  const nowIdx = allSlots.findIndex(l => l >= nowStr);
+
+  // Which regions to show
+  const activeRegs = [...REGIONS].reverse().filter(r => {
+    const btn = document.getElementById('rr-' + r);
+    return !btn || btn.dataset.on !== '0';
+  });
+  const showSolar = document.getElementById('rr-solar')?.dataset.on !== '0';
+  const showWind  = document.getElementById('rr-wind')?.dataset.on !== '0';
+
+  const datasets = [];
+
+  // Check if we have any data at all
+  const hasSolar = activeRegs.some(r => (solarHist[r] || []).length > 0);
+  const hasWind  = activeRegs.some(r => (windHist[r]  || []).length > 0);
+  if (!hasSolar && !hasWind) {
+    ctx.style.display = 'none';
+    const card = ctx.closest('.chart-card');
+    if (card) {
+      const title = card.querySelector('.chart-title');
+      if (title) title.textContent = 'Wind + Solar — Loading…';
+    }
+    return;
+  }
+  ctx.style.display = '';
+
+  for (const r of activeRegs) {
+    const col = REGION_COLORS[r] || '#94a3b8';
+    const colFade = col + '55';
+    // Solar: lighter pastel version of region colour
+    const SOLAR_COLORS = {QLD1:'#fbd07c',NSW1:'#90c8f0',VIC1:'#86e8b0',SA1:'#f0908a',TAS1:'#c49fd8'};
+    const colSolar = SOLAR_COLORS[r] || col;
+
+    // Build lookups
+    const solarLookup = {};
+    for (const pt of (solarHist[r] || [])) solarLookup[pt.interval] = pt.mw;
+    const windLookup  = {};
+    for (const pt of (windHist[r]  || [])) windLookup[pt.interval]  = pt.mw;
+
+    // Predispatch — separate solar and wind
+    const pdSolarLookup = {}, pdWindLookup = {};
+    for (const pt of (pdGen[r] || [])) {
+      if (pt.interval > nowStr) {
+        pdSolarLookup[pt.interval] = pt.solar ?? pt.SemiScheduled ?? 0;
+        pdWindLookup[pt.interval]  = pt.wind  ?? 0;
+      }
     }
 
-    # ── Load current data from repo file ─────────────────────────────────────
-    data: dict = {}
-    file_sha: str = ""
-    if not GH_TOKEN:
-        logger.warning("views: GITHUB_TOKEN not set")
-    if not GH_REPO:
-        logger.warning("views: GITHUB_REPO not set")
-    if GH_TOKEN and GH_REPO:
-        try:
-            async with httpx.AsyncClient(timeout=8) as client:
-                r = await client.get(
-                    f"https://api.github.com/repos/{GH_REPO}/contents/{GH_PATH}",
-                    headers=GH_HEADERS,
-                )
-                logger.info(f"views: GET {GH_PATH} status={r.status_code}")
-                if r.status_code == 200:
-                    resp_json = r.json()
-                    file_sha  = resp_json.get("sha", "")
-                    raw       = base64.b64decode(resp_json["content"]).decode()
-                    data      = json.loads(raw)
-                else:
-                    logger.warning(f"views: GET failed body={r.text[:200]}")
-        except Exception as e:
-            logger.error(f"views: load error: {e}")
+    const lastActualSlot = allSlots.slice().reverse().find(l =>
+      solarLookup[l] !== undefined || windLookup[l] !== undefined
+    ) || '';
+    const lastActualIdx = lastActualSlot ? allSlots.indexOf(lastActualSlot) : -1;
 
-    # ── Update counts ────────────────────────────────────────────────────────
-    data.setdefault("total", 0)
-    data.setdefault("by_day", {})
-    data.setdefault("by_month", {})
-    data.setdefault("unique_ips", [])
-    data.setdefault("unique_by_day", {})
-    data.setdefault("unique_by_month", {})
+    // Actual: solar area (fills from origin)
+    if (showSolar) datasets.push({
+      label: REGION_SHORT[r] + ' Solar',
+      data: allSlots.map((l, i) => i <= lastActualIdx ? (solarLookup[l] ?? null) : null),
+      borderColor: colSolar, backgroundColor: colSolar + 'cc',
+      borderWidth: 1, pointRadius: 0, tension: 0.2,
+      fill: 'origin', stack: 'renew', yAxisID: 'y', order: 2,
+      regionId: r, fuelType: 'solar', spanGaps: false,
+    });
+    // Wind stacked on top of solar
+    if (showWind) datasets.push({
+      label: REGION_SHORT[r] + ' Wind',
+      data: allSlots.map((l, i) => i <= lastActualIdx ? (windLookup[l] ?? null) : null),
+      borderColor: col, backgroundColor: col + 'cc',
+      borderWidth: 1.5, pointRadius: 0, tension: 0.2,
+      fill: 'stack', stack: 'renew', yAxisID: 'y', order: 2,
+      regionId: r, fuelType: 'wind', spanGaps: false,
+    });
 
-    data["total"] += 1
-    data["by_day"][today]   = data["by_day"].get(today, 0) + 1
-    data["by_month"][month] = data["by_month"].get(month, 0) + 1
+    // Predispatch solar (faded dashed)
+    if (showSolar && Object.keys(pdSolarLookup).length > 0) datasets.push({
+      label: REGION_SHORT[r] + ' Solar (PD)',
+      data: allSlots.map((l, i) => {
+        if (i === lastActualIdx) return solarLookup[l] ?? null;
+        return i > lastActualIdx ? (pdSolarLookup[l] ?? null) : null;
+      }),
+      borderColor: col + '77', backgroundColor: 'transparent',
+      borderWidth: 1, borderDash: [4,3], pointRadius: 0, tension: 0.2,
+      fill: false, yAxisID: 'y', order: 1, regionId: r, spanGaps: true,
+    });
+    // Predispatch wind (faded dashed)
+    if (showWind && Object.keys(pdWindLookup).length > 0) datasets.push({
+      label: REGION_SHORT[r] + ' Wind (PD)',
+      data: allSlots.map((l, i) => {
+        if (i === lastActualIdx) return windLookup[l] ?? null;
+        return i > lastActualIdx ? (pdWindLookup[l] ?? null) : null;
+      }),
+      borderColor: col + 'aa', backgroundColor: 'transparent',
+      borderWidth: 1, borderDash: [4,3], pointRadius: 0, tension: 0.2,
+      fill: false, yAxisID: 'y', order: 1, regionId: r, spanGaps: true,
+    });
+  }
 
-    if ip_hash not in data["unique_ips"]:
-        data["unique_ips"].append(ip_hash)
-    if ip_hash not in data["unique_by_day"].setdefault(today, []):
-        data["unique_by_day"][today].append(ip_hash)
-    if ip_hash not in data["unique_by_month"].setdefault(month, []):
-        data["unique_by_month"][month].append(ip_hash)
+  charts.renewHist = new Chart(ctx, {
+    type: 'line',
+    data: { labels: allSlots, datasets },
+    options: { ...CHART_DEFAULTS,
+      plugins: { ...CHART_DEFAULTS.plugins,
+        legend: { display: false },
+        tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
+          filter: i => i.raw !== null && !String(i.dataset.label||'').includes('(PD)'),
+          callbacks: { label: c => c.raw != null ? ` ${c.dataset.label}: ${fmt(c.raw,0)} MW` : null }
+        }
+      },
+      scales: {
+        x: { stacked: true,
+          ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
+            autoSkip: false, maxTicksLimit: 1000,
+            callback: function(val) { const l=this.getLabelForValue(val); if(!l) return null; const h=parseInt(l.split(':')[0]); return (l.endsWith(':00')&&h%3===0)?l:null; }
+          },
+          grid: { color:'#1e293b', drawOnChartArea:true, drawTicks:false }
+        },
+        y: { stacked: true,
+          ticks: { color:'#64748b', font:{family:'Space Mono',size:9} },
+          grid: { color:'#1e293b' },
+          title: { display:true, text:'MW', color:'#64748b', font:{family:'Space Mono',size:9} }
+        }
+      }
+    },
+    plugins: [nowLinePlugin(nowIdx)]
+  });
+}
 
-    # Prune daily buckets older than 60 days
-    if len(data["by_day"]) > 60:
-        for old in sorted(data["by_day"].keys())[:-60]:
-            data["by_day"].pop(old, None)
-            data["unique_by_day"].pop(old, None)
+function toggleRenewRegion(r) {
+  const btn = document.getElementById('rr-' + r);
+  if (!btn) return;
+  const on = btn.dataset.on === '1';
+  btn.dataset.on = on ? '0' : '1';
+  btn.style.opacity = on ? '0.35' : '1';
+  if (latestData) drawRenewablesChart(latestData);
+}
 
-    # ── Write back to repo file ───────────────────────────────────────────────
-    if GH_TOKEN and GH_REPO:
-        try:
-            encoded = base64.b64encode(json.dumps(data, indent=2).encode()).decode()
-            payload = {
-                "message": f"views: {today} total={data['total']}",
-                "content": encoded,
+function toggleAllRenewRegions() {
+  const allOn = REGIONS.every(r => document.getElementById('rr-'+r)?.dataset.on === '1');
+  REGIONS.forEach(r => {
+    const btn = document.getElementById('rr-' + r);
+    if (btn) { btn.dataset.on = allOn ? '0' : '1'; btn.style.opacity = allOn ? '0.35' : '1'; }
+  });
+  const nemBtn = document.getElementById('rr-NEM');
+  if (nemBtn) { nemBtn.dataset.on = allOn ? '0' : '1'; nemBtn.style.opacity = allOn ? '0.35' : '1'; }
+  if (latestData) drawRenewablesChart(latestData);
+}
+
+function toggleRenewFuel(fuel) {
+  const btn = document.getElementById('rr-' + fuel);
+  if (!btn) return;
+  const on = btn.dataset.on === '1';
+  btn.dataset.on = on ? '0' : '1';
+  btn.style.opacity = on ? '0.35' : '1';
+  if (latestData) drawRenewablesChart(latestData);
+}
+
+function toggleAllPriceRegions() {
+  if (!charts.priceHist) return;
+  const allOn = REGIONS.every(r => document.getElementById('pr-'+r)?.dataset.on === '1');
+  REGIONS.forEach(r => {
+    const btn = document.getElementById('pr-' + r);
+    if (btn) { btn.dataset.on = allOn ? '0' : '1'; btn.style.opacity = allOn ? '0.35' : '1'; }
+  });
+  const nemBtn = document.getElementById('pr-NEM');
+  if (nemBtn) { nemBtn.dataset.on = allOn ? '0' : '1'; nemBtn.style.opacity = allOn ? '0.35' : '1'; }
+  charts.priceHist.data.datasets.forEach((ds, i) => {
+    if (ds.regionId) charts.priceHist.getDatasetMeta(i).hidden = allOn;
+  });
+  charts.priceHist.update();
+}
+
+function toggleAllDemandRegions() {
+  if (!charts.demandHist) return;
+  const allOn = REGIONS.every(r => document.getElementById('dr-'+r)?.dataset.on === '1');
+  REGIONS.forEach(r => {
+    const btn = document.getElementById('dr-' + r);
+    if (btn) { btn.dataset.on = allOn ? '0' : '1'; btn.style.opacity = allOn ? '0.35' : '1'; }
+  });
+  ['dr-NEM','dr-NEM2'].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) { b.dataset.on = allOn ? '0' : '1'; b.style.opacity = allOn ? '0.35' : '1'; }
+  });
+  charts.demandHist.data.datasets.forEach((ds, i) => {
+    if (ds.regionId) charts.demandHist.getDatasetMeta(i).hidden = allOn;
+  });
+  charts.demandHist.update();
+}
+
+function drawIcChart(data) {
+  destroyChart('icTime');
+  const ctx = document.getElementById('icTimeChart');
+  if (!ctx) return;
+  const hist = data.ic_history || {};
+  const pd   = data.predispatch_ic || {};
+  const icIds = [...new Set([...Object.keys(hist), ...Object.keys(pd)])].sort();
+
+  if (icIds.length === 0) {
+    const card = ctx.closest('.chart-card');
+    if (card) card.querySelector('.chart-title').textContent = 'IC flows — accumulating (refreshes every 5 min)';
+    ctx.style.display = 'none';
+    return;
+  }
+  ctx.style.display = '';
+
+  // Full 24hr 5-min spine — keeps x-axis proportional regardless of PD interval density
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  const now = nowAEST();
+  const nowIdx = allSlots.findIndex(l => l >= now);
+
+  const IC_COLORS = ['#00d4ff','#ff6b35','#2ed573','#ffd32a','#9b59b6','#e74c3c'];
+  const datasets = [];
+
+  icIds.forEach((id, i) => {
+    const color = IC_COLORS[i % IC_COLORS.length];
+    const hm = {}; (hist[id] || []).forEach(p => hm[p.interval] = p.flow);
+    const pm = {}; (pd[id]   || []).forEach(p => pm[p.interval] = p.flow);
+    const lastActSlot = allSlots.slice().reverse().find(l => hm[l] !== undefined) || '';
+
+    // Actual: solid, normal weight
+    datasets.push({
+      label: id, icId: id, isActual: true,
+      data: allSlots.map(l => hm[l] !== undefined ? hm[l] : null),
+      borderColor: color, backgroundColor: 'transparent',
+      borderWidth: 1.5, pointRadius: 0, tension: 0.3,
+      spanGaps: false, borderDash: [],
+    });
+
+    // PD: dashed, faded, bridge from lastActSlot
+    const lastActVal = lastActSlot ? hm[lastActSlot] : null;
+    const lastActIdx = lastActSlot ? allSlots.indexOf(lastActSlot) : -1;
+    datasets.push({
+      label: id + ' PD', icId: id, isActual: false,
+      data: allSlots.map((l, i) => {
+        if (i === lastActIdx) return lastActVal;
+        if (i > lastActIdx && pm[l] !== undefined) return pm[l];
+        return null;
+      }),
+      borderColor: color + '66', backgroundColor: 'transparent',
+      borderWidth: 1, pointRadius: 0, tension: 0.3,
+      spanGaps: true, borderDash: [5, 4],
+    });
+  });
+
+  charts.icTime = new Chart(ctx, {
+    type: 'line', data: { labels: allSlots, datasets },
+    options: { ...CHART_DEFAULTS,
+      plugins: { ...CHART_DEFAULTS.plugins,
+        legend: { display: false },
+        tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
+          filter: i => i.raw !== null && !String(i.dataset.label||'').endsWith(' PD'),
+          callbacks: { label: c => c.raw !== null ? ` ${c.dataset.label}: ${c.raw > 0 ? '+' : ''}${fmt(c.raw)} MW` : null }
+        }
+      },
+      scales: { ...CHART_DEFAULTS.scales,
+        x: { ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
+               callback:(v,i) => allSlots[i]?.endsWith(':00') ? allSlots[i] : null },
+             grid:{color:'#1e2d4544'} },
+        y: { ticks: { color:'#64748b', font:{family:'Space Mono',size:9},
+               callback: v => (v>0?'+':'')+v.toLocaleString() },
+             grid: { color:'#1e293b' },
+             title: { display:true, text:'MW', color:'#64748b', font:{family:'Space Mono',size:9} }
+        }
+      }
+    },
+    plugins: [nowLinePlugin(nowIdx)]
+  });
+}
+
+function toggleIcHighlight(id) {
+  const chart = charts.icTime;
+  if (!chart) return;
+
+  const allIds = [...new Set(chart.data.datasets.filter(d => d.icId).map(d => d.icId))];
+  const safeId = id.replace(/[^a-z0-9]/gi, '_');
+  const btn = document.getElementById('ic-btn-' + safeId);
+  const alreadySelected = btn && btn.dataset.active === '1';
+
+  if (alreadySelected) {
+    // Clicking selected IC again → reset all to normal weight
+    chart.data.datasets.forEach((ds, i) => {
+      if (!ds.icId) return;
+      ds.borderWidth = ds.isActual ? 1.5 : 1;
+      chart.getDatasetMeta(i).hidden = false;
+    });
+    allIds.forEach(icId => {
+      const b = document.getElementById('ic-btn-' + icId.replace(/[^a-z0-9]/gi,'_'));
+      if (b) { b.dataset.active = '0'; b.style.opacity = '1'; b.style.fontWeight = '400'; b.style.borderWidth = '1px'; }
+    });
+  } else {
+    // Select this IC: bold it, keep all others visible but thin/faded
+    chart.data.datasets.forEach((ds, i) => {
+      if (!ds.icId) return;
+      chart.getDatasetMeta(i).hidden = false;  // always keep visible
+      if (ds.icId === id) {
+        ds.borderWidth = ds.isActual ? 3.5 : 2;
+      } else {
+        ds.borderWidth = ds.isActual ? 0.8 : 0.5;
+      }
+    });
+    allIds.forEach(icId => {
+      const b = document.getElementById('ic-btn-' + icId.replace(/[^a-z0-9]/gi,'_'));
+      if (!b) return;
+      if (icId === id) {
+        b.dataset.active = '1'; b.style.opacity = '1'; b.style.fontWeight = '700'; b.style.borderWidth = '2px';
+      } else {
+        b.dataset.active = '0'; b.style.opacity = '0.45'; b.style.fontWeight = '400'; b.style.borderWidth = '1px';
+      }
+    });
+  }
+  chart.update('none');
+}
+// ── Origin ────────────────────────────────────────────────────────────────────
+
+// Force correct fuel colours for stations that may have wrong fuel from live reg
+const ORIGIN_FUEL_OVERRIDE = {
+  'Eraring Battery': 'Battery',
+  'Supernode Battery': 'Battery',
+  'Eraring': 'Black Coal',
+  'Eraring Liquid': 'Liquid',
+};
+
+const ORIGIN_STATION_ORDER = {
+  QLD1: ['Darling Downs','Supernode Battery','Mt Stuart','Roma Gas','Clare Solar Farm','Darling Downs Solar','Daydream Solar'],
+  NSW1: ['Eraring','Eraring Battery','Uranquinty','Shoalhaven','Shoalhaven Pump','Moree Solar Farm','Gunning Wind Farm','Eraring Liquid'],
+  VIC1: ['Mortlake','Stockyard Hill'],
+  SA1:  ['Osborne Cogen','Quarantine','Ladbroke Grove','Snowtown 1','Snowtown 2','Bungala Solar 1','Bungala Solar 2'],
+};
+const ORIGIN_STATE_LABELS = {QLD1:'QLD',NSW1:'NSW',VIC1:'VIC',SA1:'SA'};
+const ORIGIN_STATE_COLORS = {QLD1:'#f39c12',NSW1:'#3498db',VIC1:'#2ed573',SA1:'#e74c3c'};
+
+// 'NEM' = all on; single reg = only that one
+let originStateFilter = new Set(['QLD1','NSW1','VIC1','SA1']); // multi-select, all on by default
+let originMultiSelect = false; // when false, clicking a state selects only that one
+let originPortfolioChart = null;
+
+function _originVisibleRegs() {
+  const all = Object.keys(ORIGIN_STATE_LABELS);
+  if (all.every(r => originStateFilter.has(r))) return all;
+  return all.filter(r => originStateFilter.has(r));
+}
+
+function renderOrigin(data) {
+  const assets = data.origin_assets || {};
+  const prices = data.prices        || {};
+  const fc     = data.fuel_colors   || {};
+
+  // ── Group DUIDs → stations ─────────────────────────────────────────────
+  // History is loaded async from /api/origin to keep initial render fast
+  const cachedHist = window._originHistory || {};
+  const stationMap = {};
+  for (const [duid, a] of Object.entries(assets)) {
+    const key = a.station;
+    if (!stationMap[key]) stationMap[key] = {
+      fuel: ORIGIN_FUEL_OVERRIDE[key] || a.fuel, region:a.region, duids:[], totalMw:0, totalCap:0, histMap:{}, duidHists:{}
+    };
+    const s = stationMap[key];
+    s.duids.push(duid);
+    if (a.mw !== null && a.mw !== undefined) s.totalMw += a.mw;
+    s.totalCap += (a.capacity || 0);
+    // Use cached history if available
+    const hist = cachedHist[duid] || [];
+    for (const pt of hist) s.histMap[pt.interval] = (s.histMap[pt.interval] || 0) + pt.mw;
+    s.duidHists[duid] = { history: hist, fuel: a.fuel, capacity: a.capacity || 0 };
+  }
+
+  const visibleRegs = _originVisibleRegs();
+  let html = '';
+
+  // ── Live prices strip ───────────────────────────────────────────────────
+  html += `<div class="price-grid" style="margin-bottom:12px">`;
+  for (const r of ['QLD1','NSW1','VIC1','SA1','TAS1']) {
+    const p = prices[r];
+    const cls = p !== undefined ? priceClass(p) : 'low';
+    html += `<div class="price-card ${REGION_CLASS[r]}">
+      <div class="region">${REGION_SHORT[r]}</div>
+      <div class="price ${cls}">${p !== undefined ? fmtPrice(p) : '—'}</div>
+      <div class="unit">$/MWh</div>
+    </div>`;
+  }
+  html += `</div>`;
+
+  // ── State toggle buttons + NEM ──────────────────────────────────────────
+  const isNEM = Object.keys(ORIGIN_STATE_LABELS).every(r => originStateFilter.has(r));
+  html += '<div class="region-pills" style="margin-bottom:8px">';
+  html += `<button class="region-pill ${isNEM ? 'active' : ''}" style="color:#94a3b8;border-color:#94a3b8" onclick="toggleOriginState('NEM')">NEM</button>`;
+  for (const [reg, label] of Object.entries(ORIGIN_STATE_LABELS)) {
+    const active = originStateFilter.has(reg);
+    const col = ORIGIN_STATE_COLORS[reg] || REGION_COLORS[reg];
+    html += `<button class="region-pill ${active ? 'active' : ''}" style="color:${col};border-color:${col}" onclick="toggleOriginState('${reg}')">${label}</button>`;
+  }
+  html += '</div>';
+
+  // Select Multiple toggle
+  html += `<div style="margin-top:5px;margin-bottom:2px">
+    <button onclick="toggleOriginMultiSelect()"
+      style="font-family:var(--font-mono);font-size:9px;padding:3px 10px;border-radius:20px;cursor:pointer;
+      border:1px solid ${originMultiSelect ? '#94a3b8' : '#334155'};
+      background:${originMultiSelect ? '#94a3b822' : 'transparent'};
+      color:${originMultiSelect ? '#94a3b8' : '#475569'}">
+      ${originMultiSelect ? '✓ ' : ''}Select Multiple
+    </button>
+  </div>`;
+
+  // ── Portfolio output total ────────────────────────────────────────────────
+  let visibleMw = 0;
+  for (const reg of visibleRegs) {
+    for (const stn of (ORIGIN_STATION_ORDER[reg]||[])) {
+      if (stationMap[stn]) visibleMw += stationMap[stn].totalMw || 0;
+    }
+  }
+  html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted)">PORTFOLIO OUTPUT TODAY</span>
+    <span style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:#f39c12">${fmt(visibleMw)} <span style="font-size:9px;color:var(--text-muted)">MW</span></span>
+  </div>`;
+
+  // ── Portfolio chart ───────────────────────────────────────────────────────
+  html += `<div class="chart-card" style="margin-bottom:16px">
+    <div style="position:relative;height:280px"><canvas id="origin-portfolio-chart"></canvas></div>
+  </div>`;
+  // Price line toggles for origin chart
+  const _origAllOff = originPriceFilter.size === 0;
+  html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin:-10px 0 10px">';
+  html += `<button onclick="toggleOriginPriceOff()"
+    style="font-family:var(--font-mono);font-size:10px;padding:3px 8px;border-radius:20px;cursor:pointer;
+    border:1px solid #475569;background:${_origAllOff ? '#47556933' : 'transparent'};
+    color:${_origAllOff ? '#94a3b8' : '#475569'}">OFF</button>`;
+  for (const r of Object.keys(ORIGIN_STATE_LABELS)) {
+    const color = ORIGIN_STATE_COLORS[r] || REGION_COLORS[r];
+    const on = originPriceFilter.has(r);
+    html += `<button onclick="toggleOriginPrice('${r}')"
+      style="font-family:var(--font-mono);font-size:10px;padding:3px 8px;border-radius:20px;cursor:pointer;
+      border:1px solid ${on ? color : '#475569'};background:${on ? color+'33' : 'transparent'};
+      color:${on ? color : '#475569'}">${REGION_SHORT[r]}$</button>`;
+  }
+  html += `<button onclick="toggleOriginPriceWhite()"
+    style="font-family:var(--font-mono);font-size:10px;padding:3px 8px;border-radius:20px;cursor:pointer;margin-left:auto;
+    border:1px solid ${originPriceWhite ? '#ffffff' : '#475569'};background:${originPriceWhite ? '#ffffff22' : 'transparent'};
+    color:${originPriceWhite ? '#ffffff' : '#475569'}">WHITE</button>`;
+  html += '</div>';
+
+  // ── Hide offline button + Station tiles grouped by state ──────────────────
+  html += '<div style="display:flex;justify-content:flex-end;margin-bottom:8px">';
+  html += `<button onclick="toggleOriginHideOffline()" style="
+    font-family:var(--font-mono);font-size:10px;padding:5px 10px;border-radius:20px;cursor:pointer;
+    border:1px solid ${originHideOffline ? '#2ed573' : '#475569'};
+    background:${originHideOffline ? '#2ed57322' : 'transparent'};
+    color:${originHideOffline ? '#2ed573' : '#94a3b8'}">
+    ${originHideOffline ? '✓' : ''} Hide offline
+  </button>`;
+  html += '</div>';
+
+  for (const [reg, stateLabel] of Object.entries(ORIGIN_STATE_LABELS)) {
+    if (!visibleRegs.includes(reg)) continue;
+    const stns = (ORIGIN_STATION_ORDER[reg]||[]).filter(s => stationMap[s]);
+    if (!stns.length) continue;
+
+    const col = ORIGIN_STATE_COLORS[reg];
+    const stateMw = stns.reduce((s,n) => s + (stationMap[n]?.totalMw||0), 0);
+
+    html += `<div style="display:flex;align-items:center;gap:8px;margin:10px 0 6px">
+      <div style="width:3px;height:16px;background:${col};border-radius:2px;flex-shrink:0"></div>
+      <span style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:${col}">${stateLabel}</span>
+      <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted)">${fmt(stateMw)} MW</span>
+    </div>`;
+
+    // 3-column tile grid
+    html += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:4px">`;
+    for (const stnName of stns) {
+      const s = stationMap[stnName];
+      if (!s) continue;
+      const mw = s.totalMw;
+      const mwKnown = s.duids.some(d => (assets[d] || {}).mw !== null && (assets[d] || {}).mw !== undefined);
+      const cap = s.totalCap;
+      const pct = cap > 0 ? Math.min(Math.abs(mw)/cap*100,100) : 0;
+      const fuelCol = fc[s.fuel] || '#64748b';
+      const isCharging = mw < -5;
+      const isOn = mw > 5;
+      const isUnknown = !mwKnown;
+      const displayCol = isCharging ? '#38bdf8' : fuelCol;
+      const safeName = stnName.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+
+      // Hide offline stations if toggle is on
+      if (originHideOffline && !isOn && !isCharging && mwKnown && Math.abs(mw) <= 5) continue;
+
+      html += `<div onclick="openOriginStationModal('${safeName}')" style="
+        background:var(--surface);
+        border:1px solid var(--border);
+        border-top:2px solid ${isCharging ? '#38bdf8' : fuelCol};
+        border-radius:8px;padding:8px 7px 6px;cursor:pointer;
+        opacity:${isUnknown ? '0.6' : '1'};
+        transition:border-color 0.15s;active:border-color:${fuelCol}">
+        <div style="font-family:var(--font-mono);font-size:9px;font-weight:700;
+          color:var(--text);line-height:1.3;margin-bottom:2px;
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${stnName}</div>
+        <div style="font-family:var(--font-mono);font-size:7px;color:#475569;margin-bottom:3px;
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.duids.join(', ')}</div>
+        <div style="font-family:var(--font-mono);font-size:13px;font-weight:700;
+          color:${displayCol}">
+          ${isUnknown ? '?' : mwKnown ? fmt(mw) : '—'}<span style="font-size:8px;color:var(--text-muted)"> MW</span>
+          ${isCharging ? '<span style="font-size:8px;color:#38bdf8"> ↓chg</span>' : ''}
+        </div>
+        <div style="height:2px;background:var(--bg);border-radius:1px;overflow:hidden;margin-top:5px">
+          <div style="height:100%;width:${pct.toFixed(1)}%;background:${isCharging ? '#38bdf888' : fuelCol};border-radius:1px"></div>
+        </div>
+        <div style="font-family:var(--font-mono);font-size:8px;color:var(--text-muted);margin-top:3px">${FUEL_ICONS[s.fuel]||'⚡'} ${s.fuel}</div>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+
+  // Store stationMap globally for modal access
+  window._originStationMap = stationMap;
+  window._originFc = fc;
+
+  setTimeout(() => _drawOriginPortfolioChart(stationMap, fc), 0);
+
+  // Fetch history async - always refresh when on origin panel
+  const histAge = window._originHistoryFetchedAt ? Date.now() - window._originHistoryFetchedAt : Infinity;
+  if (histAge > 60 * 1000) {  // refresh every 1 min (fast cache runs every 5 min)
+    _fetchOriginHistory(data);
+  }
+  return html;
+}
+
+async function _fetchOriginHistory(data) {
+  try {
+    const hist = await fetch('/api/origin').then(r => r.json());
+    window._originHistory = hist;
+    window._originHistoryFetchedAt = Date.now();
+    if (currentPanel === 'origin' && latestData) {
+      // Rebuild stationMap completely with fresh history
+      const assets = latestData.origin_assets || {};
+      const fc = latestData.fuel_colors || {};
+      const stationMap = window._originStationMap || {};
+      // Reset all histMaps
+      for (const key of Object.keys(stationMap)) {
+        stationMap[key].histMap = {};
+        stationMap[key].duidHists = {};
+      }
+      // Inject history for each DUID
+      for (const [duid, histArr] of Object.entries(hist)) {
+        const a = assets[duid];
+        if (!a) continue;
+        const key = a.station;
+        const s = stationMap[key];
+        if (!s) continue;
+        s.duidHists[duid] = { history: histArr, fuel: a.fuel, capacity: a.capacity || 0 };
+      }
+      // Rebuild histMaps from duidHists
+      for (const s of Object.values(stationMap)) {
+        s.histMap = {};
+        for (const dh of Object.values(s.duidHists || {})) {
+          for (const pt of (dh.history || [])) {
+            s.histMap[pt.interval] = (s.histMap[pt.interval] || 0) + pt.mw;
+          }
+        }
+      }
+      window._originStationMap = stationMap;
+      _drawOriginPortfolioChart(stationMap, fc);
+    }
+  } catch(e) {
+    console.warn('Origin history fetch failed:', e);
+  }
+}
+
+function toggleOriginState(r) {
+  if (r === 'NEM') {
+    const all = Object.keys(ORIGIN_STATE_LABELS);
+    const allOn = all.every(x => originStateFilter.has(x));
+    originStateFilter = allOn ? new Set() : new Set(all);
+    originPriceFilter.clear();
+  } else if (originMultiSelect) {
+    // Multi-select: add/remove
+    if (originStateFilter.has(r)) { originStateFilter.delete(r); }
+    else { originStateFilter.add(r); }
+  } else {
+    // Single-select: switch to just this region, auto-enable its price
+    const alreadyOnlyThis = originStateFilter.size === 1 && originStateFilter.has(r);
+    if (alreadyOnlyThis) {
+      // Clicking already-selected single → go back to NEM
+      originStateFilter = new Set(Object.keys(ORIGIN_STATE_LABELS));
+      originPriceFilter.clear();
+    } else {
+      originStateFilter = new Set([r]);
+      originPriceFilter = new Set([r]); // auto-enable price for this region
+    }
+  }
+  if (latestData) showPanel('origin');
+}
+
+function toggleOriginMultiSelect() {
+  originMultiSelect = !originMultiSelect;
+  if (originMultiSelect) {
+    // Switching ON: clear prices
+    originPriceFilter.clear();
+  } else {
+    // Switching OFF: reset to NEM if multiple selected
+    if (originStateFilter.size !== 1) {
+      originStateFilter = new Set(Object.keys(ORIGIN_STATE_LABELS));
+      originPriceFilter.clear();
+    }
+  }
+  if (latestData) showPanel('origin');
+}
+
+function _drawOriginPortfolioChart(stationMap, fc) {
+  if (originPortfolioChart) { originPortfolioChart.destroy(); originPortfolioChart = null; }
+  const canvas = document.getElementById('origin-portfolio-chart');
+  if (!canvas) return;
+
+  const visibleRegs = _originVisibleRegs();
+  const visibleStns = [];
+  for (const reg of [...visibleRegs].reverse()) {
+    for (const stn of (ORIGIN_STATION_ORDER[reg]||[])) {
+      if (stationMap[stn]) visibleStns.push({name:stn, ...stationMap[stn]});
+    }
+  }
+  if (!visibleStns.length) return;
+
+  // If no history loaded yet, show loading placeholder and wait
+  const hasHistory = visibleStns.some(s => Object.keys(s.histMap||{}).length > 0);
+  if (!hasHistory) {
+    const card = canvas.closest('.chart-card');
+    if (card) {
+      const existing = card.querySelector('.origin-loading');
+      if (!existing) {
+        const div = document.createElement('div');
+        div.className = 'origin-loading';
+        div.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;color:#475569';
+        div.textContent = 'Loading history…';
+        canvas.parentElement.style.position = 'relative';
+        canvas.parentElement.appendChild(div);
+      }
+    }
+    return;
+  }
+  // Remove loading placeholder if present
+  const loadingEl = canvas.parentElement?.querySelector('.origin-loading');
+  if (loadingEl) loadingEl.remove();
+
+  // Full 24hr 5-min spine so x-axis is always proportional
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  const nowStr = nowAEST();
+  const nowIdx = allSlots.reduce((best,l,i) => l<=nowStr ? i : best, -1);
+
+  // Generation datasets — dual-stack (positive above, negative below axis)
+  // Negative stations: pump hydro and battery charging
+  const NEGATIVE_STATIONS = new Set(['Shoalhaven Pump']);
+
+  const genDatasets = [];
+  visibleStns.forEach(s => {
+    const col   = fc[s.fuel] || '#64748b';
+    const isPump = NEGATIVE_STATIONS.has(s.name);
+    const isBatt = s.fuel === 'Battery';
+
+    if (isBatt) {
+      // Battery: discharge → positive stack, charging → negative stack
+      genDatasets.push({
+        label: s.name,
+        data: allSlots.map(t => {
+          const v = s.histMap[t];
+          return (v !== undefined && v !== null) ? Math.max(0, v) : null;
+        }),
+        backgroundColor: col + 'cc', borderColor: col, borderWidth: 0.5,
+        fill: 'origin', stack: 'pos', pointRadius: 0, tension: 0.2,
+        spanGaps: false, yAxisID: 'y', order: 2,
+      });
+      genDatasets.push({
+        label: s.name + ' (chg)',
+        data: allSlots.map(t => {
+          const v = s.histMap[t];
+          return (v !== undefined && v !== null) ? Math.min(0, v) : null;
+        }),
+        backgroundColor: (fc['Battery (charging)'] || col) + 'cc',
+        borderColor: fc['Battery (charging)'] || col,
+        borderWidth: 0.5, fill: 'origin', stack: 'neg',
+        pointRadius: 0, tension: 0.2, spanGaps: false, yAxisID: 'y', order: 2,
+      });
+    } else {
+      genDatasets.push({
+        label: s.name,
+        data: allSlots.map(t => {
+          const v = s.histMap[t];
+          if (v === undefined || v === null) return null;
+          return isPump ? Math.min(0, v) : Math.max(0, v);
+        }),
+        backgroundColor: col + 'cc', borderColor: col, borderWidth: 0.5,
+        fill: 'origin', stack: isPump ? 'neg' : 'pos',
+        pointRadius: 0, tension: 0.2, spanGaps: false, yAxisID: 'y', order: 2,
+      });
+    }
+  });
+
+  // Price overlay — only if a single region is selected
+  const priceDatasets = [];
+  if (originPriceFilter.size > 0) {
+    const pdPricesAll   = latestData?.predispatch_prices || {};
+    const histPricesAll = latestData?.historical_prices  || {};
+    const livePricesAll = latestData?.prices             || {};
+    for (const reg of REGIONS) {
+      if (!originPriceFilter.has(reg)) continue;
+      const color   = originPriceWhite ? '#ffffff' : REGION_COLORS[reg];
+      const pdArr   = pdPricesAll[reg]   || [];
+      const histArr = histPricesAll[reg] || [];
+      const live    = livePricesAll[reg];
+      const pdMap = {}, histMap = {};
+      for (const p of pdArr)   pdMap[p.interval]  = p.rrp;
+      for (const p of histArr) histMap[p.interval] = p.rrp;
+      priceDatasets.push({
+        label: `${REGION_SHORT[reg]} Price`,
+        data: allSlots.map(t => {
+          if (histMap[t] !== undefined) return histMap[t];
+          if (t === nowStr && live !== undefined) return live;
+          return null;
+        }),
+        borderColor: color, backgroundColor: 'transparent',
+        borderWidth: 1, pointRadius: 0, tension: 0.2,
+        spanGaps: true, fill: false, yAxisID: 'yPrice', order: 1,
+      });
+      priceDatasets.push({
+        label: `${REGION_SHORT[reg]} Price (fcast)`,
+        data: allSlots.map(t => pdMap[t] !== undefined ? pdMap[t] : null),
+        borderColor: originPriceWhite ? '#ffffff66' : color + '99', backgroundColor: 'transparent',
+        borderWidth: 1, borderDash: [5,4], pointRadius: 0, tension: 0.2,
+        spanGaps: true, fill: false, yAxisID: 'yPrice', order: 1,
+      });
+    }
+  }
+
+  const datasets = [...genDatasets, ...priceDatasets];
+  const hasPrices = priceDatasets.length > 0;
+
+  originPortfolioChart = new Chart(canvas, {
+    type: 'line',
+    data: {labels: allSlots, datasets},
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          backgroundColor:'#111827',borderColor:'#1e2d45',borderWidth:1,
+          titleColor:'#94a3b8',bodyColor:'#e2e8f0',
+          titleFont:{family:'Space Mono',size:9},bodyFont:{family:'Space Mono',size:10},
+          callbacks:{
+            label: c => {
+              if (c.raw === null) return null;
+              if ((c.dataset.label||'').startsWith('Price')) return ` ${c.dataset.label}: $${Number(c.raw).toFixed(2)}/MWh`;
+              if (c.raw < 0) return ` ${c.dataset.label}: ${fmt(c.raw)} MW (charging)`;
+              return ` ${c.dataset.label}: ${fmt(c.raw)} MW`;
             }
-            if file_sha:
-                payload["sha"] = file_sha
-            async with httpx.AsyncClient(timeout=8) as client:
-                r = await client.put(
-                    f"https://api.github.com/repos/{GH_REPO}/contents/{GH_PATH}",
-                    headers=GH_HEADERS,
-                    json=payload,
-                )
-                logger.info(f"views: PUT {GH_PATH} status={r.status_code}")
-                if r.status_code not in (200, 201):
-                    logger.warning(f"views: PUT failed body={r.text[:200]}")
-        except Exception as e:
-            logger.error(f"views: write error: {e}")
+          }
+        }
+      },
+      scales:{
+        x:{
+          ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:0,
+            autoSkip: false, maxTicksLimit: 1000,
+            callback: function(val) {
+              const l = this.getLabelForValue(val);
+              if (!l) return null;
+              const h = parseInt(l.split(':')[0]);
+              return (l.endsWith(':00') && h % 3 === 0) ? l : null;
+            }
+          },
+          grid:{color:'#1e293b', drawOnChartArea:true, drawTicks:false}
+        },
+        y:{ stacked:true, ticks:{color:'#64748b',font:{family:'Space Mono',size:9}}, grid:{color:'#1e293b'}, title:{display:true,text:'MW',color:'#64748b',font:{family:'Space Mono',size:9}} },
+        yPrice: hasPrices ? {
+          type:'linear', position:'right',
+          ticks:{color:'#94a3b8', font:{family:'Space Mono',size:9}, callback:v=>'$'+v.toFixed(0)},
+          grid:{drawOnChartArea:false},
+          title:{display:true, text:'$/MWh', color:'#94a3b8', font:{size:9}}
+        } : {display:false}
+      }
+    },
+    plugins:[nowLinePlugin(nowIdx)]
+  });
+}
 
-    # Build unique_by_month counts for frontend
-    unique_by_month_counts = {m: len(ips) for m, ips in data.get("unique_by_month", {}).items()}
+// ── Origin station modal (reuses station modal overlay) ───────────────────────
 
+async function openOriginStationModal(stnName) {
+  const s = window._originStationMap?.[stnName];
+  const fc = window._originFc || {};
+  if (!s) return;
+
+  const fuel      = s.fuel;
+  const region    = s.region;
+  const baseColor = fc[fuel] || '#64748b';
+  const duids     = s.duids || [];
+
+  document.getElementById('stationModalTitle').textContent = stnName;
+  document.getElementById('stationModalSub').textContent =
+    `${fuel}  ·  ${REGION_SHORT[region] || region}  ·  ${fmt(s.totalCap,0)} MW cap`;
+  document.getElementById('stationModalStats').innerHTML = '<span style="color:#64748b">Loading…</span>';
+  document.getElementById('stationModal').classList.add('open');
+
+  if (_stationModalChart) { _stationModalChart.destroy(); _stationModalChart = null; }
+
+  let results;
+  try {
+    results = await fetch(`/api/stations/batch?duids=${duids.map(encodeURIComponent).join(',')}`).then(r => r.json());
+  } catch(e) {
+    document.getElementById('stationModalStats').innerHTML = `<span style="color:#e74c3c">Failed to load: ${e.message}</span>`;
+    return;
+  }
+
+  results = results.filter(d => d.history && d.history.length > 0);
+  if (!results.length) {
+    document.getElementById('stationModalStats').innerHTML = '<span style="color:#64748b">No SCADA data yet — builds after first gen refresh (~15 min)</span>';
+    return;
+  }
+
+  // 5-min spine
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  let lastSlot = '';
+  for (const d of results) {
+    const slots = d.history.map(p => p.interval).filter(Boolean).sort();
+    if (slots.length && slots[slots.length-1] > lastSlot) lastSlot = slots[slots.length-1];
+  }
+  const labels    = allSlots.slice(0, allSlots.findIndex(s => s > lastSlot));
+  const futurePriceSlots = allSlots.filter(t => t > lastSlot);
+  const allLabels = [...labels, ...futurePriceSlots];
+
+  // Price maps — same pattern as DUIDs modal
+  const pdPricesArr   = (latestData?.predispatch_prices || {})[region] || [];
+  const histPricesArr = (latestData?.historical_prices  || {})[region] || [];
+  const livePrices    = latestData?.prices || {};
+  const pdPriceMap    = {};
+  for (const pt of pdPricesArr)   pdPriceMap[pt.interval]  = pt.rrp;
+  const histPriceMap  = {};
+  for (const pt of histPricesArr) histPriceMap[pt.interval] = pt.rrp;
+
+  const nowStr = nowAEST();
+  const nowIdx = allLabels.reduce((best,l,i) => l<=nowStr ? i : best, -1);
+
+  // Datasets — fuel colour for all DUIDs in this station
+  const datasets = [];
+  const histDatasets = [];
+
+  results.forEach((d, i) => {
+    const hm = {};
+    d.history.forEach(p => { if (p.interval) hm[p.interval] = p.mw ?? 0; });
+    // Use fuel colour with slight per-unit brightness variation when multiple DUIDs
+    // Per-unit brightness variation matching portfolio chart
+    const total   = results.length;
+    const brightness = total > 1 ? (1.0 - i * 0.5 / (total - 1 || 1)) : 1.0;
+    const r0 = Math.round(parseInt(baseColor.slice(1,3),16) * brightness);
+    const g0 = Math.round(parseInt(baseColor.slice(3,5),16) * brightness);
+    const b0 = Math.round(parseInt(baseColor.slice(5,7),16) * brightness);
+    const color   = '#' + [r0,g0,b0].map(v => Math.min(255,Math.max(0,v)).toString(16).padStart(2,'0')).join('');
+    const bgColor = color + '99';
+
+    histDatasets.push({
+      label: d.duid,
+      data: allLabels.map(l => l <= lastSlot ? (hm[l] !== undefined ? hm[l] : null) : null),
+      borderColor: color,
+      backgroundColor: bgColor,
+      borderWidth: results.length > 1 ? 1 : 1.5,
+      pointRadius: 0,
+      tension: 0.2,
+      spanGaps: false,
+      fill: true,
+      stack: 'duids',
+      yAxisID: 'y',
+      order: 2,
+    });
+  });
+
+  datasets.push(...histDatasets);
+
+  datasets.push({
+    label: 'Price (actual)',
+    data: allLabels.map(t => {
+      if (t < lastSlot) return histPriceMap[t] ?? null;
+      if (t === lastSlot) return histPriceMap[t] ?? livePrices[region] ?? null;
+      return null;
+    }),
+    borderColor: '#ffffff', backgroundColor: 'transparent',
+    borderWidth: 0.5, pointRadius: 0, tension: 0.2,
+    spanGaps: true, fill: false, yAxisID: 'yPrice', order: 1,
+  });
+  datasets.push({
+    label: 'Price (forecast)',
+    data: allLabels.map(t => t > lastSlot ? (pdPriceMap[t] ?? null) : null),
+    borderColor: '#ffffff66', backgroundColor: 'transparent',
+    borderWidth: 0.5, borderDash: [5,4], pointRadius: 0, tension: 0.2,
+    spanGaps: true, fill: false, yAxisID: 'yPrice', order: 1,
+  });
+
+  try {
+    const _ec = Chart.getChart('stationModalChart');
+    if (_ec) _ec.destroy();
+    const ctx = document.getElementById('stationModalChart');
+    _stationModalChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels: allLabels, datasets },
+      options: {
+        animation: false, responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: {
+            display: results.length > 1,
+            labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6,
+              filter: item => !String(item.label||'').endsWith('(forecast)') },
+          },
+          tooltip: {
+            backgroundColor:'#1e293b', titleColor:'#94a3b8', bodyColor:'#e2e8f0',
+            borderColor:'#334155', borderWidth:1,
+            callbacks: {
+              title: items => items[0]?.label || '',
+              label: c => {
+                if (c.raw === null || c.raw === undefined) return null;
+                const lbl = c.dataset.label || '';
+                if (lbl.startsWith('Price')) return ` ${lbl}: $${Number(c.raw).toFixed(2)}/MWh`;
+                if (c.raw < 0) return ` ${lbl}: ${fmt(c.raw,0)} MW (charging)`;
+                return ` ${lbl}: ${fmt(c.raw,0)} MW`;
+              },
+              footer: items => {
+                const genItems = items.filter(i => i.raw !== null && !String(i.dataset.label).startsWith('Price'));
+                const total = genItems.reduce((s,i) => s + (i.raw||0), 0);
+                return genItems.length > 1 ? `Total: ${fmt(total,0)} MW` : null;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
+              callback(v,i){ const l=this.getLabelForValue(i); return l&&l.endsWith(':00')?l:null; }
+            },
+            grid: { color:'#1e293b' },
+          },
+          y: {
+            stacked: true,
+            ticks: { color:'#64748b', font:{family:'Space Mono',size:9} },
+            grid: { color:'#1e293b' },
+            title: { display:true, text:'MW', color:'#64748b', font:{family:'Space Mono',size:9} }
+          },
+          yPrice: {
+            type:'linear', position:'right',
+            ticks: { color:'#94a3b8', font:{family:'Space Mono',size:9}, callback: v=>'$'+v.toFixed(0) },
+            grid: { drawOnChartArea:false },
+            title: { display:true, text:'$/MWh', color:'#94a3b8', font:{family:'Space Mono',size:8} }
+          }
+        }
+      },
+      plugins: [nowLinePlugin(nowIdx)]
+    });
+  } catch(chartErr) {
+    document.getElementById('stationModalStats').innerHTML =
+      `<span style="color:#e74c3c">Chart error: ${chartErr.message}</span>`;
+    return;
+  }
+
+  // Stats — match DUIDs page: per-unit now + peak, total
+  const latestByUnit = results.map(d => {
+    const sorted = [...d.history].sort((a,b) => a.interval < b.interval ? -1 : 1);
+    return { duid: d.duid, mw: sorted.length ? sorted[sorted.length-1].mw : null };
+  });
+  const totalNow = latestByUnit.reduce((s,u) => s + (u.mw||0), 0);
+  const allMws = results.flatMap(d => d.history.map(p => p.mw).filter(v => v !== null));
+  const maxMw = allMws.length ? Math.max(...allMws) : null;
+
+  let statsHtml = [
+    `<span>Now: <b style="color:${baseColor}">${fmt(totalNow,0)} MW</b></span>`,
+
+    `<span style="color:#475569">of ${fmt(s.totalCap,0)} MW cap</span>`,
+  ].filter(Boolean).join('<span style="color:#334155"> · </span>');
+
+  // Per-DUID breakdown when >1 unit
+  if (results.length > 1) {
+    const breakdown = latestByUnit
+      .map(u => `<span style="color:#64748b">${u.duid}: <b style="color:${baseColor}">${u.mw !== null ? fmt(u.mw,0)+' MW' : '—'}</b></span>`)
+      .join('<span style="color:#1e293b"> | </span>');
+    statsHtml += `<div style="margin-top:4px;font-size:9px">${breakdown}</div>`;
+  }
+
+  document.getElementById('stationModalStats').innerHTML = statsHtml;
+}
+
+
+// ── Stations page state ───────────────────────────────────────────────────────
+let stationsHideOffline  = true;
+let stationsHideSmall    = false;
+
+function toggleAllStationRegions() {
+  stationsRegionFilter = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
+  if (genData) renderPanel('stations', latestData);
+}
+
+function toggleStationRegion(region) {
+  const onlyThis = stationsRegionFilter.size === 1 && stationsRegionFilter.has(region);
+  if (onlyThis) {
+    stationsRegionFilter = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
+  } else {
+    stationsRegionFilter = new Set([region]);
+  }
+  if (genData) renderPanel('stations', latestData);
+}
+
+function toggleStationsHideOffline() {
+  stationsHideOffline = !stationsHideOffline;
+  if (genData) renderPanel('stations', latestData);
+}
+
+function toggleStationsHideSmall() {
+  stationsHideSmall = !stationsHideSmall;
+  if (genData) renderPanel('stations', latestData);
+}
+
+
+// ── Station registries & modal state ─────────────────────────────────────────
+const _stationRegistry = {};       // index → {duids, name, fuel, region, capacity}
+let   _stationRegistryIdx = 0;
+const _battRegistry    = {};       // separate registry for battery page
+let   _stationModalChart = null;
+
+function openBattStationModal(regIdx) {
+  const entry = _battRegistry[regIdx];
+  if (!entry) return;
+  Object.keys(_stationRegistry).forEach(k => delete _stationRegistry[k]);
+  _stationRegistry[regIdx] = entry;
+  openStationModal(regIdx);
+}
+
+function closeStationModal() {
+  document.getElementById('stationModal').classList.remove('open');
+  const _ec = Chart.getChart('stationModalChart');
+  if (_ec) { _ec.destroy(); }
+  if (_stationModalChart) { _stationModalChart.destroy(); _stationModalChart = null; }
+}
+
+async function openStationModal(regIdx, registry) {
+  const reg = (registry || _stationRegistry)[regIdx];
+  if (!reg) return;
+  const { duids, name: stationName, fuel, region, capacity } = reg;
+  const baseColor = (genData && genData.fuel_colors) ? (genData.fuel_colors[fuel] || '#64748b') : '#64748b';
+
+  document.getElementById('stationModalTitle').textContent = stationName;
+  document.getElementById('stationModalSub').textContent =
+    `${fuel}  ·  ${REGION_SHORT[region] || region}${capacity ? '  ·  ' + fmt(capacity,0) + ' MW cap' : ''}`;
+  document.getElementById('stationModalStats').innerHTML = '<span style="color:#64748b">Loading…</span>';
+  document.getElementById('stationModal').classList.add('open');
+
+  if (_stationModalChart) { _stationModalChart.destroy(); _stationModalChart = null; }
+
+  // Fetch all DUIDs in one batch request
+  let results;
+  try {
+    results = await fetch(`/api/stations/batch?duids=${duids.map(encodeURIComponent).join(',')}`).then(r => r.json());
+  } catch(e) {
+    console.error('Station fetch error:', e);
+    document.getElementById('stationModalStats').innerHTML = `<span style="color:#e74c3c">Failed to load: ${e.message}</span>`;
+    return;
+  }
+
+  // Filter to units with history
+  console.log('Station modal results:', results.length, 'DUIDs fetched');
+  results.forEach(d => console.log(` ${d.duid}: ${d.history?.length ?? 0} pts, sample:`, d.history?.slice(0,2)));
+  results = results.filter(d => d.history && d.history.length > 0);
+  if (!results.length) {
+    document.getElementById('stationModalStats').innerHTML = '<span style="color:#64748b">No SCADA data yet — builds after first gen refresh (~15 min)</span>';
+    return;
+  }
+
+  // Build 5-min time spine up to latest slot
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  let lastSlot = '';
+  for (const d of results) {
+    const slots = d.history.map(p => p.interval).filter(Boolean).sort();
+    if (slots.length && slots[slots.length-1] > lastSlot) lastSlot = slots[slots.length-1];
+  }
+  if (!lastSlot) {
+    document.getElementById('stationModalStats').innerHTML = '<span style="color:#64748b">No data yet</span>';
+    return;
+  }
+  // Find the last allSlot that is <= lastSlot (handles non-5min-aligned labels gracefully)
+  let lastIdx = allSlots.findIndex(s => s > lastSlot) - 1;
+  if (lastIdx < 0) lastIdx = allSlots.length - 1;
+  const labels = allSlots.slice(0, lastIdx + 1);
+
+  // Generate distinct shades of the fuel colour
+  function unitColor(idx, total) {
+    if (total <= 1) return baseColor;
+    const r = parseInt(baseColor.slice(1,3),16);
+    const g = parseInt(baseColor.slice(3,5),16);
+    const b = parseInt(baseColor.slice(5,7),16);
+    const factor = 0.5 + (idx / Math.max(total-1, 1)) * 0.5;
+    return `rgba(${Math.round(r*factor)},${Math.round(g*factor)},${Math.round(b*factor)},0.85)`;
+  }
+
+  // Build stacked area line datasets — one per DUID, ordered lightest→darkest
+  // ── DUID predispatch + price overlay ──────────────────────────────────
+  // Price overlay data (actual + 30-min predispatch forecast — regional, not unit-level)
+  const pdPricesArr   = (latestData?.predispatch_prices || {})[region] || [];
+  const histPricesArr = (latestData?.historical_prices  || {})[region] || [];
+  const livePrices    = latestData?.prices || {};
+
+  const pdPriceMap   = {};
+  for (const pt of pdPricesArr)   pdPriceMap[pt.interval]  = pt.rrp;
+  const histPriceMap = {};
+  for (const pt of histPricesArr) histPriceMap[pt.interval] = pt.rrp;
+
+  // Use full 5-min spine for future so x-axis is proportional (not compressed)
+  const futurePriceSlots = allSlots.filter(t => t > lastSlot);
+  const allLabels = [...labels, ...futurePriceSlots];
+
+  const datasets = [];
+  const histDatasets = [];
+
+  results.forEach((d, i) => {
+    const hm = {};
+    d.history.forEach(p => { if (p.interval) hm[p.interval] = p.mw ?? 0; });
+    const color = unitColor(i, results.length);
+    // Safe background: replace rgba alpha, or add 55 opacity suffix to hex
+    const bgColor = color.startsWith('rgba')
+      ? color.replace('0.85)', '0.35)')
+      : color + '59';  // hex + ~35% alpha
+
+    histDatasets.push({
+      label: d.duid,
+      data: allLabels.map(l => l <= lastSlot ? (hm[l] !== undefined ? hm[l] : null) : null),
+      borderColor: color,
+      backgroundColor: bgColor,
+      borderWidth: 1.5,
+      pointRadius: 0,
+      tension: 0.2,
+      spanGaps: false,
+      fill: 'origin',
+      yAxisID: 'y',
+      order: 2,
+    });
+  });
+
+  // History first, then prices — no unit-level predispatch available on NEMWeb
+  datasets.push(...histDatasets);
+
+  // Price datasets (actual + forecast)
+  datasets.push({
+    label: 'Price (actual)',
+    data: allLabels.map(t => {
+      if (t < lastSlot) return histPriceMap[t] ?? null;
+      if (t === lastSlot) return histPriceMap[t] ?? livePrices[region] ?? null;
+      return null;
+    }),
+    borderColor: '#ffffff',
+    backgroundColor: 'transparent',
+    borderWidth: 0.5,
+    pointRadius: 0,
+    tension: 0.2,
+    spanGaps: true,
+    fill: false,
+    yAxisID: 'yPrice',
+    order: 1,
+  });
+  datasets.push({
+    label: 'Price (forecast)',
+    data: allLabels.map(t => t > lastSlot ? (pdPriceMap[t] ?? null) : null),
+    borderColor: '#ffffff66',
+    backgroundColor: 'transparent',
+    borderWidth: 0.5,
+    borderDash: [5,4],
+    pointRadius: 0,
+    tension: 0.2,
+    spanGaps: true,
+    fill: false,
+    yAxisID: 'yPrice',
+    order: 1,
+  });
+
+  const nowStr = nowAEST();
+  const nowIdx = allLabels.reduce((best,l,i) => l<=nowStr ? i : best, -1);
+
+  try {
+  // Force-destroy any lingering chart on this canvas (guards against async race)
+  const _existing = Chart.getChart('stationModalChart');
+  if (_existing) { _existing.destroy(); }
+  if (_stationModalChart) { _stationModalChart.destroy(); _stationModalChart = null; }
+    const ctx = document.getElementById('stationModalChart');
+    _stationModalChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: allLabels, datasets },
+    options: {
+      animation: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          display: results.length > 1,
+          labels: {
+            color: '#94a3b8', font: { family: 'Space Mono', size: 9 }, boxWidth: 10, padding: 6,
+            filter: item => !String(item.label||'').endsWith('(forecast)'),
+          }
+        },
+        tooltip: {
+          backgroundColor: '#1e293b',
+          titleColor: '#94a3b8',
+          bodyColor: '#e2e8f0',
+          borderColor: '#334155',
+          borderWidth: 1,
+          callbacks: {
+            title: items => items[0]?.label || '',
+            label: c => {
+              if (c.raw === null || c.raw === undefined) return null;
+              const lbl = c.dataset.label || '';
+              if (lbl.startsWith('Price')) return ` ${lbl}: $${Number(c.raw).toFixed(2)}/MWh`;
+              if (c.raw < 0) return ` ${lbl}: ${fmt(c.raw,0)} MW (charging)`;
+              return ` ${lbl}: ${fmt(c.raw, 0)} MW`;
+            },
+            footer: items => {
+              const genItems = items.filter(i => i.raw !== null && !String(i.dataset.label).startsWith('Price'));
+              const total = genItems.reduce((s,i) => s + (i.raw||0), 0);
+              return genItems.length > 1 ? `Total: ${fmt(total,0)} MW` : null;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
+            callback(v,i){ const l=this.getLabelForValue(i); return l&&l.endsWith(':00')?l:null; }
+          },
+          grid: { color:'#1e293b' },
+        },
+        y: {
+          stacked: true,
+          ticks: { color:'#64748b', font:{family:'Space Mono',size:9} },
+          grid: { color:'#1e293b' },
+          title: { display:true, text:'MW', color:'#64748b', font:{family:'Space Mono',size:9} }
+        },
+        yPrice: {
+          type: 'linear', position: 'right',
+          ticks: { color:'#94a3b8', font:{family:'Space Mono',size:9}, callback: v=>'$'+v.toFixed(0) },
+          grid: { drawOnChartArea: false },
+          title: { display:true, text:'$/MWh', color:'#94a3b8', font:{family:'Space Mono',size:8} }
+        }
+      }
+    },
+    plugins: [nowLinePlugin(nowIdx)]
+    });
+
+    // Stats
+    const latestByUnit = results.map(d => {
+    const sorted = [...d.history].sort((a,b) => a.interval < b.interval ? -1 : 1);
+    return { duid: d.duid, mw: sorted.length ? sorted[sorted.length-1].mw : null };
+    });
+    const totalNow = latestByUnit.reduce((s,u) => s + (u.mw||0), 0);
+    const allMws = results.flatMap(d => d.history.map(p => p.mw).filter(v => v !== null));
+    const maxMw = allMws.length ? Math.max(...allMws) : null;
+
+    let statsHtml = [
+    `<span>Now: <b style="color:${baseColor}">${fmt(totalNow,0)} MW</b></span>`,
+    capacity ? `<span>Capacity: <b>${fmt(capacity,0)} MW</b></span>` : '',
+    ].filter(Boolean).join('');
+
+    if (results.length > 1) {
+    statsHtml += '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px">' +
+      latestByUnit.map((u,i) => {
+        const color = unitColor(i, results.length);
+        return `<span style="color:${color};font-size:10px">${u.duid}: <b>${u.mw !== null ? fmt(u.mw,0)+' MW' : '—'}</b></span>`;
+      }).join('') + '</div>';
+    }
+    document.getElementById('stationModalStats').innerHTML = statsHtml;
+  } catch(chartErr) {
+    console.error('Station modal chart error:', chartErr);
+    document.getElementById('stationModalStats').innerHTML =
+      `<span style="color:#e74c3c">Chart error: ${chartErr.message}</span>`;
+    }
+}
+
+
+function renderStations(fastData) {
+  if (!genData) {
+    return `<div class="spinner"><div class="spinner-icon">⚙️</div><br>Loading SCADA data…</div>`;
+  }
+  if (genData._unavailable || !genData.grouped) {
+    return `<div class="state-msg"><div class="icon">⚠️</div><div>Generator data unavailable</div></div>`;
+  }
+
+  Object.keys(_stationRegistry).forEach(k => delete _stationRegistry[k]);
+  _stationRegistryIdx = 0;
+
+  const grouped   = genData.grouped;
+  const fc        = genData.fuel_colors || {};
+  const FUEL_ORDER = ['Brown Coal','Black Coal','Gas','Hydro','Battery','Wind','Solar','Rooftop Solar','Liquid','Other'];
+
+  let html = '<div class="section-title">DUIDs — Station View</div>';
+
+  // Region pills — radio style: NEM = all, clicking a state isolates it
+  html += '<div class="region-pills">';
+  const isNEM = REGIONS.every(r => stationsRegionFilter.has(r));
+  html += `<button class="region-pill ${isNEM ? 'active' : ''}" style="color:#94a3b8;border-color:#94a3b8" onclick="toggleAllStationRegions()">NEM</button>`;
+  for (const r of REGIONS) {
+    const active = !isNEM && stationsRegionFilter.has(r) ? 'active' : '';
+    const color = REGION_COLORS[r];
+    html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="toggleStationRegion('${r}')">${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div>';
+
+  // Filters
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px">';
+  html += `<button onclick="toggleStationsHideOffline()" style="
+    font-family:var(--font-mono);font-size:10px;padding:5px 12px;border-radius:20px;cursor:pointer;
+    border:1px solid ${stationsHideOffline ? '#2ed573' : '#475569'};
+    background:${stationsHideOffline ? '#2ed57322' : 'transparent'};
+    color:${stationsHideOffline ? '#2ed573' : '#94a3b8'}">
+    ${stationsHideOffline ? '✓' : ''} Hide offline
+  </button>`;
+  html += `<button onclick="toggleStationsHideSmall()" style="
+    font-family:var(--font-mono);font-size:10px;padding:5px 12px;border-radius:20px;cursor:pointer;
+    border:1px solid ${stationsHideSmall ? '#2ed573' : '#475569'};
+    background:${stationsHideSmall ? '#2ed57322' : 'transparent'};
+    color:${stationsHideSmall ? '#2ed573' : '#94a3b8'}">
+    ${stationsHideSmall ? '✓' : ''} Hide &lt;100 MW
+  </button>`;
+  html += '</div>';
+
+  // ── Build station map: station name → { fuel, region, duids[], totalMw, totalCap }
+  // Group across all selected regions, using station name from genData
+  const stationMap = {};
+  // Include Unknown region (DUIDs not in registration list)
+  const allGroupedRegions = [...REGIONS, ...Object.keys(grouped).filter(r => !REGIONS.includes(r))];
+  for (const region of allGroupedRegions) {
+    if (REGIONS.includes(region) && !stationsRegionFilter.has(region)) continue;
+    const regionFuels = grouped[region] || {};
+    for (const fuel of FUEL_ORDER) {
+      for (const u of (regionFuels[fuel] || [])) {
+        const key = (u.station && u.station !== u.duid) ? u.station : u.duid;
+        if (!stationMap[key]) {
+          stationMap[key] = { fuel, region, duids: [], totalMw: 0, totalCap: 0, units: [] };
+        }
+        stationMap[key].duids.push(u.duid);
+        stationMap[key].totalMw += (u.mw || 0);
+        stationMap[key].totalCap += (u.capacity || 0);
+        stationMap[key].units.push(u);
+      }
+    }
+  }
+
+  // ── Sort stations: by fuel order first, then by |MW| descending within fuel
+  const fuelRank = {};
+  FUEL_ORDER.forEach((f, i) => fuelRank[f] = i);
+
+  const stations = Object.entries(stationMap).sort((a, b) => {
+    const fA = fuelRank[a[1].fuel] ?? 99;
+    const fB = fuelRank[b[1].fuel] ?? 99;
+    if (fA !== fB) return fA - fB;
+    return Math.abs(b[1].totalMw) - Math.abs(a[1].totalMw);
+  });
+
+  // Apply filters
+  const visible = stations.filter(([name, s]) => {
+    if (stationsHideOffline && Math.abs(s.totalMw) <= 1) return false;
+    if (stationsHideSmall && Math.abs(s.totalMw) < 100) return false;
+    return true;
+  });
+
+  const totalDuids = Object.values(stationMap).reduce((n, s) => n + s.duids.length, 0);
+  const activeStns = stations.filter(([,s]) => Math.abs(s.totalMw) > 1).length;
+  html += `<div style="font-family:var(--font-mono);font-size:10px;color:#475569;margin-bottom:10px">
+    ${stations.length} stations · ${totalDuids} DUIDs · ${activeStns} active · showing ${visible.length}
+  </div>`;
+
+  if (!visible.length) {
+    html += '<div style="font-family:var(--font-mono);font-size:11px;color:#475569;padding:16px 0">No stations match current filters</div>';
+    return html;
+  }
+
+  // ── Group visible stations by fuel for section headers
+  let currentFuel = null;
+  html += '<div class="ic-list">';
+
+  for (const [stnName, s] of visible) {
+    // Fuel section header
+    if (s.fuel !== currentFuel) {
+      currentFuel = s.fuel;
+      const fuelCol = fc[s.fuel] || '#94a3b8';
+      html += `<div style="font-family:var(--font-mono);font-size:9px;font-weight:700;
+        color:${fuelCol};padding:10px 0 4px;letter-spacing:0.08em;border-bottom:1px solid ${fuelCol}33;margin-bottom:2px">
+        ${s.fuel.toUpperCase()}
+      </div>`;
+    }
+
+    // Register station for modal
+    const regIdx = _stationRegistryIdx++;
+    _stationRegistry[regIdx] = {
+      duids: s.duids,
+      name: stnName,
+      fuel: s.fuel,
+      region: s.region,
+      capacity: s.totalCap
+    };
+
+    const color    = REGION_COLORS[s.region] || '#64748b';
+    const fuelCol  = fc[s.fuel] || '#94a3b8';
+    const mw       = s.totalMw;
+    const cap      = s.totalCap;
+    const isCharge = mw < -1;
+    const isOn     = mw > 1;
+    const mwColor  = isCharge ? '#38bdf8' : (isOn ? '#2ed573' : '#475569');
+    const pct      = cap > 0 ? Math.min(Math.abs(mw) / cap * 100, 100) : 0;
+    const mwStr    = isOn || isCharge ? `${mw > 0 ? '+' : ''}${fmt(mw, 0)}` : '—';
+    const duidStr  = s.duids.length === 1 ? s.duids[0] : s.duids.join(', ');
+
+    html += `<div class="station-row" style="cursor:pointer" onclick="openStationModal(${regIdx})">
+      <div style="min-width:0;flex:1">
+        <div style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--text)">${stnName}</div>
+        <div style="font-family:var(--font-mono);font-size:8px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px">
+          <span style="color:${color}">${REGION_SHORT[s.region]}</span> ·
+          <span style="color:#64748b">${duidStr}</span>
+          ${s.duids.length > 1 ? `<span style="color:#475569"> (${s.duids.length} units)</span>` : ''}
+        </div>
+      </div>
+      <div class="station-bar-wrap">
+        <div class="station-bar" style="width:${pct.toFixed(1)}%;background:${mwColor}"></div>
+      </div>
+      <div style="text-align:right;min-width:56px">
+        <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:${mwColor}">${mwStr}<span style="font-size:9px;color:var(--text-muted)"> MW</span>${isCharge ? '<span style="font-size:8px;color:#38bdf8"> ↓</span>' : ''}</div>
+        <div style="font-family:var(--font-mono);font-size:9px;color:#475569">${cap > 0 ? fmt(cap,0)+' cap' : ''}</div>
+      </div>
+    </div>`;
+  }
+
+  html += '</div>';
+  return html;
+}
+
+// ── Batteries state variables ─────────────────────────────────────────────────
+let batteryRegionFilter  = 'NEM';
+let battHideOffline      = true;
+let battSortDescending   = true;
+let battShowPrices       = false;
+let battWhitePrices      = true;
+
+function setBatteryRegion(r) {
+  batteryRegionFilter = r;
+  window._battRenderGen = (window._battRenderGen || 0) + 1;
+  try {
+    if (latestData) renderPanel('batteries', latestData);
+  } catch(e) {
+    console.error('Battery region switch error:', e);
+    const msg = e.message + '\n' + (e.stack||'').split('\n').slice(1,4).join('\n');
+    document.getElementById('mainContent').innerHTML =
+      `<div class="state-msg"><div class="icon">⚠️</div><div>Battery error: <pre style="font-size:9px;text-align:left;white-space:pre-wrap">${msg}</pre></div></div>`;
+  }
+}
+function toggleBattHideOffline() {
+  battHideOffline = !battHideOffline;
+  if (latestData) renderPanel('batteries', latestData);
+}
+function toggleBattSort() {
+  battSortDescending = !battSortDescending;
+  if (latestData) renderPanel('batteries', latestData);
+}
+function toggleBattPrices() {
+  battShowPrices = !battShowPrices;
+  if (latestData) renderPanel('batteries', latestData);
+}
+function toggleBattWhite() {
+  battWhitePrices = !battWhitePrices;
+  if (latestData) renderPanel('batteries', latestData);
+}
+
+function renderBatteries(data) {
+  const bduHist   = data.bdu_history || {};
+  const isNEM     = batteryRegionFilter === 'NEM';
+
+  let html = '<div class="section-title">NEM Batteries</div>';
+  // ── Spot prices at top ───────────────────────────────────────────────────────
+  html += '<div class="price-grid" style="margin-bottom:8px">';
+  for (const r of REGIONS) {
+    const p = (data.prices || {})[r];
+    const cls = p !== undefined ? priceClass(p) : 'low';
+    html += `<div class="price-card ${REGION_CLASS[r]}">
+      <div class="region">${REGION_SHORT[r]}</div>
+      <div class="price ${cls}">${p !== undefined ? fmtPrice(p) : '—'}</div>
+      <div class="unit">$/MWh</div></div>`;
+  }
+  html += '</div>';
+
+  // Region selector
+  html += '<div class="region-pills">';
+  // NEM button (grey) + state buttons (radio style)
+  const battIsNEM = batteryRegionFilter === 'NEM';
+  html += `<button class="region-pill ${battIsNEM ? 'active' : ''}" style="color:#94a3b8;border-color:#94a3b8" onclick="setBatteryRegion('NEM')">NEM</button>`;
+  for (const r of REGIONS) {
+    const active = batteryRegionFilter === r ? 'active' : '';
+    const color = REGION_COLORS[r];
+    html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="setBatteryRegion('${r}')">${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div>';
+  // PRICES left, WHITE right on a separate row below state buttons
+  html += '<div style="display:flex;justify-content:space-between;margin:4px 0 8px">';
+  html += `<button onclick="toggleBattPrices()" style="
+    font-family:var(--font-mono);font-size:10px;padding:5px 10px;border-radius:20px;cursor:pointer;
+    border:1px solid ${battShowPrices ? '#94a3b8' : '#475569'};
+    background:${battShowPrices ? '#94a3b833' : 'transparent'};
+    color:${battShowPrices ? '#94a3b8' : '#475569'}">PRICES</button>`;
+  html += `<button onclick="toggleBattWhite()" style="
+    font-family:var(--font-mono);font-size:10px;padding:5px 10px;border-radius:20px;cursor:pointer;
+    border:1px solid ${battWhitePrices ? '#ffffff' : '#475569'};
+    background:${battWhitePrices ? '#ffffff22' : 'transparent'};
+    color:${battWhitePrices ? '#ffffff' : '#475569'}">WHITE</button>`;
+  html += '</div>';
+
+  // MW chart
+  html += '<div class="chart-card">';
+  html += `<div class="chart-title">Battery Output — ${isNEM ? 'NEM stacked by region' : REGION_SHORT[batteryRegionFilter]+' stacked by station'} (positive=discharge, negative=charge)</div>`;
+  html += '<div class="chart-container" style="height:260px"><canvas id="battMwChart"></canvas></div>';
+  html += '</div>';
+
+  // SOC chart
+  html += '<div class="chart-card" style="margin-top:12px">';
+  html += `<div class="chart-title">State of Charge (MWh) — ${isNEM ? 'All Regions Stacked' : REGION_SHORT[batteryRegionFilter]+' only'}</div>`;
+  html += '<div class="chart-container" style="height:180px"><canvas id="battSocChart"></canvas></div>';
+  html += '</div>';
+
+  // Battery station list header + filter buttons
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px;margin-bottom:4px">';
+  html += '<div class="section-title" style="margin:0">Battery Stations</div>';
+  html += '<div style="display:flex;gap:8px">';
+  html += `<button onclick="toggleBattHideOffline()" style="
+    font-family:var(--font-mono);font-size:10px;padding:5px 10px;border-radius:20px;cursor:pointer;
+    border:1px solid ${battHideOffline ? '#2ed573' : '#475569'};
+    background:${battHideOffline ? '#2ed57322' : 'transparent'};
+    color:${battHideOffline ? '#2ed573' : '#94a3b8'}">
+    ${battHideOffline ? '✓' : ''} Hide offline
+  </button>`;
+  html += `<button onclick="toggleBattSort()" style="
+    font-family:var(--font-mono);font-size:10px;padding:5px 10px;border-radius:20px;cursor:pointer;
+    border:1px solid #475569;background:transparent;color:#94a3b8">
+    ${battSortDescending ? '↓ High→Low' : '↑ Low→High'}
+  </button>`;
+  html += '</div></div>';
+
+  if (!genData || !genData.grouped) {
+    html += '<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:8px">Loading generator data…</div>';
+  } else {
+    // Collect battery stations from genData
+    const battStations = {};
+    for (const [region, fuels] of Object.entries(genData.grouped)) {
+      if (!isNEM && region !== batteryRegionFilter) continue;
+      for (const unit of (fuels['Battery'] || [])) {
+        const stn = unit.station || unit.duid;
+        if (!battStations[stn]) battStations[stn] = { region, duids: [], totalMw: 0, totalCap: 0, units: [] };
+        battStations[stn].duids.push(unit.duid);
+        battStations[stn].totalMw += unit.mw || 0;
+        battStations[stn].totalCap += unit.capacity || 0;
+        battStations[stn].units.push(unit);
+      }
+    }
+
+    // Sort
+    let sorted = Object.entries(battStations)
+      .sort((a,b) => battSortDescending
+        ? b[1].totalMw - a[1].totalMw
+        : a[1].totalMw - b[1].totalMw);
+
+    // Filter offline
+    if (battHideOffline) {
+      sorted = sorted.filter(([,s]) => Math.abs(s.totalMw) > 5);
+    }
+
+    // Use separate _battRegistry to avoid colliding with Stations page
+    Object.keys(_battRegistry).forEach(k => delete _battRegistry[k]);
+    let _battIdx = 0;
+
+    if (!sorted.length) {
+      html += '<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:8px">No battery stations found</div>';
+    } else {
+      html += '<div class="ic-list">';
+      for (const [stn, s] of sorted) {
+        const regIdx = _battIdx++;
+        _battRegistry[regIdx] = { duids: s.duids, name: stn, fuel: 'Battery', region: s.region, capacity: s.totalCap };
+
+        const color  = REGION_COLORS[s.region] || '#9b59b6';
+        const netMw  = s.totalMw;
+        const netColor = netMw > 5 ? '#2ed573' : netMw < -5 ? '#38bdf8' : '#475569';
+        const cap    = s.totalCap;
+        const pct    = cap > 0 ? Math.min(Math.abs(netMw) / cap * 100, 100) : 0;
+        const isCharging = netMw < -5;
+        html += `<div class="station-row" style="cursor:pointer" onclick="openBattStationModal(${regIdx})">
+          <div>
+            <div class="station-name">${stn}</div>
+            <div class="station-region" style="color:${color}">${REGION_SHORT[s.region]}${s.duids.length > 1 ? ' · '+s.duids.length+' units' : ''}</div>
+          </div>
+          <div class="station-bar-wrap">
+            <div class="station-bar" style="width:${pct.toFixed(1)}%;background:${netColor}"></div>
+          </div>
+          <div>
+            <div class="station-mw" style="color:${netColor}">${netMw>0?'+':''}${fmt(netMw,0)}<span style="font-size:9px;color:var(--text-muted)"> MW</span>${isCharging ? '<span style="font-size:8px;color:#38bdf8"> ↓chg</span>' : ''}</div>
+            <div class="station-cap">${cap > 0 ? fmt(cap,0)+' cap' : ''}</div>
+          </div>
+        </div>`;
+      }
+      html += '</div>';
+    }
+  }
+
+  return html;
+}
+
+function drawBatteryCharts(data) {
+  try {
+  const bduHist    = data.bdu_history || {};
+  const histPrices = data.historical_prices || {};
+  const pdPrices   = data.predispatch_prices || {};
+  const livePrices = data.prices || {};
+  const isNEM      = batteryRegionFilter === 'NEM';
+
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  const nowIdx = allSlots.findIndex(l => l >= nowAEST());
+
+  // ── Battery MW chart ──────────────────────────────────────────────────────
+  destroyChart('battMw');
+  const ctx1 = document.getElementById('battMwChart');
+  if (ctx1) {
+    const datasets = [];
+
+    if (isNEM) {
+      // Battery MW datasets — one line per region
+      for (const r of REGIONS) {
+        const color = REGION_COLORS[r];
+        const hm = {};
+        (bduHist[r] || []).forEach(p => { if (p.net_mw !== undefined) hm[p.interval] = p.net_mw; });
+        const lastSlot = allSlots.slice().reverse().find(l => hm[l] !== undefined) || '';
+        const lastIdx  = lastSlot ? allSlots.indexOf(lastSlot) : -1;
+        datasets.push({
+          label: REGION_SHORT[r], regionId: r,
+          data: allSlots.map((l,i) => i <= lastIdx ? (hm[l] ?? null) : null),
+          borderColor: color, backgroundColor: color + 'cc',
+          borderWidth: 1, pointRadius: 0, tension: 0.2,
+          fill: 'origin', spanGaps: false, stack: 'batt', yAxisID: 'y', order: 2,
+        });
+      }
+      // NEM price lines per region (gated by battShowPrices)
+      if (battShowPrices) {
+        for (const r of REGIONS) {
+          const color = REGION_COLORS[r];
+          const hpm = {}, pdpm = {};
+          (histPrices[r] || []).forEach(p => { hpm[p.interval] = p.rrp; });
+          (pdPrices[r]  || []).forEach(p => { pdpm[p.interval] = p.rrp; });
+          const lastHistSlot = allSlots.slice().reverse().find(l => hpm[l] !== undefined) || '';
+          const lastHistIdx  = lastHistSlot ? allSlots.indexOf(lastHistSlot) : -1;
+          const lastHistVal  = lastHistIdx >= 0 ? (hpm[lastHistSlot] ?? livePrices[r] ?? null) : null;
+          datasets.push({
+            label: REGION_SHORT[r] + ' Price', yAxisID: 'yPrice',
+            data: allSlots.map((l,i) => i <= lastHistIdx ? (hpm[l] ?? null) : null),
+            borderColor: battWhitePrices ? '#ffffff' : color, backgroundColor: 'transparent',
+            borderWidth: 1, pointRadius: 0, tension: 0.2, spanGaps: true, fill: false, order: -1,
+          });
+          datasets.push({
+            label: REGION_SHORT[r] + ' Price (fcast)', yAxisID: 'yPrice',
+            data: allSlots.map((l,i) => {
+              if (i === lastHistIdx) return lastHistVal;
+              if (i > lastHistIdx) return pdpm[l] ?? null;
+              return null;
+            }),
+            borderColor: battWhitePrices ? '#ffffff77' : color + '77', backgroundColor: 'transparent',
+            borderWidth: 1, borderDash: [4,3], pointRadius: 0, tension: 0.2, spanGaps: true, fill: false, order: -1,
+          });
+        }
+      }
+    } else {
+      const r = batteryRegionFilter;
+      const duidInfo = window._battDuidInfo   || {};
+      const duidHist = window._battDuidHistory || {};
+
+      // Group DUIDs by station
+      const stationMap = {};
+      for (const [duid, info] of Object.entries(duidInfo)) {
+        if (info.region !== r) continue;
+        const stn = info.station || duid;
+        if (!stationMap[stn]) stationMap[stn] = { duids: [], capacity: 0 };
+        stationMap[stn].duids.push(duid);
+        stationMap[stn].capacity += info.capacity || 0;
+      }
+      const stnNames = Object.keys(stationMap).sort((a,b) => stationMap[b].capacity - stationMap[a].capacity);
+
+      if (stnNames.length > 0) {
+        const base = REGION_COLORS[r];
+        const rr = parseInt(base.slice(1,3),16), gg = parseInt(base.slice(3,5),16), bb = parseInt(base.slice(5,7),16);
+        stnNames.forEach((stn, i) => {
+          const factor = 0.5 + (i / Math.max(stnNames.length-1,1)) * 0.5;
+          const col = `rgba(${Math.round(rr*factor)},${Math.round(gg*factor)},${Math.round(bb*factor)},0.85)`;
+          const hm = {};
+          for (const duid of stationMap[stn].duids) {
+            for (const [slot, mw] of Object.entries(duidHist[duid] || {}))
+              hm[slot] = (hm[slot] || 0) + mw;
+          }
+          const lastSlot = allSlots.slice().reverse().find(l => hm[l] !== undefined) || '';
+          const lastIdx  = lastSlot ? allSlots.indexOf(lastSlot) : -1;
+          datasets.push({
+            label: stn,
+            data: allSlots.map((l,i) => i <= lastIdx ? (hm[l] ?? null) : null),
+            borderColor: col, backgroundColor: col.replace('0.85)','0.4)'),
+            borderWidth: 1.5, pointRadius: 0, tension: 0.2,
+            fill: 'origin', spanGaps: false, stack: 'batt', yAxisID: 'y',
+          });
+        });
+      } else {
+        // Fallback to regional aggregate
+        const color = REGION_COLORS[r];
+        const hm = {};
+        (bduHist[r] || []).forEach(p => { if (p.net_mw !== undefined) hm[p.interval] = p.net_mw; });
+        const lastSlot = allSlots.slice().reverse().find(l => hm[l] !== undefined) || '';
+        const lastIdx  = lastSlot ? allSlots.indexOf(lastSlot) : -1;
+        datasets.push({
+          label: REGION_SHORT[r],
+          data: allSlots.map((l,i) => i <= lastIdx ? (hm[l] ?? null) : null),
+          borderColor: color, backgroundColor: color+'88',
+          borderWidth: 1, pointRadius: 0, tension: 0.2,
+          fill: 'origin', spanGaps: false, stack: 'batt', yAxisID: 'y', order: 2,
+        });
+      }
+
+      // Price overlay
+      if (!battShowPrices) { /* skip */ } else
+      { const hpm = {}, pdpm = {};
+      (histPrices[r] || []).forEach(p => { hpm[p.interval] = p.rrp; });
+      (pdPrices[r]  || []).forEach(p => { pdpm[p.interval] = p.rrp; });
+      const lastHistSlot = allSlots.slice().reverse().find(l => hpm[l] !== undefined) || '';
+      const lastHistIdx  = lastHistSlot ? allSlots.indexOf(lastHistSlot) : -1;
+      const lastHistVal  = lastHistIdx >= 0 ? (hpm[lastHistSlot] ?? livePrices[r] ?? null) : null;
+      datasets.push({
+        label: 'Price (actual)', yAxisID: 'yPrice',
+        data: allSlots.map((l,i) => i <= lastHistIdx ? (hpm[l] ?? null) : null),
+        borderColor: battWhitePrices ? '#ffffff' : REGION_COLORS[r], backgroundColor: 'transparent',
+        borderWidth: 0.75, pointRadius: 0, tension: 0.2, spanGaps: true, fill: false, order: -1,
+      });
+      datasets.push({
+        label: 'Price (forecast)', yAxisID: 'yPrice',
+        data: allSlots.map((l,i) => {
+          if (i === lastHistIdx) return lastHistVal;
+          if (i > lastHistIdx) return pdpm[l] ?? null;
+          return null;
+        }),
+        borderColor: battWhitePrices ? '#ffffff99' : REGION_COLORS[r] + '99', backgroundColor: 'transparent',
+        borderWidth: 0.75, borderDash: [5,4], pointRadius: 0, tension: 0.2, spanGaps: true, fill: false, order: -1,
+      });
+      } // end battShowPrices
+    }
+
+    const scales = {
+      x: { stacked: true,
+           ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
+             callback:(v,i) => allSlots[i]?.endsWith(':00') ? allSlots[i] : null },
+           grid:{color:'#1e2d4544'} },
+      y: { stacked: true,
+           ticks: { color:'#64748b', font:{family:'Space Mono',size:9} },
+           grid: { color:'#1e293b' },
+           title: { display:true, text:'MW', color:'#64748b', font:{family:'Space Mono',size:9} } },
+    };
+    if (battShowPrices) scales.yPrice = {
+      type:'linear', position:'right', stacked: false,
+      ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>'$'+v.toFixed(0)},
+      grid:{drawOnChartArea:false},
+    };
+
+    charts.battMw = new Chart(ctx1, {
+      type: 'line', data: { labels: allSlots, datasets },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins,
+          legend: { display: isNEM, labels:{color:'#94a3b8',font:{family:'Space Mono',size:9},boxWidth:10,padding:6,
+            filter: item => !String(item.label||'').startsWith('Price') } },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw !== null,
+            callbacks: { label: c => {
+              if (c.raw === null) return null;
+              const lbl = c.dataset.label || '';
+              if (lbl.startsWith('Price')) return ` ${lbl}: $${Number(c.raw).toFixed(2)}/MWh`;
+              return ` ${lbl}: ${c.raw>0?'+':''}${fmt(c.raw,0)} MW`;
+            }}
+          }
+        },
+        scales
+      },
+      plugins: [nowLinePlugin(nowIdx)]
+    });
+
+    if (!isNEM) _loadBattDuidHistory(batteryRegionFilter, data);
+  }
+
+  // ── SOC chart ──────────────────────────────────────────────────────────────
+  destroyChart('battSoc');
+  const ctx2 = document.getElementById('battSocChart');
+  if (ctx2) {
+    const socRegions = isNEM ? REGIONS : [batteryRegionFilter];
+    const socDatasets = [];
+    for (const r of socRegions) {
+      const color = REGION_COLORS[r];
+      const hm = {};
+      (bduHist[r] || []).forEach(p => { if (p.storage != null && p.storage !== undefined) hm[p.interval] = p.storage; });
+      if (!Object.keys(hm).length) continue;
+      const lastSlot = allSlots.slice().reverse().find(l => hm[l] !== undefined) || '';
+      const lastIdx  = lastSlot ? allSlots.indexOf(lastSlot) : -1;
+      socDatasets.push({
+        label: REGION_SHORT[r],
+        data: allSlots.map((l,i) => i <= lastIdx ? (hm[l] ?? null) : null),
+        borderColor: color, backgroundColor: color+'cc',
+        borderWidth: 1, pointRadius: 0, tension: 0.2,
+        fill: true, spanGaps: false, stack: 'soc',
+      });
+    }
+    charts.battSoc = new Chart(ctx2, {
+      type: 'line', data: { labels: allSlots, datasets: socDatasets },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins,
+          legend: { display: isNEM, labels:{color:'#94a3b8',font:{family:'Space Mono',size:9},boxWidth:10,padding:6} },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw !== null,
+            callbacks: { label: c => c.raw != null ? ` ${c.dataset.label}: ${fmt(c.raw,0)} MWh` : null }
+          }
+        },
+        scales: {
+          x: { stacked: true,
+               ticks: { color:'#64748b', font:{family:'Space Mono',size:9}, maxRotation:0,
+                 callback:(v,i) => allSlots[i]?.endsWith(':00') ? allSlots[i] : null },
+               grid:{color:'#1e2d4544'} },
+          y: { stacked: true,
+               ticks: { color:'#64748b', font:{family:'Space Mono',size:9} },
+               grid: { color:'#1e293b' },
+               title: { display:true, text:'MWh', color:'#64748b', font:{family:'Space Mono',size:9} } }
+        }
+      },
+      plugins: [nowLinePlugin(nowIdx)]
+    });
+  }
+  } catch(e) {
+    console.error('drawBatteryCharts error:', e.message, e.stack);
+    const mc = document.getElementById('mainContent');
+    if (mc) mc.innerHTML += `<div style="color:#e74c3c;font-size:11px;padding:8px">Battery chart error: ${e.message}<br><pre style="font-size:8px">${(e.stack||'').split('\n').slice(0,5).join('\n')}</pre></div>`;
+  }
+}
+
+// Load battery DUID-level history for state-mode chart
+async function _loadBattDuidHistory(region, data) {
+  if (!genData || !genData.grouped) return;
+  if (!window._battDuidInfo)    window._battDuidInfo    = {};
+  if (!window._battDuidHistory) window._battDuidHistory = {};
+  const myGen = window._battRenderGen || 0;  // snapshot generation at call time
+
+  const battUnits = [];
+  for (const [r, fuels] of Object.entries(genData.grouped)) {
+    for (const unit of (fuels['Battery'] || [])) {
+      window._battDuidInfo[unit.duid] = { region: r, station: unit.station || unit.duid, capacity: unit.capacity || 0 };
+      if (r === region) battUnits.push(unit.duid);
+    }
+  }
+  if (!battUnits.length) return;
+
+  const needFetch = battUnits.filter(d => !window._battDuidHistory[d]);
+  if (!needFetch.length) {
+    return;  // data already loaded, chart was already drawn
+  }
+  try {
+    const results = await fetch(`/api/stations/batch?duids=${needFetch.map(encodeURIComponent).join(',')}`).then(r => r.json());
+    for (const item of results) {
+      window._battDuidHistory[item.duid] = {};
+      for (const pt of item.history) window._battDuidHistory[item.duid][pt.interval] = pt.mw;
+    }
+    if (batteryRegionFilter === region && latestData && myGen === (window._battRenderGen||0))
+      drawBatteryCharts(latestData);
+  } catch(e) { console.error('Battery DUID fetch:', e); }
+}
+
+
+// ── Week Ahead ────────────────────────────────────────────────────────────────
+
+let weekRegionFilter = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
+let weekRenewFilter  = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']); // for renewables chart
+
+function toggleWeekRegion(region) {
+  if (weekRegionFilter.has(region)) {
+    if (weekRegionFilter.size > 1) weekRegionFilter.delete(region);
+  } else {
+    weekRegionFilter.add(region);
+  }
+  if (latestData) renderPanel('weekahead', latestData);
+}
+
+function toggleWeekRenew(region) {
+  if (region === 'NEM') {
+    REGIONS.forEach(r => weekRenewFilter.add(r));
+  } else {
+    // Single region select: if already exactly this region, go back to NEM
+    const onlyThis = weekRenewFilter.size === 1 && weekRenewFilter.has(region);
+    if (onlyThis) {
+      REGIONS.forEach(r => weekRenewFilter.add(r)); // back to NEM
+    } else {
+      weekRenewFilter.clear();
+      weekRenewFilter.add(region);
+    }
+  }
+  if (latestData) renderPanel('weekahead', latestData);
+}
+
+function renderWeekAhead(fastData) {
+  if (slowData && slowData._unavailable) {
+    return `<div class="state-msg"><div class="icon">⚠️</div><div>Week-ahead data unavailable<br><span style="font-size:10px">AEMO data could not be loaded. Will retry on next refresh.</span></div></div>`;
+  }
+  let html = '<div class="section-title">Week Ahead</div>';
+
+  // Region filter pills (demand chart)
+  html += '<div class="region-pills">';
+  for (const r of REGIONS) {
+    const active = weekRegionFilter.has(r) ? 'active' : '';
+    const color = REGION_COLORS[r];
+    html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="toggleWeekRegion('${r}')">${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div>';
+
+  const hasSlowPasa = slowData && slowData.stpasa_demand && Object.keys(slowData.stpasa_demand).length > 0;
+
+  // 7-day Demand + Non-Sched Gen forecast
+  if (!hasSlowPasa) {
+    html += `<div class="week-chart-card"><div class="chart-title">7-Day Demand + Non-Sched Gen Forecast (ST PASA)</div><div class="spinner"><div class="spinner-icon">📡</div><br>Loading forecast data…</div></div>`;
+  } else {
+    html += `<div class="week-chart-card"><div class="chart-title">7-Day Demand + Non-Sched Gen — ST PASA 50% probability</div><div style="position:relative;height:220px"><canvas id="weekPasaChart"></canvas></div></div>`;
+  }
+
+  // 7-day Wind + Solar UIGF forecast with per-region toggles
+  if (!hasSlowPasa) {
+    html += `<div class="week-chart-card"><div class="chart-title">7-Day Wind + Solar Forecast (ST PASA)</div><div class="spinner"><div class="spinner-icon">📡</div><br>Loading forecast data…</div></div>`;
+  } else {
+    html += `<div class="week-chart-card" style="margin-top:12px">`;
+    html += `<div class="chart-title">7-Day Semi-Sched Wind + Solar + Demand (ST PASA)</div>`;
+    // NEM + region toggle pills for renewables chart
+    html += '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px">';
+    const allOn = REGIONS.every(r => weekRenewFilter.has(r));
+    html += `<button onclick="toggleWeekRenew('NEM')" style="font-family:var(--font-mono);font-size:10px;padding:4px 8px;border-radius:20px;cursor:pointer;border:1px solid ${allOn?'#94a3b8':'#475569'};background:${allOn?'#94a3b822':'transparent'};color:${allOn?'#94a3b8':'#475569'}">NEM</button>`;
+    for (const r of REGIONS) {
+      const on = weekRenewFilter.has(r);
+      const color = REGION_COLORS[r];
+      html += `<button onclick="toggleWeekRenew('${r}')" style="font-family:var(--font-mono);font-size:10px;padding:4px 8px;border-radius:20px;cursor:pointer;border:1px solid ${on?color:color+'55'};background:${on?color+'22':'transparent'};color:${on?color:color+'88'}">${REGION_SHORT[r]}</button>`;
+    }
+    html += '</div>';
+    html += '</div>';
+  }
+
+  return html;
+}
+
+// ── Day Ahead (D+) ─────────────────────────────────────────────────────────────
+
+// Per-chart region filters — TAS off by default
+const DA_DEFAULT = new Set(['QLD1','NSW1','VIC1','SA1']);
+let daPriceFilter  = new Set(DA_DEFAULT);
+let daDemandFilter = new Set(DA_DEFAULT);
+let daPasaFilter   = new Set(DA_DEFAULT);
+let daRenewFilter  = new Set(['QLD1','NSW1','VIC1','SA1']);  // TAS wind off by default
+
+// weekRenewFilter/weekRegionFilter kept in sync with daRenewFilter/daPasaFilter
+// for drawWeekCharts compatibility
+function toggleDAPills(chartId, r) {
+  const filterMap = { price: 'daPriceFilter', demand: 'daDemandFilter', pasa: 'daPasaFilter', renew: 'daRenewFilter' };
+  const filters = { price: daPriceFilter, demand: daDemandFilter, pasa: daPasaFilter, renew: daRenewFilter };
+  const f = filters[chartId];
+  if (!f) return;
+  if (r === 'NEM') {
+    const allOn = REGIONS.every(x => f.has(x));
+    allOn ? REGIONS.forEach(x => f.delete(x)) : REGIONS.forEach(x => f.add(x));
+  } else {
+    f.has(r) ? f.delete(r) : f.add(r);
+  }
+  // Keep week chart filters in sync
+  weekRenewFilter  = new Set(daRenewFilter);
+  weekRegionFilter = new Set(daPasaFilter);
+  if (latestData) renderPanel('dayahead', latestData);
+}
+
+function toggleWeekRenewFuel(fuel) {
+  const btn = document.getElementById('wr-' + fuel);
+  if (!btn) return;
+  const on = btn.dataset.on === '1';
+  btn.dataset.on = on ? '0' : '1';
+  btn.style.opacity = on ? '0.35' : '1';
+  // Persist demand state so it survives panel re-renders
+  if (fuel === 'demand') window._wrDemand = !on;
+  if (latestData) { requestAnimationFrame(() => drawWeekCharts(latestData)); }
+}
+
+function toggleDayAheadPriceRegion(r) {
+  if (!charts.dayAheadPrice) return;
+  const btn = document.getElementById('dap-' + r);
+  if (!btn) return;
+  const on = btn.dataset.on === '1';
+  btn.dataset.on = on ? '0' : '1';
+  btn.style.opacity = on ? '0.35' : '1';
+  charts.dayAheadPrice.data.datasets.forEach((ds, i) => {
+    if (ds.regionId === r) charts.dayAheadPrice.getDatasetMeta(i).hidden = !on;
+  });
+  charts.dayAheadPrice.update();
+}
+
+function toggleDayAheadDemandRegion(r) {
+  if (!charts.dayAheadDemand) return;
+  const btn = document.getElementById('dad-' + r);
+  if (!btn) return;
+  const on = btn.dataset.on === '1';
+  btn.dataset.on = on ? '0' : '1';
+  btn.style.opacity = on ? '0.35' : '1';
+  charts.dayAheadDemand.data.datasets.forEach((ds, i) => {
+    if (ds.regionId === r) charts.dayAheadDemand.getDatasetMeta(i).hidden = !on;
+  });
+  charts.dayAheadDemand.update();
+}
+
+function renderWeatherTable(weather) {
+  const regions = ['QLD1','NSW1','VIC1','SA1'];
+  const REGION_LABEL = {QLD1:'QLD',NSW1:'NSW',VIC1:'VIC',SA1:'SA',TAS1:'TAS'};
+
+  let days = [];
+  for (const r of regions) {
+    if (weather[r] && weather[r].days && weather[r].days.length) {
+      days = weather[r].days;
+      break;
+    }
+  }
+
+  if (!days.length) {
+    return '<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:8px 0 4px">Weather loading… (refreshes every 30 min)</div>';
+  }
+
+  const cellStyle = 'padding:2px 4px;text-align:center;font-size:10px;font-family:var(--font-mono);min-width:30px;';
+  const headerCellStyle = 'padding:2px 4px;text-align:center;font-size:8px;font-family:var(--font-mono);color:#64748b;white-space:nowrap;';
+  const labelCellStyle = 'padding:2px 6px;text-align:left;font-size:9px;font-family:var(--font-mono);color:#94a3b8;white-space:nowrap;';
+  const regionCellStyle = 'padding:2px 6px;text-align:left;font-size:9px;font-family:var(--font-mono);font-weight:700;color:#94a3b8;';
+  const tableStyle = 'width:100%;border-collapse:collapse;margin-bottom:4px;';
+
+  const buildTable = (type) => {
+    const label = type === 'max' ? 'Maximum Temperatures' : 'Minimum Temperatures';
+    let t = `<div style="font-family:var(--font-mono);font-size:9px;font-weight:700;color:#94a3b8;
+      letter-spacing:0.05em;padding:4px 0 2px;text-transform:uppercase">${label}</div>`;
+    t += `<table style="${tableStyle}">`;
+    t += '<tr>';
+    t += `<td style="${regionCellStyle}"></td>`;
+    t += `<td style="${labelCellStyle}"></td>`;
+    for (const d of days) {
+      t += `<td style="${headerCellStyle}">${d.day_of_week}<br><span style="color:#475569">${d.date_label}</span></td>`;
+    }
+    t += '</tr>';
+    for (const r of regions) {
+      const rData = weather[r];
+      if (!rData) continue;
+      t += '<tr>';
+      t += `<td style="${regionCellStyle}">${REGION_LABEL[r]}</td>`;
+      t += `<td style="${labelCellStyle}">${rData.name}</td>`;
+      for (const d of (rData.days || [])) {
+        const val = type === 'max' ? d.temp_max : d.temp_min;
+        const [bg, textCol] = tempColour(val, type);
+        const hasBg = bg !== 'transparent';
+        t += `<td style="${cellStyle}background:${bg};color:${textCol};border-radius:${hasBg?'3px':'0'};font-weight:${hasBg?'700':'400'}">
+          ${val !== null && val !== undefined ? val + '°' : '—'}
+        </td>`;
+      }
+      t += '</tr>';
+    }
+    t += '</table>';
+    return t;
+  };
+
+  let out = '<div class="chart-card" style="margin-bottom:12px;padding:12px 14px;overflow-x:auto">';
+  out += buildTable('max');
+  out += buildTable('min');
+  out += '<div style="font-size:9px;color:#475569;font-family:var(--font-mono);margin-top:4px">Source: Bureau of Meteorology · refreshes every 30 min</div>';
+  out += '</div>';
+  return out;
+}
+
+function tempColour(t, type) {
+  if (t === null || t === undefined) return ['transparent', '#94a3b8'];
+  if (type === 'max') {
+    if (t >= 35) return ['#dc2626', '#fecaca'];
+    if (t >= 30) return ['#f97316', '#1e293b'];
+    if (t < 15)  return ['#3b82f6', '#bfdbfe'];
+    return ['transparent', '#94a3b8'];
+  } else {
+    if (t >= 23) return ['#dc2626', '#fecaca'];
+    if (t >= 20) return ['#f97316', '#1e293b'];
+    if (t < 10)  return ['#3b82f6', '#bfdbfe'];
+    return ['transparent', '#94a3b8'];
+  }
+}
+
+function renderDayAhead(data) {
+  const tomorrowDate = new Date();
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const dayStr = tomorrowDate.toLocaleDateString('en-AU', { weekday:'long', day:'numeric', month:'short' });
+
+  let html = '';
+
+  // ── Weather forecast (above heading) ─────────────────────────────────────────
+  try {
+    const weather = (slowData && slowData.weather) || {};
+    html += `<div id="weather-table-container">${renderWeatherTable(weather)}</div>`;
+  } catch(e) { console.warn('Weather render error:', e); }
+
+  html += `<div class="section-title" style="margin-top:8px">${dayStr}</div>`;
+
+  // Helper: render per-chart region pills (TAS off by default)
+  const chartPills = (chartId, filterVar) => {
+    const allOn = REGIONS.every(r => filterVar.has(r));
+    let p = `<div class="region-pills" style="margin-top:6px;margin-bottom:2px">`;
+    p += `<button class="region-pill ${allOn?'active':''}" style="color:#94a3b8;border-color:#94a3b8" onclick="toggleDAPills('${chartId}','NEM')" id="dap-${chartId}-NEM">NEM</button>`;
+    for (const r of REGIONS) {
+      const on = filterVar.has(r);
+      const color = REGION_COLORS[r];
+      p += `<button class="region-pill ${on?'active':''}" style="color:${color};border-color:${color}" onclick="toggleDAPills('${chartId}','${r}')" id="dap-${chartId}-${r}">${REGION_SHORT[r]}</button>`;
+    }
+    p += '</div>';
+    return p;
+  };
+
+  // Price chart
+  html += '<div class="chart-card">';
+  html += '<div class="chart-title">Price Forecast ($/MWh) — Predispatch</div>';
+  html += '<div class="chart-container" style="height:220px"><canvas id="dayAheadPriceChart"></canvas></div>';
+  html += chartPills('price', daPriceFilter);
+  html += '</div>';
+
+  // Demand chart
+  html += '<div class="chart-card" style="margin-top:12px">';
+  html += '<div class="chart-title">Demand Forecast (MW) — ST PASA 50% probability</div>';
+  html += '<div class="chart-container" style="height:200px"><canvas id="dayAheadDemandChart"></canvas></div>';
+  html += chartPills('demand', daDemandFilter);
+  html += '</div>';
+
+  // ── Week-ahead section ────────────────────────────────────────────────────────
+  html += '<div class="section-title" style="margin-top:16px">7-Day Ahead</div>';
+
+  const hasSlowPasa = slowData && slowData.stpasa_demand && Object.keys(slowData.stpasa_demand).length > 0;
+
+  if (!hasSlowPasa) {
+    html += `<div class="week-chart-card"><div class="chart-title">7-Day Demand + Non-Sched Gen Forecast (ST PASA)</div><div class="spinner"><div class="spinner-icon">📡</div><br>Loading…</div></div>`;
+    html += `<div class="week-chart-card" style="margin-top:8px"><div class="chart-title">7-Day Wind + Solar Forecast (ST PASA)</div><div class="spinner"><div class="spinner-icon">📡</div><br>Loading…</div></div>`;
+  } else {
+    html += `<div class="week-chart-card"><div class="chart-title">7-Day Demand + Non-Sched Gen — ST PASA 50%</div>`;
+    html += `<div style="position:relative;height:200px"><canvas id="weekPasaChart"></canvas></div>`;
+    html += chartPills('pasa', daPasaFilter);
+    html += '</div>';
+
+    html += `<div class="week-chart-card" style="margin-top:8px;margin-bottom:0"><div class="chart-title">7-Day Wind + Solar Forecast (ST PASA)</div>`;
+    html += `<div style="position:relative;height:220px"><canvas id="weekRenewChart"></canvas></div>`;
+    html += chartPills('renew', daRenewFilter);
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">';
+    html += '<button onclick="toggleWeekRenewFuel(\'solar\')" id="wr-solar" data-on="0" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;border:1px solid #f59e0b;background:#f59e0b33;color:#f59e0b;cursor:pointer;opacity:0.35">☀ Solar</button>';
+    html += '<button onclick="toggleWeekRenewFuel(\'wind\')" id="wr-wind" data-on="1" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;border:1px solid #34d399;background:#34d39933;color:#34d399;cursor:pointer">💨 Wind</button>';
+    const wrDemandOn = window._wrDemand ? '1' : '0';
+    const wrDemandOpacity = window._wrDemand ? '1' : '0.35';
+    html += `<button onclick="toggleWeekRenewFuel('demand')" id="wr-demand" data-on="${wrDemandOn}" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;border:1px solid #ffffff;background:transparent;color:#94a3b8;cursor:pointer;opacity:${wrDemandOpacity}">📊 Demand</button>`;
+    html += '</div>';
+    html += '</div>';
+  }
+
+  return html;
+}
+
+function drawDayAheadCharts(data) {
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 30)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  // ── Price chart ──────────────────────────────────────────────────────────────
+  destroyChart('dayAheadPrice');
+  const priceCtx = document.getElementById('dayAheadPriceChart');
+  if (priceCtx) {
+    const tmPrices = (data.tomorrow_prices) || {};
+    const hasAnyPrice = REGIONS.some(r => (tmPrices[r] || []).length > 0);
+    if (!hasAnyPrice) {
+      priceCtx.closest('.chart-card').querySelector('.chart-title').textContent =
+        'Price Forecast — predispatch data not yet available (~2hrs before midnight)';
+    } else {
+      const priceDatasets = [];
+      for (const r of REGIONS) {
+        const color = REGION_COLORS[r];
+        const pm = {};
+        (tmPrices[r] || []).forEach(p => { pm[p.interval] = p.rrp; });
+        priceDatasets.push({
+          label: REGION_SHORT[r], regionId: r,
+          data: allSlots.map(l => pm[l] ?? null),
+          borderColor: color, backgroundColor: color + 'cc',
+          borderWidth: 1, pointRadius: 0, tension: 0.2, spanGaps: true, fill: false,
+        });
+      }
+      charts.dayAheadPrice = new Chart(priceCtx, {
+        type: 'line', data: { labels: allSlots, datasets: priceDatasets },
+        options: { ...CHART_DEFAULTS,
+          plugins: { ...CHART_DEFAULTS.plugins,
+            legend: { display: true, labels:{color:'#94a3b8',font:{family:'Space Mono',size:9},boxWidth:10,padding:6} },
+            tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw !== null,
+              callbacks: { label: c => c.raw === null ? null : ` ${c.dataset.label}: $${c.raw.toFixed(2)}/MWh` } }
+          },
+          scales: {
+            x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:0,
+                   callback:(v,i) => i%2===0?allSlots[i]:null}, grid:{color:'#1e2d4544'} },
+            y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>'$'+v.toFixed(0)}, grid:{color:'#1e2d45'} }
+          }
+        }
+      });
+      priceDatasets.forEach((ds, i) => {
+        if (!daPriceFilter.has(ds.regionId)) charts.dayAheadPrice.getDatasetMeta(i).hidden = true;
+      });
+      charts.dayAheadPrice.update();
+    }
+  }
+
+  // ── Demand chart ─────────────────────────────────────────────────────────────
+  destroyChart('dayAheadDemand');
+  const demCtx = document.getElementById('dayAheadDemandChart');
+  if (demCtx) {
+    const tmDemandFast = (data.tomorrow_demand) || {};
+    const tmDemandSlow = (slowData && slowData.tomorrow_demand_stpasa) || {};
+    const mergedDemand = {};
+    for (const r of REGIONS) {
+      const m = {};
+      (tmDemandSlow[r] || []).forEach(p => { m[p.interval] = p.demand; });
+      (tmDemandFast[r] || []).forEach(p => { m[p.interval] = p.demand; });
+      mergedDemand[r] = m;
+    }
+    const hasAny = REGIONS.some(r => Object.keys(mergedDemand[r]).length > 0);
+    if (!hasAny) {
+      demCtx.closest('.chart-card').querySelector('.chart-title').textContent =
+        'Demand Forecast — loading… (ST PASA data arrives ~30 min after restart)';
+    } else {
+      const demDatasets = [];
+      for (const r of REGIONS) {
+        const color = REGION_COLORS[r];
+        demDatasets.push({
+          label: REGION_SHORT[r], regionId: r,
+          data: allSlots.map(l => mergedDemand[r][l] ?? null),
+          borderColor: color, backgroundColor: color + 'cc',
+          borderWidth: 1, pointRadius: 0, tension: 0.2, spanGaps: true, fill: false,
+        });
+      }
+      charts.dayAheadDemand = new Chart(demCtx, {
+        type: 'line', data: { labels: allSlots, datasets: demDatasets },
+        options: { ...CHART_DEFAULTS,
+          plugins: { ...CHART_DEFAULTS.plugins,
+            legend: { display: true, labels:{color:'#94a3b8',font:{family:'Space Mono',size:9},boxWidth:10,padding:6} },
+            tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw !== null,
+              callbacks: { label: c => c.raw === null ? null : ` ${c.dataset.label}: ${fmt(c.raw,0)} MW` } }
+          },
+          scales: {
+            x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:0,
+                   callback:(v,i) => i%2===0?allSlots[i]:null}, grid:{color:'#1e2d4544'} },
+            y: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9}},
+                 title:{display:true,text:'MW',color:'#64748b',font:{family:'Space Mono',size:9}},
+                 grid:{color:'#1e293b'} }
+          }
+        }
+      });
+      demDatasets.forEach((ds, i) => {
+        if (!daDemandFilter.has(ds.regionId)) charts.dayAheadDemand.getDatasetMeta(i).hidden = true;
+      });
+      charts.dayAheadDemand.update();
+    }
+  }
+}
+
+
+function drawWeekCharts(fastData) {
+  if (!slowData || !slowData.stpasa_demand) return;
+  const pasa = slowData.stpasa_demand;
+
+  // Build full label spine from all regions (use all 5 regardless of filter)
+  const pasaLabelSet = new Set();
+  for (const r of REGIONS) (pasa[r] || []).forEach(p => pasaLabelSet.add(p.interval));
+  const pasaLabels = Array.from(pasaLabelSet).sort();
+  if (!pasaLabels.length) return;
+
+  const xTickCb = function(v, i) {
+    const l = this.getLabelForValue(v);
+    try {
+      const d = new Date(l.replace(' ', 'T'));
+      if (d.getHours() === 0 && d.getMinutes() === 0)
+        return d.toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short', timeZone:'Australia/Brisbane'});
+    } catch(e) {}
+    return null;
+  };
+
+  const tooltipTitle = ts => {
+    try { const d = new Date(ts[0].label.replace(' ','T'));
+      return d.toLocaleDateString('en-AU',{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane'});
+    } catch { return ts[0].label; }
+  };
+
+  // ── Demand + Non-Sched Gen chart ─────────────────────────────────────────
+  const demDatasets = [];
+  for (const r of REGIONS) {
+    if (!weekRegionFilter.has(r)) continue;
+    const color = REGION_COLORS[r];
+    const pm = {};
+    (pasa[r] || []).forEach(p => { if (p.demand_50 !== null) pm[p.interval] = p.demand_50; });
+    demDatasets.push({
+      label: REGION_SHORT[r],
+      data: pasaLabels.map(l => pm[l] !== undefined ? pm[l] : null),
+      borderColor: color, backgroundColor: 'transparent',
+      borderWidth: 1.5, pointRadius: 0, tension: 0.3, spanGaps: true
+    });
+  }
+
+  destroyChart('weekPasa');
+  const ctx1 = document.getElementById('weekPasaChart');
+  if (ctx1 && demDatasets.length) {
+    charts.weekPasa = new Chart(ctx1, {
+      type: 'line',
+      data: { labels: pasaLabels, datasets: demDatasets },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins,
+          legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:12, padding:8 } },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
+            callbacks: { label: c => c.raw !== null ? ` ${c.dataset.label}: ${fmt(c.raw)} MW` : null, title: tooltipTitle }
+          }
+        },
+        scales: {
+          x: { ticks: { color:'#64748b', font:{family:'Space Mono',size:8}, maxTicksLimit:10, maxRotation:0, callback: xTickCb }, grid:{color:'#1e2d4544'} },
+          y: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9}}, title:{display:true,text:'MW',color:'#64748b',font:{family:'Space Mono',size:9}}, grid:{color:'#1e293b'} }
+        }
+      }
+    });
+  }
+
+  // ── Wind + Solar UIGF + Demand line chart ────────────────────────────────
+  const renewDatasets = [];
+  const weekShowSolar = document.getElementById('wr-solar')?.dataset.on !== '0';
+  const weekShowWind  = document.getElementById('wr-wind')?.dataset.on !== '0';
+
+  // Stacked solar + wind areas per filtered region
+  for (const r of [...REGIONS].reverse()) {
+    if (!weekRenewFilter.has(r)) continue;
+    const solarMap = {}, windMap = {};
+    (pasa[r] || []).forEach(p => {
+      if (p.solar_uigf != null) solarMap[p.interval] = p.solar_uigf;
+      if (p.wind_uigf  != null) windMap[p.interval]  = p.wind_uigf;
+    });
+    if (Object.keys(solarMap).length > 0 && weekShowSolar) {
+      renewDatasets.push({
+        label: REGION_SHORT[r] + ' Solar', regionId: r, seriesType: 'solar',
+        data: pasaLabels.map(l => solarMap[l] ?? null),
+        borderColor: ({'QLD1':'#fbd07c','NSW1':'#90c8f0','VIC1':'#86e8b0','SA1':'#f0908a','TAS1':'#c49fd8'}[r] || REGION_COLORS[r]),
+        backgroundColor: ({'QLD1':'#fbd07c','NSW1':'#90c8f0','VIC1':'#86e8b0','SA1':'#f0908a','TAS1':'#c49fd8'}[r] || REGION_COLORS[r]) + 'cc',
+        borderWidth: 1, fill: 'origin', pointRadius: 0, tension: 0.2,
+        spanGaps: true, stack: 'renew', yAxisID: 'y',
+      });
+    }
+    if (Object.keys(windMap).length > 0 && weekShowWind) {
+      renewDatasets.push({
+        label: REGION_SHORT[r] + ' Wind', regionId: r, seriesType: 'wind',
+        data: pasaLabels.map(l => windMap[l] ?? null),
+        borderColor: REGION_COLORS[r], backgroundColor: REGION_COLORS[r] + 'cc',
+        borderWidth: 1.5, fill: 'stack', pointRadius: 0, tension: 0.2,
+        spanGaps: true, stack: 'renew', yAxisID: 'y',
+      });
+    }
+  }
+
+  // Demand line — sum of stpasa_demand demand_50 across active regions
+  const weekShowDemand = document.getElementById('wr-demand')?.dataset.on !== '0';
+  if (weekShowDemand) {
+    const demLookup = {};
+    for (const r of REGIONS) {
+      if (!weekRenewFilter.has(r)) continue;
+      (pasa[r] || []).forEach(p => {
+        if (p.demand_50 != null)
+          demLookup[p.interval] = (demLookup[p.interval] || 0) + p.demand_50;
+      });
+    }
+    if (Object.keys(demLookup).length > 0) {
+      renewDatasets.push({
+        label: 'Demand',
+        data: pasaLabels.map(l => demLookup[l] ?? null),
+        borderColor: '#ffffff',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.2,
+        fill: false,
+        order: 0,
+        spanGaps: true,
+        stack: undefined,
+      });
+    }
+  }
+
+  destroyChart('weekRenew');
+  const ctx2 = document.getElementById('weekRenewChart');
+  if (ctx2 && renewDatasets.length) {
+    charts.weekRenew = new Chart(ctx2, {
+      type: 'line',
+      data: { labels: pasaLabels, datasets: renewDatasets },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins,
+          legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6,
+            filter: item => item.datasetIndex === renewDatasets.findIndex(d => d.label === item.text)
+          }},
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
+            filter: i => i.raw !== null,
+            callbacks: {
+              label: c => {
+                if (c.raw === null) return null;
+                const lbl = c.dataset.label || '';
+                return ` ${lbl} UIGF: ${fmt(c.raw)} MW`;
+              },
+              title: tooltipTitle
+            }
+          }
+        },
+        scales: {
+          x: { stacked: true, ticks: { color:'#64748b', font:{family:'Space Mono',size:8}, maxTicksLimit:10, maxRotation:0, callback: xTickCb }, grid:{color:'#1e2d4544'} },
+          y: { stacked: true, ticks:{color:'#64748b',font:{family:'Space Mono',size:9}}, title:{display:true,text:'MW',color:'#64748b',font:{family:'Space Mono',size:9}}, grid:{color:'#1e293b'} }
+        }
+      }
+    });
+  }
+
+}
+
+// ── D− (Yesterday) ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+let dMinus1RegionFilter = 'NEM';
+
+function setDMinus1Region(r) {
+  dMinus1RegionFilter = r;
+  // Update active pill
+  document.querySelectorAll('.region-pill').forEach(b => b.classList.remove('active'));
+  event && event.target && event.target.classList.add('active');
+  // Redraw all charts from cached data if available, else re-fetch
+  if (window._dMinus1Data) {
+    drawDMinus1PriceChart(window._dMinus1Data);
+    drawDMinus1DemandChart(window._dMinus1Data);
+    drawDMinus1FuelChart(window._dMinus1Data);
+  } else if (window._dMinusSel) {
+    dMinusLoadPrices(_dSelToStr(window._dMinusSel));
+  }
+}
+
+function renderPricesHist() {
+  // Initialise multi-select set if needed
+  if (!window._priceHistActive) window._priceHistActive = new Set(REGIONS);
+
+  let html = '<div class="section-title">Average Daily Spot Prices</div>';
+  html += '<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-bottom:12px;line-height:1.5">' +
+    'Daily average 30-min spot prices ($/MWh) — last 90 days from AEMO TradingIS.' +
+    '</div>';
+
+  // Region toggle pills — multi-select
+  const allOn = REGIONS.every(r => window._priceHistActive.has(r));
+  html += '<div class="region-pills" style="margin-bottom:12px">';
+  html += `<button class="region-pill ${allOn?'active':''}" style="color:#94a3b8;border-color:#94a3b8"
+    onclick="togglePriceHistNEM()">NEM</button>`;
+  for (const r of REGIONS) {
+    const col = REGION_COLORS[r];
+    const on  = window._priceHistActive.has(r);
+    html += `<button class="region-pill ${on?'active':''}" style="color:${col};border-color:${col}"
+      onclick="togglePriceHistRegion('${r}')">${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div>';
+
+  html += '<div class="chart-card">' +
+    '<div class="chart-title">Daily Average Price ($/MWh)</div>' +
+    '<div id="prices-hist-status" style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:8px 0"></div>' +
+    '<div class="chart-container" style="height:260px"><canvas id="pricesHistChart"></canvas></div>' +
+    '</div>';
+
+  html += '<div id="prices-hist-table" style="margin-top:8px"></div>';
+
+  return html;
+}
+
+function togglePriceHistNEM() {
+  const allOn = REGIONS.every(r => window._priceHistActive.has(r));
+  if (allOn) {
+    window._priceHistActive.clear();
+  } else {
+    REGIONS.forEach(r => window._priceHistActive.add(r));
+  }
+  if (latestData) renderPanel('prices-hist', latestData);
+  if (window._priceHistData) setTimeout(() => _renderPriceHistCharts(window._priceHistData), 50);
+}
+
+function togglePriceHistRegion(r) {
+  if (window._priceHistActive.has(r)) {
+    window._priceHistActive.delete(r);
+  } else {
+    window._priceHistActive.add(r);
+  }
+  if (latestData) renderPanel('prices-hist', latestData);
+  if (window._priceHistData) setTimeout(() => _renderPriceHistCharts(window._priceHistData), 50);
+}
+
+async function drawPricesHist() {
+  if (window._priceHistData) {
+    _renderPriceHistCharts(window._priceHistData);
+    return;
+  }
+  const status = document.getElementById('prices-hist-status');
+  if (status) status.textContent = 'Loading 90 days of price data… (first load takes ~30s)';
+  try {
+    const data = await fetch('/api/historical_price_averages').then(r => r.json());
+    if (data.error) { if (status) status.textContent = `Error: ${data.error}`; return; }
+    window._priceHistData = data;
+    if (status) status.textContent = '';
+    _renderPriceHistCharts(data);
+  } catch(e) {
+    if (status) status.textContent = `Error: ${e.message}`;
+  }
+}
+
+function _renderPriceHistCharts(data) {
+  destroyChart('pricesHist');
+  const ctx1 = document.getElementById('pricesHistChart');
+  if (!ctx1) return;
+
+  if (!window._priceHistActive) window._priceHistActive = new Set(REGIONS);
+  const regions = REGIONS.filter(r => window._priceHistActive.has(r));
+
+  // Collect all days sorted ascending
+  const allDays = new Set();
+  for (const r of REGIONS) Object.keys(data[r] || {}).forEach(d => allDays.add(d));
+  const days = Array.from(allDays).sort();
+
+  const dayLabels = days.map(d => {
+    const dt = new Date(d + 'T00:00:00');
+    return dt.toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short'});
+  });
+
+  const sharedOpts = {
+    ...CHART_DEFAULTS,
+    plugins: { ...CHART_DEFAULTS.plugins,
+      legend: { display: true,
+        labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 } },
+      tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
+        callbacks: { label: c => c.raw===null ? null : ` ${c.dataset.label}: $${c.raw.toFixed(2)}/MWh` } }
+    },
+    scales: {
+      x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:45,autoSkip:false},
+           grid:{color:'#1e2d4544'} },
+      y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>'$'+v.toFixed(0)},
+           grid:{color:'#1e2d45'}, beginAtZero: false }
+    }
+  };
+
+  const avgDatasets = regions.map(r => {
+    const color = REGION_COLORS[r];
+    const dayData = data[r] || {};
     return {
-        "total":            data["total"],
-        "today":            data["by_day"].get(today, 0),
-        "this_month":       data["by_month"].get(month, 0),
-        "unique_total":     len(data["unique_ips"]),
-        "unique_today":     len(data["unique_by_day"].get(today, [])),
-        "unique_month":     len(data["unique_by_month"].get(month, [])),
-        "by_month":         data.get("by_month", {}),
-        "unique_by_month":  unique_by_month_counts,
+      label: REGION_SHORT[r],
+      data: days.map(d => dayData[d]?.avg ?? null),
+      backgroundColor: color + '99',
+      borderColor: color,
+      borderWidth: 1,
+      borderRadius: 3,
+    };
+  });
+
+  charts.pricesHist = new Chart(ctx1, {
+    type: 'bar',
+    data: { labels: dayLabels, datasets: avgDatasets },
+    options: { ...sharedOpts, scales: { ...sharedOpts.scales, x: { ...sharedOpts.scales.x, stacked: false } } }
+  });
+
+  // ── Summary table — reverse chronological ────────────────────────────────
+  const tableDiv = document.getElementById('prices-hist-table');
+  if (!tableDiv) return;
+
+  const visRegions = regions.length ? regions : REGIONS;
+  const daysDesc = [...days].reverse();
+
+  // Detect today in AEST
+  const nowAEST = new Date(new Date().toLocaleString('en-AU', {timeZone:'Australia/Brisbane'}));
+  const todayStr = nowAEST.getFullYear() + '-' +
+    String(nowAEST.getMonth()+1).padStart(2,'0') + '-' +
+    String(nowAEST.getDate()).padStart(2,'0');
+
+  let t = '<div class="chart-card" style="padding:12px 14px;overflow-x:auto">';
+  t += '<div class="chart-title" style="margin-bottom:8px">Daily Average Price Summary ($/MWh)</div>';
+  t += '<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px">';
+
+  // Header
+  t += '<tr>';
+  t += '<th style="text-align:left;padding:5px 8px;color:#64748b;border-bottom:1px solid #1e2d45;white-space:nowrap">Date</th>';
+  for (const r of visRegions) {
+    const col = REGION_COLORS[r];
+    t += `<th style="text-align:right;padding:5px 8px;color:${col};border-bottom:1px solid #1e2d45">${REGION_SHORT[r]}</th>`;
+  }
+  t += '</tr>';
+
+  // Rows
+  for (const d of daysDesc) {
+    const dt = new Date(d + 'T00:00:00');
+    const label = dt.toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short'});
+    const isToday = d === todayStr;
+    t += '<tr>';
+    t += `<td style="padding:5px 8px;color:#94a3b8;border-bottom:1px solid #1e2d4533;white-space:nowrap">
+      ${label}${isToday ? ' <span style="color:#64748b;font-size:8px">partial</span>' : ''}
+    </td>`;
+    for (const r of visRegions) {
+      const val = data[r]?.[d]?.avg;
+      const col = val !== undefined ? priceClass(val) : '';
+      const colMap = {negative:'#2ed573', low:'#e2e8f0', medium:'#ffd32a', high:'#ff6b35', vhigh:'#ff4757'};
+      const textCol = colMap[col] || '#e2e8f0';
+      t += `<td style="text-align:right;padding:5px 8px;color:${textCol};border-bottom:1px solid #1e2d4533;font-weight:${col==='negative'||col==='vhigh'?'700':'400'}">
+        ${val !== undefined ? '$' + val.toFixed(2) : '—'}
+      </td>`;
+    }
+    t += '</tr>';
+  }
+
+  t += '</table></div>';
+  tableDiv.innerHTML = t;
+}
+
+// ── Gas Page ──────────────────────────────────────────────────────────────────
+
+const GAS_HUBS = ['Adelaide', 'Brisbane', 'Sydney'];
+const GAS_HUB_COLORS = { Adelaide: '#e74c3c', Brisbane: '#f39c12', Sydney: '#3498db' };
+let _gasData = null;
+
+function renderGas() {
+  let html = '<div class="section-title">Gas Markets</div>';
+  html += '<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-bottom:12px">STTM (Adelaide · Brisbane · Sydney) + VicGas DWGM</div>';
+  html += `<div id="gas-content">`;
+  if (!_gasData) {
+    html += '<div id="gas-loading" style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:16px 0">Loading gas data…</div>';
+  } else {
+    html += _renderGasContent(_gasData);
+  }
+  html += '</div>';
+  return html;
+}
+
+function _renderGasContent(gas) {
+  const sttm   = gas.sttm   || {};
+  const vicgas = gas.vicgas || {};
+  const today  = sttm.today || {};
+  let html = '';
+
+  // ── Price cards ──
+  html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px">';
+  for (const hub of GAS_HUBS) {
+    const d   = today[hub] || {};
+    const col = GAS_HUB_COLORS[hub];
+    const px  = d.price != null ? `$${d.price.toFixed(2)}/GJ` : '—';
+    const dem = d.demand_tj != null ? `${d.demand_tj.toFixed(1)} TJ` : '';
+    html += `<div class="chart-card" style="padding:10px 12px">
+      <div style="font-size:9px;color:${col};font-family:var(--font-mono);font-weight:700">${hub} STTM</div>
+      <div style="font-size:18px;font-family:var(--font-mono);font-weight:700;color:var(--text)">${px}</div>
+      ${dem ? `<div style="font-size:9px;color:#64748b;margin-top:2px">${dem} today</div>` : ''}
+    </div>`;
+  }
+  // VicGas price + demand
+  const vicPx  = vicgas.today_price != null ? `$${vicgas.today_price.toFixed(2)}/GJ` : '—';
+  const vicDem = vicgas.today_demand_tj != null ? `${vicgas.today_demand_tj.toFixed(1)} TJ` : '';
+  html += `<div class="chart-card" style="padding:10px 12px">
+    <div style="font-size:9px;color:#2ed573;font-family:var(--font-mono);font-weight:700">Victoria DWGM</div>
+    <div style="font-size:18px;font-family:var(--font-mono);font-weight:700;color:var(--text)">${vicPx}</div>
+    ${vicDem ? `<div style="font-size:9px;color:#64748b;margin-top:2px">${vicDem} today</div>` : ''}
+  </div>`;
+  html += '</div>';
+
+  // ── VicGas intraday price ──
+  if (vicgas.intraday && vicgas.intraday.length > 0) {
+    html += '<div class="chart-card" style="margin-bottom:8px">' +
+      '<div class="chart-title">VicGas Indicative Price Today ($/GJ)</div>' +
+      '<div class="chart-container" style="height:160px"><canvas id="gasVicIntradayChart"></canvas></div>' +
+      '</div>';
+  }
+
+  // ── 14-day price history ──
+  html += '<div class="chart-card">' +
+    '<div class="chart-title">14-Day Price History ($/GJ)</div>' +
+    '<div class="chart-container" style="height:220px"><canvas id="gasPriceHistChart"></canvas></div>' +
+    '</div>';
+
+  // ── GBB storage + state summary (loaded separately) ──
+  html += '<div id="gbb-content">';
+  html += '<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:12px 0">Loading storage data…</div>';
+  html += '</div>';
+
+  return html;
+}
+
+function _drawGasCharts(gas) {
+  const sttm   = gas.sttm   || {};
+  const vicgas = gas.vicgas || {};
+
+  // VicGas intraday
+  const intraday = vicgas.intraday || [];
+  if (intraday.length && document.getElementById('gasVicIntradayChart')) {
+    destroyChart('gasVicIntraday');
+    charts.gasVicIntraday = new Chart(document.getElementById('gasVicIntradayChart'), {
+      type: 'line',
+      data: {
+        labels: intraday.map(p => p.time),
+        datasets: [{
+          label: 'VicGas $/GJ',
+          data: intraday.map(p => p.price),
+          borderColor: '#2ed573', backgroundColor: '#2ed57322',
+          borderWidth: 1.5, pointRadius: 3, tension: 0.2, fill: true,
+        }]
+      },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins, legend: { display: false },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip, callbacks: { label: c => ` $${c.raw.toFixed(2)}/GJ` } }
+        },
+        scales: {
+          x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9}}, grid:{color:'#1e2d4544'} },
+          y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>'$'+v.toFixed(2)}, grid:{color:'#1e2d45'}, beginAtZero:false }
+        }
+      }
+    });
+  }
+
+  // 14-day price history
+  const hist    = sttm.history || [];
+  const vicHist = vicgas.history || [];
+  if ((hist.length || vicHist.length) && document.getElementById('gasPriceHistChart')) {
+    destroyChart('gasPriceHist');
+    const allDates = [...new Set([...hist.map(d=>d.gas_date), ...vicHist.map(d=>d.gas_date)])].sort();
+    const vicMap   = Object.fromEntries(vicHist.map(d=>[d.gas_date, d.price]));
+    const datasets = GAS_HUBS.map(hub => ({
+      label: hub,
+      data: allDates.map(d => { const e = hist.find(h=>h.gas_date===d); return e?.[hub]?.price ?? null; }),
+      borderColor: GAS_HUB_COLORS[hub], backgroundColor: 'transparent',
+      borderWidth: 1.5, pointRadius: 2, tension: 0.2,
+    }));
+    datasets.push({
+      label: 'Victoria',
+      data: allDates.map(d => vicMap[d] ?? null),
+      borderColor: '#2ed573', backgroundColor: 'transparent',
+      borderWidth: 1.5, pointRadius: 2, tension: 0.2,
+    });
+    const dayLabels = allDates.map(d => {
+      const dt = new Date(d + 'T00:00:00');
+      return dt.toLocaleDateString('en-AU', {day:'numeric', month:'short'});
+    });
+    charts.gasPriceHist = new Chart(document.getElementById('gasPriceHistChart'), {
+      type: 'line',
+      data: { labels: dayLabels, datasets },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins,
+          legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 } },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
+            callbacks: { label: c => c.raw===null?null:` ${c.dataset.label}: $${c.raw.toFixed(2)}/GJ` } }
+        },
+        scales: {
+          x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:45,autoSkip:true,maxTicksLimit:10}, grid:{color:'#1e2d4544'} },
+          y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>'$'+v.toFixed(2)}, grid:{color:'#1e2d45'}, beginAtZero:false }
+        }
+      }
+    });
+  }
+}
+
+function round2(v) { return Math.round(v * 100) / 100; }
+
+// ── GBB Storage + State Summary ───────────────────────────────────────────────
+
+const STOR_COLORS = {
+  'Iona UGS':      '#2ed573',
+  'Moomba Storage':'#f39c12',
+  'RUGS':          '#3498db',
+  'SSSF':          '#9b59b6',
+  'Dandenong LNG': '#e74c3c',
+  'NGS':           '#1abc9c',
+};
+const STATE_ORDER = ['QLD', 'NSW', 'VIC', 'SA', 'TAS', 'NT'];
+
+let _gbbData = null;
+
+async function fetchGBBData() {
+  try {
+    const resp = await fetch('/api/gbb');
+    if (!resp.ok) return;
+    _gbbData = await resp.json();
+    _renderGBB(_gbbData);
+  } catch(e) {
+    console.warn('GBB fetch failed:', e);
+  }
+}
+
+function _renderGBB(gbb) {
+  const el = document.getElementById('gbb-content');
+  if (!el) return;
+  const storage = gbb.storage || {};
+  const stateSum = gbb.state_summary || {};
+  const latestDate = gbb.latest_date || '';
+  let html = '';
+
+  // ── State supply/demand summary table ──
+  html += '<div class="chart-card" style="margin-top:8px;padding:12px 14px">';
+  html += `<div class="chart-title">East Coast Gas — Supply & Demand by State`;
+  if (latestDate) html += ` <span style="font-weight:400;color:#475569">${latestDate.replace(/\//g,'-')}</span>`;
+  html += '</div>';
+  html += '<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px;margin-top:8px">';
+  html += '<thead><tr style="color:#475569;border-bottom:1px solid #1e2d45">' +
+    '<th style="text-align:left;padding:4px 0">State</th>' +
+    '<th style="text-align:right;padding:4px 6px">Supply TJ</th>' +
+    '<th style="text-align:right;padding:4px 6px">Demand TJ</th>' +
+    '<th style="text-align:right;padding:4px 0">Net TJ</th>' +
+    '</tr></thead><tbody>';
+  let totS = 0, totD = 0;
+  for (const st of STATE_ORDER) {
+    const v = stateSum[st];
+    if (!v) continue;
+    totS += v.supply; totD += v.demand;
+    const net = v.net;
+    const netCol = net >= 0 ? '#2ed573' : '#e74c3c';
+    html += `<tr style="border-bottom:1px solid #1e2d4533">
+      <td style="padding:5px 0;color:#94a3b8">${st}</td>
+      <td style="text-align:right;padding:5px 6px;color:var(--text)">${v.supply.toFixed(0)}</td>
+      <td style="text-align:right;padding:5px 6px;color:var(--text)">${v.demand.toFixed(0)}</td>
+      <td style="text-align:right;padding:5px 0;color:${netCol};font-weight:700">${net >= 0 ? '+' : ''}${net.toFixed(0)}</td>
+    </tr>`;
+  }
+  const totNet = totS - totD;
+  const totCol = totNet >= 0 ? '#2ed573' : '#e74c3c';
+  html += `<tr style="border-top:1px solid #334155;font-weight:700">
+    <td style="padding:6px 0;color:var(--text)">TOTAL</td>
+    <td style="text-align:right;padding:6px 6px;color:var(--text)">${totS.toFixed(0)}</td>
+    <td style="text-align:right;padding:6px 6px;color:var(--text)">${totD.toFixed(0)}</td>
+    <td style="text-align:right;padding:6px 0;color:${totCol};font-weight:700">${totNet >= 0 ? '+' : ''}${totNet.toFixed(0)}</td>
+  </tr>`;
+  html += '</tbody></table></div>';
+
+  // ── Production by facility ──
+  html += '<div class="chart-card" style="margin-top:8px">' +
+    '<div class="chart-title">Gas Production by Source — 14 Days (TJ/day)</div>' +
+    `<div style="font-family:var(--font-mono);font-size:8px;color:#475569;margin:-4px 0 6px">Actuals to ${latestDate.replace(/\//g,'-')} · D-1 lag</div>` +
+    '<div class="chart-container" style="height:240px"><canvas id="gbbProductionChart"></canvas></div>' +
+    '</div>';
+
+  // ── Demand by sector ──
+  html += '<div class="chart-card" style="margin-top:8px">' +
+    '<div class="chart-title">Gas Demand by Sector — 14 Days (TJ/day)</div>' +
+    `<div style="font-family:var(--font-mono);font-size:8px;color:#475569;margin:-4px 0 6px">LNG export · gas generation · large industrial · actuals to ${latestDate.replace(/\//g,'-')}</div>` +
+    '<div class="chart-container" style="height:240px"><canvas id="gbbDemandSectorChart"></canvas></div>' +
+    '</div>';
+
+  // ── Storage levels ──
+  html += '<div class="chart-card" style="margin-top:8px">' +
+    '<div class="chart-title">Gas Storage Levels — 31 Days (TJ)</div>' +
+    '<div class="chart-container" style="height:220px"><canvas id="gbbStorageChart"></canvas></div>' +
+    '</div>';
+
+  el.innerHTML = html;
+
+  setTimeout(() => {
+    const allDates = [...new Set(
+      Object.values(storage).flatMap(pts => pts.map(p => p.gas_date))
+    )].sort();
+    const dayLabels = allDates.map(d => {
+      const dt = new Date(d + 'T00:00:00');
+      return dt.toLocaleDateString('en-AU', {day:'numeric', month:'short'});
+    });
+
+    // ── Production chart ──
+    const prodHist = gbb.production_history || {};
+    const PROD_COLORS = {
+      'QLD (CSG+LNG)':  '#f39c12',
+      'SA: Moomba':     '#e74c3c',
+      'VIC: Longford':  '#2ed573',
+      'VIC: Otway':     '#1abc9c',
+      'VIC: Orbost':    '#3498db',
+      'VIC: ATHENA':    '#9b59b6',
+      'VIC: Lang Lang': '#27ae60',
+      'NT':             '#64748b',
+    };
+    const PROD_ORDER = ['QLD (CSG+LNG)', 'SA: Moomba', 'VIC: Longford', 'VIC: Otway', 'VIC: Orbost', 'VIC: ATHENA', 'VIC: Lang Lang', 'NT'];
+    const prodCtx = document.getElementById('gbbProductionChart');
+    if (prodCtx && Object.keys(prodHist).length) {
+      destroyChart('gbbProduction');
+      const allProdDates = [...new Set(
+        Object.values(prodHist).flatMap(pts => pts.map(p => p.gas_date))
+      )].sort();
+      const prodLabels = allProdDates.map(d => new Date(d + 'T00:00:00').toLocaleDateString('en-AU', {day:'numeric', month:'short'}));
+      const prodDatasets = PROD_ORDER.filter(k => prodHist[k]).map(key => ({
+        label: key.replace('VIC: ', '').replace('SA: ', ''),
+        data: allProdDates.map(d => { const pt = (prodHist[key]||[]).find(p=>p.gas_date===d); return pt ? pt.supply_tj : null; }),
+        borderColor: PROD_COLORS[key] || '#64748b',
+        backgroundColor: (PROD_COLORS[key] || '#64748b') + '44',
+        borderWidth: 1.5, pointRadius: 2, tension: 0.2, fill: true,
+      }));
+      charts.gbbProduction = new Chart(prodCtx, {
+        type: 'line', data: { labels: prodLabels, datasets: prodDatasets },
+        options: { ...CHART_DEFAULTS,
+          plugins: { ...CHART_DEFAULTS.plugins,
+            legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 } },
+            tooltip: { ...CHART_DEFAULTS.plugins.tooltip, callbacks: { label: c => c.raw===null?null:` ${c.dataset.label}: ${c.raw.toFixed(0)} TJ` } }
+          },
+          scales: {
+            x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:45,autoSkip:true,maxTicksLimit:10}, grid:{color:'#1e2d4544'} },
+            y: { stacked:true, ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>v.toFixed(0)+' TJ'}, grid:{color:'#1e2d45'}, beginAtZero:true }
+          }
+        }
+      });
     }
 
+    // ── Demand by sector chart ──
+    const demSector = gbb.demand_by_sector || {};
+    const SECTOR_COLORS = {
+      'LNG Export':           '#e74c3c',
+      'Gas Power Generation': '#f39c12',
+      'Large Industrial':     '#9b59b6',
+    };
+    const SECTOR_ORDER = ['LNG Export', 'Gas Power Generation', 'Large Industrial'];
+    const demCtx = document.getElementById('gbbDemandSectorChart');
+    if (demCtx && Object.keys(demSector).length) {
+      destroyChart('gbbDemandSector');
+      const allDemDates = [...new Set(
+        Object.values(demSector).flatMap(pts => pts.map(p => p.gas_date))
+      )].sort();
+      const demLabels = allDemDates.map(d => new Date(d + 'T00:00:00').toLocaleDateString('en-AU', {day:'numeric', month:'short'}));
+      const demDatasets = SECTOR_ORDER.filter(k => demSector[k]).map(key => ({
+        label: key,
+        data: allDemDates.map(d => { const pt = (demSector[key]||[]).find(p=>p.gas_date===d); return pt ? pt.demand_tj : null; }),
+        borderColor: SECTOR_COLORS[key] || '#64748b',
+        backgroundColor: (SECTOR_COLORS[key] || '#64748b') + '44',
+        borderWidth: 1.5, pointRadius: 2, tension: 0.2, fill: true,
+      }));
+      charts.gbbDemandSector = new Chart(demCtx, {
+        type: 'line', data: { labels: demLabels, datasets: demDatasets },
+        options: { ...CHART_DEFAULTS,
+          plugins: { ...CHART_DEFAULTS.plugins,
+            legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 } },
+            tooltip: { ...CHART_DEFAULTS.plugins.tooltip, callbacks: { label: c => c.raw===null?null:` ${c.dataset.label}: ${c.raw.toFixed(0)} TJ` } }
+          },
+          scales: {
+            x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:45,autoSkip:true,maxTicksLimit:10}, grid:{color:'#1e2d4544'} },
+            y: { stacked:true, ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>v.toFixed(0)+' TJ'}, grid:{color:'#1e2d45'}, beginAtZero:true }
+          }
+        }
+      });
+    }
 
-@app.get("/", response_class=HTMLResponse)
-async def dashboard():
-    html_path = Path(__file__).parent / "static" / "index.html"
-    if html_path.exists():
-        return HTMLResponse(content=html_path.read_text())
-    return HTMLResponse(content="<h1>Loading...</h1>")
+    // ── Storage chart ──
+    const storCtx = document.getElementById('gbbStorageChart');
+    if (storCtx && Object.keys(storage).length) {
+      destroyChart('gbbStorage');
+      const storDatasets = Object.entries(storage).map(([name, pts]) => {
+        const map = Object.fromEntries(pts.map(p => [p.gas_date, p.held_tj]));
+        return {
+          label: name,
+          data: allDates.map(d => map[d] ?? null),
+          borderColor: STOR_COLORS[name] || '#64748b',
+          backgroundColor: 'transparent',
+          borderWidth: 1.5, pointRadius: 0, tension: 0.2,
+        };
+      });
+      charts.gbbStorage = new Chart(storCtx, {
+        type: 'line', data: { labels: dayLabels, datasets: storDatasets },
+        options: { ...CHART_DEFAULTS,
+          plugins: { ...CHART_DEFAULTS.plugins,
+            legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 } },
+            tooltip: { ...CHART_DEFAULTS.plugins.tooltip, callbacks: { label: c => c.raw===null?null:` ${c.dataset.label}: ${c.raw.toLocaleString()} TJ` } }
+          },
+          scales: {
+            x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:45,autoSkip:true,maxTicksLimit:10}, grid:{color:'#1e2d4544'} },
+            y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>v>=1000?(v/1000).toFixed(1)+'k':v+' TJ'}, grid:{color:'#1e2d45'}, beginAtZero:false }
+          }
+        }
+      });
+    }
+  }, 50);
+}
+
+async function fetchGasData() {
+  const content = document.getElementById('gas-content');
+  if (content && !_gasData) {
+    content.innerHTML = '<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:16px 0">Loading gas data… (first load ~15s)</div>';
+  }
+  try {
+    const resp = await fetch('/api/gas');
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      if (content) content.innerHTML = `<div style="font-family:var(--font-mono);font-size:10px;color:#e74c3c;padding:16px 0">Error: ${err.error || resp.status}</div>`;
+      return;
+    }
+    _gasData = await resp.json();
+    if (currentPanel === 'gas') {
+      if (latestData) renderPanel('gas', latestData);
+      setTimeout(() => _drawGasCharts(_gasData), 50);
+      fetchGBBData();
+    }
+  } catch(e) {
+    if (content) content.innerHTML = `<div style="font-family:var(--font-mono);font-size:10px;color:#e74c3c;padding:16px 0">Error: ${e.message}</div>`;
+  }
+}
 
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+function renderDMinus1(data) {
+  const today = new Date();
+  const fmtDate = d => d.toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short', year:'numeric', timeZone:'Australia/Brisbane'});
+
+  // Default selected date: yesterday
+  if (!window._dMinusSel) {
+    const yest = new Date(today);
+    yest.setDate(yest.getDate() - 1);
+    window._dMinusSel = {y: yest.getFullYear(), m: yest.getMonth()+1, d: yest.getDate()};
+  }
+
+  const sel = window._dMinusSel;
+  const selStr  = _dSelToStr(sel);
+  const selLabel = _dSelToLabel(sel);
+
+  let html = `<div class="section-title">D− Historical Prices</div>`;
+  html += `<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-bottom:8px;line-height:1.5">
+    Data available for the last 15 days via AEMO TradingIS. Older data is not publicly available in real-time feeds.
+  </div>`;
+
+  // ── Date picker + inline status ───────────────────────────────────────────
+  html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+    <button onclick="dMinusShowCalendar()" id="dMinus-date-btn"
+      style="font-family:var(--font-mono);font-size:11px;padding:6px 14px;border-radius:8px;
+      border:1px solid #334155;background:#1e293b;color:#e2e8f0;cursor:pointer;
+      display:flex;align-items:center;gap:6px">
+      📅 ${selLabel}
+    </button>
+    <span id="dMinus-status" style="font-family:var(--font-mono);font-size:10px;color:#475569"></span>
+  </div>`;
+
+  // Calendar popover (hidden by default)
+  html += `<div id="dMinus-calendar" style="display:none;background:#1e293b;border:1px solid #334155;
+    border-radius:10px;padding:12px;margin-bottom:12px;max-width:320px">
+    ${dMinusBuildCalendar()}
+  </div>`;
+
+  // Region pills
+  html += '<div class="region-pills" style="margin-bottom:8px">';
+  for (const r of ['NEM', ...REGIONS]) {
+    const lbl   = r === 'NEM' ? 'NEM' : REGION_SHORT[r];
+    const color = r === 'NEM' ? '#94a3b8' : REGION_COLORS[r];
+    const active = dMinus1RegionFilter === r ? 'active' : '';
+    html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}" onclick="setDMinus1Region('${r}')">${lbl}</button>`;
+  }
+  html += '</div>';
+
+  // Charts — same layout as P&D + Gen pages
+  html += `
+    <div class="chart-card">
+      <div class="chart-title">5-min Dispatch Price — ${selLabel}</div>
+      <div class="chart-container" style="height:220px"><canvas id="dm1PriceChart"></canvas></div>
+    </div>
+    <div class="chart-card" style="margin-top:8px">
+      <div class="chart-title">Demand + Non-Sched Gen — ${selLabel}</div>
+      <div class="chart-container" style="height:180px"><canvas id="dm1DemandChart"></canvas></div>
+    </div>
+    <div class="chart-card" style="margin-top:8px">
+      <div class="chart-title">Fuel Mix — ${selLabel}</div>
+      <div class="chart-container" style="height:220px"><canvas id="dm1FuelChart"></canvas></div>
+    </div>
+  `;
+
+  return html;
+}
+
+// ── D-1 date helpers ─────────────────────────────────────────────────────────
+// Store selected date as plain {y,m,d} integers to avoid all TZ issues
+// _dMinusSel = {y:2026, m:3, d:19}  (1-indexed month)
+// _dMinusCalView = {y, m} current calendar page (1-indexed month)
+
+function _dSelToStr(sel) {
+  // {y,m,d} → "YYYYMMDD"
+  return sel.y.toString() + String(sel.m).padStart(2,'0') + String(sel.d).padStart(2,'0');
+}
+function _dSelToLabel(sel) {
+  return new Date(sel.y, sel.m-1, sel.d)
+    .toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short', year:'numeric'});
+}
+function _dToday() {
+  const n = new Date();
+  return {y: n.getFullYear(), m: n.getMonth()+1, d: n.getDate()};
+}
+function _dCmp(a, b) { // -1 / 0 / 1
+  if (a.y !== b.y) return a.y < b.y ? -1 : 1;
+  if (a.m !== b.m) return a.m < b.m ? -1 : 1;
+  if (a.d !== b.d) return a.d < b.d ? -1 : 1;
+  return 0;
+}
+
+function dMinusBuildCalendar() {
+  const today = _dToday();
+  const sel   = window._dMinusSel || {y: today.y, m: today.m, d: today.d - 1};
+  const view  = window._dMinusCalView || {y: sel.y, m: sel.m};
+  const {y, m} = view;
+
+  const firstDow = new Date(y, m-1, 1).getDay(); // 0=Sun
+  const lastDay  = new Date(y, m, 0).getDate();   // days in month
+  const monthName = new Date(y, m-1, 1).toLocaleDateString('en-AU', {month:'long', year:'numeric'});
+
+  const todayYM = today.y * 12 + today.m;
+  const viewYM  = y * 12 + m;
+
+  let cal = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">`;
+  cal += `<button onclick="dMinusNavMonth(-1)" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px">‹</button>`;
+  cal += `<span style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:#e2e8f0">${monthName}</span>`;
+  if (viewYM < todayYM) {
+    cal += `<button onclick="dMinusNavMonth(1)" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px">›</button>`;
+  } else {
+    cal += `<span style="width:28px"></span>`;
+  }
+  cal += `</div>`;
+
+  cal += `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px">`;
+  for (const lbl of ['Su','Mo','Tu','We','Th','Fr','Sa'])
+    cal += `<div style="font-family:var(--font-mono);font-size:9px;color:#475569;text-align:center">${lbl}</div>`;
+  cal += `</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">`;
+
+  for (let i = 0; i < firstDow; i++) cal += `<div></div>`;
+
+  for (let d = 1; d <= lastDay; d++) {
+    const cell    = {y, m, d};
+    const isSel   = _dCmp(cell, sel) === 0;
+    const isFuture = _dCmp(cell, today) > 0;
+    const isToday = _dCmp(cell, today) === 0;
+    // Grey out dates older than 15 days — beyond TradingIS window
+    const cellDate = new Date(y, m-1, d);
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 15);
+    const isTooOld = cellDate < cutoff;
+    const isDisabled = isFuture || isTooOld;
+    const bg      = isSel ? '#3b82f6' : isToday ? '#475569' : 'transparent';
+    const fg      = isSel ? '#fff' : isDisabled ? '#1e2d45' : '#e2e8f0';
+    const dateArg = `${y},${m},${d}`;
+    cal += `<div onclick="${isDisabled ? '' : `dMinusSelectDate(${dateArg})`}"
+      style="font-family:var(--font-mono);font-size:10px;text-align:center;padding:4px 2px;
+      border-radius:4px;background:${bg};color:${fg};
+      cursor:${isDisabled ? 'default' : 'pointer'}${isTooOld ? ';text-decoration:line-through' : ''}">${d}</div>`;
+  }
+  cal += `</div>`;
+  cal += `<div style="display:flex;justify-content:flex-end;margin-top:8px">
+    <button onclick="dMinusShowCalendar()" style="font-family:var(--font-mono);font-size:10px;
+    padding:4px 10px;border-radius:6px;border:1px solid #334155;background:transparent;
+    color:#64748b;cursor:pointer">close</button>
+  </div>`;
+  return cal;
+}
+
+function dMinusShowCalendar() {
+  const cal = document.getElementById('dMinus-calendar');
+  if (!cal) return;
+  if (cal.style.display === 'none') {
+    // Reset view to selected month when opening
+    const sel = window._dMinusSel;
+    if (sel) window._dMinusCalView = {y: sel.y, m: sel.m};
+    cal.innerHTML = dMinusBuildCalendar();
+    cal.style.display = 'block';
+  } else {
+    cal.style.display = 'none';
+  }
+}
+
+function dMinusNavMonth(dir) {
+  const view = window._dMinusCalView || window._dMinusSel || _dToday();
+  let nm = view.m + dir;
+  let ny = view.y;
+  if (nm > 12) { nm = 1; ny++; }
+  if (nm < 1)  { nm = 12; ny--; }
+  const today = _dToday();
+  if (ny * 12 + nm > today.y * 12 + today.m) return;
+  window._dMinusCalView = {y: ny, m: nm};
+  const calEl = document.getElementById('dMinus-calendar');
+  if (calEl) calEl.innerHTML = dMinusBuildCalendar();
+}
+
+function dMinusSelectDate(y, m, d) {
+  window._dMinusSel = {y, m, d};
+  const cal = document.getElementById('dMinus-calendar');
+  if (cal) cal.style.display = 'none';
+  const lbl = _dSelToLabel({y, m, d});
+  const btn = document.getElementById('dMinus-date-btn');
+  if (btn) btn.innerHTML = '📅 ' + lbl;
+  const title = document.getElementById('dMinus-chart-title');
+  if (title) title.textContent = '5-min Dispatch Price ($/MWh) — ' + lbl;
+  window._dMinus1PriceData = null;
+  window._dMinus1Dispatch5m = null;
+  dMinusLoadPrices(_dSelToStr({y, m, d}));
+}
+
+async function dMinusLoadPrices(dateStr) {
+  const status = document.getElementById('dMinus-status');
+  if (status) status.textContent = 'Loading…';
+  destroyChart('dm1Price');
+  destroyChart('dm1Demand');
+  destroyChart('dm1Fuel');
+  try {
+    const data = await fetch(`/api/historical_day?date=${dateStr}`).then(r => r.json());
+    if (!data || data.error) {
+      if (status) status.textContent = `No data for ${dateStr}`;
+      return;
+    }
+    if (status) status.textContent = '';
+    window._dMinus1Data = data;
+    drawDMinus1PriceChart(data);
+    drawDMinus1DemandChart(data);
+    drawDMinus1FuelChart(data);
+  } catch(e) {
+    if (status) status.textContent = `Error: ${e.message}`;
+  }
+}
+
+function drawDMinus1PriceChart(data) {
+  const ctx = document.getElementById('dm1PriceChart');
+  if (!ctx) return;
+  destroyChart('dm1Price');
+  data = data || window._dMinus1Data || {};
+  const priceData = data.dispatch_prices_5min || {};
+
+  const allIntervals = [];
+  for (const r of REGIONS) (priceData[r] || []).forEach(p => allIntervals.push(p.interval));
+  const has5min = allIntervals.some(t => parseInt(t.split(':')[1]) % 30 !== 0);
+  const step = has5min ? 5 : 30;
+  const slots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += step)
+      slots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  const activeRegions = dMinus1RegionFilter === 'NEM' ? REGIONS : [dMinus1RegionFilter];
+  const datasets = [];
+  for (const r of activeRegions) {
+    const color = REGION_COLORS[r];
+    const pm = {};
+    (priceData[r] || []).forEach(p => { pm[p.interval] = p.rrp; });
+    datasets.push({
+      label: REGION_SHORT[r],
+      data: slots.map(l => pm[l] ?? null),
+      borderColor: color, backgroundColor: color + '18',
+      borderWidth: 1.5, pointRadius: step === 30 ? 3 : 0,
+      tension: step === 30 ? 0.2 : 0, spanGaps: step === 30,
+      fill: activeRegions.length === 1,
+    });
+  }
+  charts.dm1Price = new Chart(ctx, {
+    type: 'line', data: { labels: slots, datasets },
+    options: { ...CHART_DEFAULTS,
+      plugins: { ...CHART_DEFAULTS.plugins,
+        legend: { display: activeRegions.length > 1,
+          labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 } },
+        tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw !== null,
+          callbacks: { label: c => c.raw===null ? null : ` ${c.dataset.label}: $${c.raw.toFixed(2)}/MWh` } }
+      },
+      scales: {
+        x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:0,
+               callback:(v,i) => slots[i]?.endsWith(':00') ? slots[i] : null},
+             grid:{color:'#1e2d4544'} },
+        y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>'$'+v.toFixed(0)},
+             grid:{color:'#1e2d45'} }
+      }
+    }
+  });
+}
+
+function drawDMinus1DemandChart(data) {
+  const ctx = document.getElementById('dm1DemandChart');
+  if (!ctx) return;
+  destroyChart('dm1Demand');
+  data = data || window._dMinus1Data || {};
+  const opDem = data.op_demand_history || {};
+  const dem   = data.demand_history    || {};
+
+  const slots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      slots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  const activeRegions = dMinus1RegionFilter === 'NEM' ? REGIONS : [dMinus1RegionFilter];
+  const datasets = [];
+  for (const r of [...activeRegions].reverse()) {
+    const color = REGION_COLORS[r];
+    const opMap = {}, demMap = {};
+    (opDem[r] || []).forEach(p => { opMap[p.interval] = p.demand; });
+    (dem[r]   || []).forEach(p => { demMap[p.interval] = p.demand; });
+    if (Object.keys(opMap).length) datasets.push({
+      label: REGION_SHORT[r] + ' Op Demand',
+      data: slots.map(l => opMap[l] ?? null),
+      borderColor: color, backgroundColor: color + '33',
+      borderWidth: 1.5, pointRadius: 0, tension: 0.2,
+      fill: activeRegions.length === 1 ? 'origin' : false, spanGaps: true,
+    });
+  }
+  if (!datasets.length) return;
+  charts.dm1Demand = new Chart(ctx, {
+    type: 'line', data: { labels: slots, datasets },
+    options: { ...CHART_DEFAULTS,
+      plugins: { ...CHART_DEFAULTS.plugins,
+        legend: { display: activeRegions.length > 1,
+          labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 } },
+        tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw !== null,
+          callbacks: { label: c => c.raw===null ? null : ` ${c.dataset.label}: ${Math.round(c.raw).toLocaleString()} MW` } }
+      },
+      scales: {
+        x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:0,
+               callback:(v,i) => slots[i]?.endsWith(':00') ? slots[i] : null},
+             grid:{color:'#1e2d4544'} },
+        y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>fmt(v,0)+' MW'},
+             grid:{color:'#1e2d45'} }
+      }
+    }
+  });
+}
+
+function drawDMinus1FuelChart(data) {
+  const ctx = document.getElementById('dm1FuelChart');
+  if (!ctx) return;
+  destroyChart('dm1Fuel');
+  data = data || window._dMinus1Data || {};
+  const fuelHist = data.fuel_history || {};
+
+  const slots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      slots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  const activeRegions = dMinus1RegionFilter === 'NEM' ? REGIONS : [dMinus1RegionFilter];
+  // Aggregate fuel mix across active regions
+  const fuelMap = {}; // { HH:MM: { fuel: mw } }
+  for (const r of activeRegions) {
+    (fuelHist[r] || []).forEach(pt => {
+      if (!fuelMap[pt.interval]) fuelMap[pt.interval] = {};
+      Object.entries(pt).forEach(([k, v]) => {
+        if (k === 'interval') return;
+        fuelMap[pt.interval][k] = (fuelMap[pt.interval][k] || 0) + (v || 0);
+      });
+    });
+  }
+
+  const FUEL_ORDER = ['Black Coal','Brown Coal','Gas','Hydro','Wind','Solar','Battery','Rooftop Solar','Liquid','Other'];
+  const FUEL_COLORS_MAP = {
+    'Black Coal':'#334155','Brown Coal':'#78350f','Gas':'#f97316','Hydro':'#38bdf8',
+    'Wind':'#34d399','Solar':'#fbbf24','Battery':'#a78bfa','Rooftop Solar':'#fde68a',
+    'Liquid':'#94a3b8','Other':'#475569','Pump Hydro':'#0ea5e9',
+  };
+
+  // Find all fuels present
+  const fuelsPresent = new Set();
+  Object.values(fuelMap).forEach(snap => Object.keys(snap).forEach(f => fuelsPresent.add(f)));
+  const orderedFuels = FUEL_ORDER.filter(f => fuelsPresent.has(f));
+
+  const datasets = orderedFuels.map(fuel => ({
+    label: fuel,
+    data: slots.map(l => fuelMap[l]?.[fuel] ?? null),
+    borderColor: FUEL_COLORS_MAP[fuel] || '#94a3b8',
+    backgroundColor: (FUEL_COLORS_MAP[fuel] || '#94a3b8') + 'cc',
+    borderWidth: 1, pointRadius: 0, tension: 0.2,
+    fill: 'stack', stack: 'fuel', spanGaps: true,
+  }));
+
+  if (!datasets.length) return;
+  charts.dm1Fuel = new Chart(ctx, {
+    type: 'line', data: { labels: slots, datasets },
+    options: { ...CHART_DEFAULTS,
+      plugins: { ...CHART_DEFAULTS.plugins,
+        legend: { display: true,
+          labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 } },
+        tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
+          filter: i => i.raw !== null && i.raw > 0,
+          callbacks: { label: c => c.raw > 0 ? ` ${c.dataset.label}: ${Math.round(c.raw).toLocaleString()} MW` : null }
+        }
+      },
+      scales: {
+        x: { stacked: true, ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:0,
+               callback:(v,i) => slots[i]?.endsWith(':00') ? slots[i] : null},
+             grid:{color:'#1e2d4544'} },
+        y: { stacked: true, ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>fmt(v,0)+' MW'},
+             grid:{color:'#1e2d45'} }
+      }
+    }
+  });
+}
+
+
+function drawDMinus1Charts(data) {
+  // Auto-load when first visiting the panel; skip if data already loaded
+  if (window._dMinus1Data) {
+    // Already have data — just redraw (e.g. coming back to panel)
+    setTimeout(() => {
+      drawDMinus1PriceChart(window._dMinus1Data);
+      drawDMinus1DemandChart(window._dMinus1Data);
+      drawDMinus1FuelChart(window._dMinus1Data);
+    }, 0);
+    return;
+  }
+  // First visit — load yesterday (or previously selected date)
+  const sel = window._dMinusSel;
+  if (sel) setTimeout(() => dMinusLoadPrices(_dSelToStr(sel)), 0);
+}
+
+function renderPanel(panel, data) {
+  const main = document.getElementById('mainContent');
+  let html = '';
+  try {
+    if (panel === 'prices')          html = renderPrices(data);
+    else if (panel === 'generation') html = renderGeneration(data);
+    else if (panel === 'demand')     html = renderDemand(data);
+    else if (panel === 'origin')     html = renderOrigin(data);
+    else if (panel === 'stations')   html = renderStations(data);
+    else if (panel === 'batteries')  html = renderBatteries(data);
+    else if (panel === 'dminus1')    { html = renderDMinus1(data); }
+    else if (panel === 'prices-hist') { html = renderPricesHist(); }
+    else if (panel === 'gas')         { html = renderGas(); }
+
+    else if (panel === 'dayahead')   html = renderDayAhead(data);
+    else if (panel === 'about') { html = renderAbout(data); setTimeout(_renderViewStats, 0); }
+    else if (panel === 'outages') html = renderOutages(data);
+    else if (panel === 'coalcal') html = renderCoalCalendar(data);
+  } catch(e) {
+    console.error(`Render error [${panel}]:`, e);
+    html = `<div class="state-msg"><div class="icon">⚠️</div><div>Error in ${panel}: ${e.message}</div></div>`;
+  }
+  main.innerHTML = html;
+  requestAnimationFrame(() => {
+    try {
+      if (panel === 'prices')          { drawPriceChart(data); drawDemandChart(data); drawRenewablesChart(data); setTimeout(()=>drawPriceSensitivityChart(data),50); }
+      else if (panel === 'generation') { drawGenChart(data); drawIcChart(data); }
+      else if (panel === 'demand')     drawDemandChart(data);
+
+      else if (panel === 'dayahead')   { drawDayAheadCharts(data); drawWeekCharts(data); }
+      else if (panel === 'batteries')  drawBatteryCharts(data);
+      else if (panel === 'dminus1')    drawDMinus1Charts(data);
+      else if (panel === 'prices-hist') { setTimeout(drawPricesHist, 0); }
+      else if (panel === 'gas') {
+        if (_gasData) {
+          setTimeout(() => _drawGasCharts(_gasData), 50);
+          if (_gbbData) _renderGBB(_gbbData);
+          else fetchGBBData();
+        } else fetchGasData();
+      }
+    } catch(e) {
+      console.error(`Chart error [${panel}]:`, e);
+      main.innerHTML += `<div style="color:#e74c3c;font-size:11px;padding:8px">Chart error in ${panel}: ${e.message}</div>`;
+    }
+  });
+}
+
+
+// ── About ─────────────────────────────────────────────────────────────────────
+
+function renderOutages(data) {
+  const outages = (slowData && slowData.mtpasa_outages) || [];
+
+  function fmtDate(d) {
+    if (!d) return null;
+    const [y,m,dy] = d.split('/');
+    const dt = new Date(y, m-1, dy);
+    const days = Math.round((dt - new Date()) / 86400000);
+    const label = dt.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
+    return { label, days };
+  }
+
+  let html = '<div class="section-title">Current Power Station Outages</div>' +
+    '<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-bottom:8px;line-height:1.5">' +
+    'Units below 70% of registered capacity, or with a significant change scheduled. Minor ambient deratings excluded. Source: PDPASA / STPASA / MTPASA.' +
+    '</div>';
+
+  if (!slowData) {
+    html += '<div class="state-msg"><div class="icon">⏳</div><div>Loading outage data…</div></div>';
+    return html;
+  }
+  if (outages.length === 0) {
+    html += '<div class="state-msg"><div class="icon">✅</div><div>No units currently below nameplate capacity</div></div>';
+    return html;
+  }
+
+  // ── Filter pills ───────────────────────────────────────────────────────────
+  // Two independent filters:
+  // 1. Status radio: All / Offline / Derated
+  // 2. Has Return toggle: can combine with status radio
+  const filterState   = window._outageFilter !== undefined ? window._outageFilter : 'offline';
+  const hasReturnFilter = window._outageHasReturn !== undefined ? window._outageHasReturn : true;
+
+  const timeFilter    = window._outageTimeFilter !== undefined ? window._outageTimeFilter : 'current';
+  // offline/derated based on avail_now (current PDPASA/STPASA reading)
+  const offline    = outages.filter(r => (r.avail_now ?? r.avail_today) === 0);
+  const derated    = outages.filter(r => (r.avail_now ?? r.avail_today) > 0);
+  const withReturn = outages.filter(r => r.return_date);
+
+  // PASA state filter
+  const pasaStateFilter = window._outageStateFilter || new Set(['all']);
+  const allPasaStates = [...new Set(outages.map(r => r.pasa_state || 'Unknown'))].filter(s => s !== 'Unknown').sort();
+
+  html += '<div class="region-pills" style="margin-bottom:6px">';
+  // Timing sets
+  const nowIso = new Date().toISOString().slice(0,10);
+  // "current" = outage_start within the next 2 days (covers PDPASA/STPASA first interval gap)
+  const now2d = new Date(); now2d.setDate(now2d.getDate() + 2);
+  const now2dStr = now2d.toISOString().slice(0,10);
+  const now7d = new Date(); now7d.setDate(now7d.getDate() + 7);
+  const now7dStr = now7d.toISOString().slice(0,10);
+
+  // "current" = outage already underway (start on or before first STPASA interval ~2 days out)
+  const currentOut = outages.filter(r => r.is_current);
+  // "within7d" = outage starts within 7 days
+  const within7dOut = outages.filter(r => r.outage_start && r.outage_start.replace(/\//g,'-') <= now7dStr);
+
+  // Row: All / Offline / Derated + Within 3 months (independent)
+  for (const [key, label, arr] of [
+    ['all',     'All',     outages],
+    ['offline', 'Offline', offline],
+    ['derated', 'Derated', derated],
+  ]) {
+    const active = filterState === key ? 'active' : '';
+    html += `<button class="region-pill ${active}" style="color:#94a3b8;border-color:#94a3b8"
+      onclick="setOutageFilter('${key}')">${label} <span style="opacity:0.5;font-size:9px">${arr.length}</span></button>`;
+  }
+
+  html += '</div>';
+  // Row 2: timing — Current / Within 7d (radio) + Has Return (independent)
+  html += '<div class="region-pills" style="margin-bottom:6px">';
+  for (const [key, label, arr] of [
+    ['current',  'Current',    currentOut],
+    ['within7d', 'Within 7d',  within7dOut],
+  ]) {
+    const active = timeFilter === key ? 'active' : '';
+    html += `<button class="region-pill ${active}" style="color:#818cf8;border-color:#818cf8"
+      onclick="setOutageTimeFilter('${key}')">${label} <span style="opacity:0.5;font-size:9px">${arr.length}</span></button>`;
+  }
+  html += `<button class="region-pill ${hasReturnFilter ? 'active' : ''}" style="color:#22c55e;border-color:#22c55e;margin-left:8px"
+    onclick="toggleOutageHasReturn()">↩ Has return <span style="opacity:0.5;font-size:9px">${withReturn.length}</span></button>`;
+  html += '</div>';
+
+  html += '</div>';
+
+  // PASA state pills — show/hide by UNITSTATE
+  html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px">';
+  const pasaColors = {
+    'Planned':'#f59e0b', 'Forced':'#ef4444', 'Seasonal':'#3b82f6',
+    'LowWater':'#06b6d4', 'HiTemp':'#f97316', 'NoDeratings':'#475569',
+    'Unknown':'#475569'
+  };
+  for (const ps of allPasaStates) {
+    const col = pasaColors[ps] || '#475569';
+    const isOn = pasaStateFilter.has('all') || pasaStateFilter.has(ps);
+    html += `<button onclick="toggleOutageState('${ps}')"
+      style="font-family:var(--font-mono);font-size:9px;padding:3px 8px;border-radius:20px;cursor:pointer;
+      border:1px solid ${col};background:${isOn ? col+'33' : 'transparent'};
+      color:${isOn ? col : '#475569'}">${ps}</button>`;
+  }
+  html += '</div>';
+
+  // ── Region filter (radio — one state at a time or NEM) ───────────────────
+  const regionFilter = window._outageRegionFilter || 'NEM';
+  html += '<div class="region-pills" style="margin-bottom:12px">';
+  const nemActive = regionFilter === 'NEM' ? 'active' : '';
+  html += `<button class="region-pill ${nemActive}" style="color:#94a3b8;border-color:#94a3b8"
+    onclick="setOutageRegion('NEM')">NEM</button>`;
+  for (const r of REGIONS) {
+    const active = regionFilter === r ? 'active' : '';
+    const color = REGION_COLORS[r];
+    html += `<button class="region-pill ${active}" style="color:${color};border-color:${color}"
+      onclick="setOutageRegion('${r}')">${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div>';
+
+  // ── Apply filters ──────────────────────────────────────────────────────────
+  // null = no filter selected, show nothing
+  if (!filterState) {
+    return html + '<div style="font-family:var(--font-mono);font-size:11px;color:#475569;padding:16px 0">Select a filter above to view outages.</div>';
+  }
+  let visible = outages;
+  if (filterState === 'offline') visible = offline;
+  else if (filterState === 'derated') visible = derated;
+  // 'all' = show all
+  // Apply within3m independently (intersect)
+
+  if (timeFilter === 'current') visible = visible.filter(r => currentOut.includes(r));
+  else if (timeFilter === 'within7d') visible = visible.filter(r => within7dOut.includes(r));
+  if (hasReturnFilter) visible = visible.filter(r => r.return_date);
+
+
+  // Apply region filter
+  if (regionFilter !== 'NEM') {
+    visible = visible.filter(r => r.region === regionFilter);
+  }
+
+  // Apply PASA state filter
+  if (!pasaStateFilter.has('all')) {
+    visible = visible.filter(r => pasaStateFilter.has(r.pasa_state || 'Unknown'));
+  }
+
+  if (!visible.length) {
+    html += '<div style="font-family:var(--font-mono);font-size:11px;color:#475569;padding:16px 0">No units match current filters</div>';
+    return html;
+  }
+
+  // ── Group by fuel ──────────────────────────────────────────────────────────
+  const FUEL_COLORS_MAP = {
+    'Black Coal':'#6b7280','Brown Coal':'#8B4513','Gas':'#ff9f40',
+    'Hydro':'#36a2eb','Wind':'#4bc0c0','Solar':'#ffd700',
+    'Battery':'#9b59b6','Liquid':'#e74c3c','Other':'#475569'
+  };
+  const FUEL_ORDER = ['Brown Coal','Black Coal','Gas','Hydro','Wind','Solar','Battery','Liquid','Other'];
+  const byFuel = {};
+  for (const u of visible) {
+    const f = u.fuel || 'Other';
+    if (!byFuel[f]) byFuel[f] = [];
+    byFuel[f].push(u);
+  }
+
+  for (const fuel of FUEL_ORDER) {
+    if (!byFuel[fuel]) continue;
+    const fuelColor = FUEL_COLORS_MAP[fuel] || '#475569';
+    html += `<div style="font-family:var(--font-mono);font-size:9px;font-weight:700;
+      color:${fuelColor};padding:8px 0 4px;letter-spacing:0.08em;
+      border-bottom:1px solid ${fuelColor}33;margin-bottom:6px">
+      ${fuel.toUpperCase()} <span style="opacity:0.5">${byFuel[fuel].length}</span>
+    </div>`;
+
+    for (const u of byFuel[fuel]) {
+      const pct      = u.capacity > 0 ? Math.round(u.avail_today / u.capacity * 100) : 0;
+      const isZero   = u.avail_today === 0;
+      const ret      = u.return_date ? fmtDate(u.return_date) : null;
+      const rc       = REGION_COLORS[u.region] || '#64748b';
+      const barColor = isZero ? '#ef4444' : '#f97316';
+      const availColor = isZero ? '#ef4444' : '#f97316';
+      const psCol    = pasaColors[u.pasa_state] || '#475569';
+
+      let retBadge = '';
+      const todayIso = new Date().toISOString().slice(0,10);
+      const outageStartLabel = u.outage_start
+        ? (u.outage_start.replace(/\//g,'-') <= todayIso ? 'Now' : u.outage_start)
+        : null;
+      const startStr = outageStartLabel
+        ? `<span style="font-family:var(--font-mono);font-size:8px;color:#64748b;margin-left:4px">from: ${outageStartLabel}</span>`
+        : '';
+      if (ret) {
+        const urgency = ret.days <= 3 ? '#22c55e' : ret.days <= 7 ? '#86efac' : '#475569';
+        const srcMap = {'PDPASA':'PD','STPASA':'ST','MTPASA':'MT'};
+        const srcLabel = srcMap[u.return_source] ? ` <span style="color:#475569;font-size:7px">${srcMap[u.return_source]}</span>` : '';
+        retBadge = `<div style="text-align:right"><span style="font-family:var(--font-mono);font-size:10px;color:${urgency}">↩ ${ret.label} (+${ret.days}d)${srcLabel}</span>${startStr}</div>`;
+      } else {
+        retBadge = startStr ? `<div style="text-align:right">${startStr}</div>` : '';
+      }
+
+      html += `<div style="background:var(--surface);border:1px solid var(--border);
+        border-left:3px solid ${barColor};border-radius:6px;
+        padding:5px 8px;margin-bottom:3px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px">
+          <div>
+            <span style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text)">${u.station}</span>
+            <span style="font-family:var(--font-mono);font-size:9px;color:#64748b;margin-left:5px">${u.duid}</span>
+            <span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${rc};margin-left:4px;vertical-align:middle"></span>
+            <span style="font-family:var(--font-mono);font-size:9px;color:${rc}">${(u.region||'').replace('1','')}</span>
+          </div>
+          ${retBadge}
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text)">${u.avail_today.toLocaleString()} <span style="font-size:9px;color:#64748b">/ ${u.capacity.toLocaleString()} MW</span></span>
+            ${u.pasa_state && u.pasa_state !== 'Unknown' && u.pasa_state !== '' ? `<span style="font-family:var(--font-mono);font-size:8px;padding:1px 5px;border-radius:9px;background:${psCol}22;color:${psCol};border:1px solid ${psCol}55">${u.pasa_state}</span>` : ''}
+          </div>
+          <span style="font-family:var(--font-mono);font-size:8px;color:#64748b">src: ${u.avail_source || '?'}</span>
+        </div>
+
+      </div>`;
+    }
+  }
+
+  const ts = slowData && slowData.timestamp
+    ? new Date(slowData.timestamp).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane'})
+    : '—';
+  html += `<div style="font-family:var(--font-mono);font-size:9px;color:#334155;margin-top:8px">Source: MTPASA + STPASA + PDPASA blend · ${ts} AEST</div>`;
+
+  return html;
+}
+
+
+function toggleOutageHasReturn() {
+  window._outageHasReturn = window._outageHasReturn !== undefined ? !window._outageHasReturn : false;
+  if (latestData) renderPanel('outages', latestData);
+}
+
+function setOutageTimeFilter(f) {
+  window._outageTimeFilter = window._outageTimeFilter === f ? null : f;
+  if (latestData) renderPanel('outages', latestData);
+}
+
+function setOutageFilter(f) {
+  // Clicking the already-active filter deselects it
+  window._outageFilter = window._outageFilter === f ? null : f;
+  if (latestData) renderPanel('outages', latestData);
+}
+
+function toggleOutageReturn() {
+  window._outageReturnFilter = !window._outageReturnFilter;
+  if (latestData) renderPanel('outages', latestData);
+}
+
+function setOutageRegion(r) {
+  window._outageRegionFilter = r;
+  if (latestData) renderPanel('outages', latestData);
+}
+
+function toggleOutageState(ps) {
+  if (!window._outageStateFilter) window._outageStateFilter = new Set(['all']);
+  const f = window._outageStateFilter;
+  if (f.has('all')) {
+    // Switch from "all" to single selection
+    f.delete('all');
+    f.add(ps);
+  } else if (f.has(ps)) {
+    f.delete(ps);
+    if (f.size === 0) f.add('all'); // back to all if nothing selected
+  } else {
+    f.add(ps);
+  }
+  if (latestData) renderPanel('outages', latestData);
+}
+
+
+function renderAbout(data) {
+  return `
+  <div class="section-title" style="margin-bottom:14px">About</div>
+
+  <div class="chart-card" style="margin-bottom:12px;padding:14px">
+    <div style="font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--text);margin-bottom:8px">WHAT IS THE NEM?</div>
+    <div style="font-size:13px;color:var(--text-muted);line-height:1.6">
+      The National Electricity Market (NEM) connects five states — Queensland, New South Wales, Victoria, South Australia, and Tasmania — via 5,000+ km of transmission lines. Every 5 minutes, AEMO runs a dispatch process where generators bid to supply electricity and the lowest-cost combination wins. The clearing price in each region becomes the spot price paid to all dispatched generators.
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px;text-align:center">
+        <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:var(--accent)">5 min</div>
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-top:2px">DISPATCH</div>
+      </div>
+      <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px;text-align:center">
+        <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:#f39c12">5</div>
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-top:2px">REGIONS</div>
+      </div>
+      <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px;text-align:center">
+        <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:#2ed573">200+</div>
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-top:2px">GENERATORS</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="chart-card" style="padding:14px">
+    <div style="font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--text);margin-bottom:8px">ABOUT THIS DASHBOARD</div>
+    <div style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-bottom:12px">
+      Built for NEM geeks to monitor the market in real time. Data is sourced directly from AEMO's NEMWeb public files — spot prices refresh every 5 minutes, generation every 15 minutes, and week-ahead forecasts every 30 minutes.
+    </div>
+    <table style="width:100%;font-family:var(--font-mono);font-size:10px;border-collapse:collapse">
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 0;color:var(--text)">Spot prices &amp; predispatch</td>
+        <td style="padding:6px 0;color:var(--accent);text-align:right">Every 5 min</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 0;color:var(--text)">Generation &amp; fuel mix</td>
+        <td style="padding:6px 0;color:var(--accent);text-align:right">Every 15 min</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 0;color:var(--text)">Interconnector flows</td>
+        <td style="padding:6px 0;color:var(--accent);text-align:right">Every 5 min</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 0;color:var(--text)">Week-ahead PASA forecast</td>
+        <td style="padding:6px 0;color:var(--accent);text-align:right">Every 30 min</td>
+      </tr>
+    </table>
+    <div style="font-size:12px;color:var(--text-muted);line-height:1.6;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+      If you have any feedback on this dashboard, you can contact Daniel Teng at Origin Energy.
+    </div>
+  </div>
+
+  <div id="viewStatsBlock" style="margin-top:10px;padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:10px">
+    <div style="font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:0.12em;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px">Dashboard Usage</div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px" id="viewStatsGrid">
+      <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px">
+        <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--accent)" id="vs-month">—</div>
+        <div style="font-family:var(--font-mono);font-size:8px;color:var(--text-muted);margin-top:3px">VIEWS THIS MONTH</div>
+      </div>
+      <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px">
+        <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--accent)" id="vs-unique-month">—</div>
+        <div style="font-family:var(--font-mono);font-size:8px;color:var(--text-muted);margin-top:3px">UNIQUE THIS MONTH</div>
+      </div>
+      <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px">
+        <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--text-dim)" id="vs-total">—</div>
+        <div style="font-family:var(--font-mono);font-size:8px;color:var(--text-muted);margin-top:3px">ALL-TIME VIEWS</div>
+      </div>
+      <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px">
+        <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--text-dim)" id="vs-unique-total">—</div>
+        <div style="font-family:var(--font-mono);font-size:8px;color:var(--text-muted);margin-top:3px">ALL-TIME UNIQUE</div>
+      </div>
+    </div>
+  </div>
+
+  `;
+}
+
+// ── Data fetching ─────────────────────────────────────────────────────────────
+
+// Single slow-data poll loop — no setInterval, no overlapping retries
+
+async function fetchGenData() {
+  if (_genPollActive) return;
+  _genPollActive = true;
+
+  const POLL_INTERVAL    = 8000;
+  const REFRESH_INTERVAL = 300000;  // 5 min — matches fast scrape so fuel_history stays current
+  const MAX_WAIT_MS      = 90000;   // 90s max wait
+  const started = Date.now();
+
+  while (true) {
+    try {
+      const resp = await fetch('/api/gen');
+      if (resp.status === 202) {
+        if (Date.now() - started > MAX_WAIT_MS) {
+          genData = { _unavailable: true };
+          if (currentPanel === 'gen') renderPanel('gen', latestData);
+          break;
+        }
+        await new Promise(r => setTimeout(r, POLL_INTERVAL));
+        continue;
+      }
+      if (resp.ok) {
+        genData = await resp.json();
+        if (currentPanel === 'gen' || currentPanel === 'stations') renderPanel(currentPanel, latestData);
+        await new Promise(r => setTimeout(r, REFRESH_INTERVAL));
+        _genPollActive = false;
+        fetchGenData();
+        return;
+      }
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+    } catch(e) {
+      console.error('Gen fetch error:', e);
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+    }
+  }
+  _genPollActive = false;
+}
+
+async function fetchSlowData() {
+  if (_slowPollActive) return;          // never run two at once
+  _slowPollActive = true;
+
+  const POLL_INTERVAL  = 12000;         // 12s between polls while waiting
+  const REFRESH_INTERVAL = 1800000;    // 30 min between refreshes once loaded
+  const MAX_WAIT_MS = 3 * 60 * 1000;  // give up after 3 min
+  const started = Date.now();
+
+  while (true) {
+    try {
+      const resp = await fetch('/api/slow');
+
+      if (resp.status === 202) {
+        if (Date.now() - started > MAX_WAIT_MS) {
+          console.warn('Slow data unavailable after 3 min, giving up');
+          slowData = { _unavailable: true };
+          if (currentPanel === 'stations' || currentPanel === 'weekahead' || currentPanel === 'dayahead' || currentPanel === 'dminus1' || currentPanel === 'outages') {
+            renderPanel(currentPanel, latestData);
+          }
+          break;
+        }
+        await new Promise(r => setTimeout(r, POLL_INTERVAL));
+        continue;
+      }
+
+      if (resp.ok) {
+        slowData = await resp.json();
+        if (currentPanel === 'stations' || currentPanel === 'weekahead' || currentPanel === 'dayahead' || currentPanel === 'dminus1' || currentPanel === 'outages') {
+          renderPanel(currentPanel, latestData);
+        }
+        // If on dayahead, also refresh weather table specifically
+        if (currentPanel === 'dayahead') {
+          const weatherDiv = document.getElementById('weather-table-container');
+          if (weatherDiv) {
+            weatherDiv.innerHTML = renderWeatherTable((slowData && slowData.weather) || {});
+          }
+        }
+        // Wait 30 min then kick off a fresh cycle
+        await new Promise(r => setTimeout(r, REFRESH_INTERVAL));
+        _slowPollActive = false;
+        fetchSlowData();
+        return;
+      }
+
+      // Unexpected status — back off
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+
+    } catch(e) {
+      console.error('Slow fetch error:', e);
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+    }
+  }
+
+  _slowPollActive = false;
+}
+
+
+
+async function fetchData() {
+  const dot = document.getElementById('statusDot');
+  const upd = document.getElementById('lastUpdated');
+  dot.className = 'pulse-dot loading';
+  try {
+    const resp = await fetch('/api/data');
+    console.log('[fetchData] status:', resp.status);
+    if (resp.status === 503 || resp.status === 202) {
+      upd.textContent = 'Loading…';
+      document.getElementById('mainContent').innerHTML =
+        '<div class="state-msg"><div class="icon">⚡</div><div>Loading NEM data…</div><div style="font-size:11px;color:#475569;margin-top:6px">Connecting to AEMO</div></div>';
+      setTimeout(fetchData, 3000);
+      return;
+    }
+    const data = await resp.json();
+    console.log('[fetchData] got data, prices:', data.prices);
+    latestData = data;
+    dot.className = 'pulse-dot';
+    upd.textContent = data.last_updated ? fmtTime(data.last_updated) : 'Just now';
+    renderPanel(currentPanel, data);
+  } catch(err) {
+    console.error(err);
+    dot.className = 'pulse-dot error';
+    upd.textContent = 'Error';
+    document.getElementById('mainContent').innerHTML =
+      `<div class="state-msg"><div class="icon">⚠️</div><div>Could not load data</div><div style="margin-top:8px;font-size:11px;color:#475569">${err.message}</div></div>`;
+  }
+}
+
+// ── View counter ──────────────────────────────────────────────────────────────
+let _viewStats = null;
+
+async function fetchViewStats() {
+  try {
+    const resp = await fetch('/api/views', { method: 'POST' });
+    if (!resp.ok) return;
+    _viewStats = await resp.json();
+    _renderViewStats();
+  } catch(e) {
+    console.warn('View stats fetch failed:', e);
+  }
+}
+
+function _renderViewStats() {
+  if (!_viewStats) return;
+  const el = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
+  el('vs-month',        Number(_viewStats.this_month   ?? 0).toLocaleString());
+  el('vs-unique-month', Number(_viewStats.unique_month ?? 0).toLocaleString());
+  el('vs-total',        Number(_viewStats.total        ?? 0).toLocaleString());
+  el('vs-unique-total', Number(_viewStats.unique_total ?? 0).toLocaleString());
+}
+
+fetchData();
+setInterval(fetchData, 300000);
+// Start slow data fetch 3s after fast data — doesn't block initial render
+setTimeout(fetchGenData,  2000);  // gen: fuel mix + stations (15 min refresh)
+setTimeout(fetchSlowData, 3000); // slow: PASA week-ahead (30 min refresh)
+fetchViewStats();                 // record this visit + load stats for About page
+
+// ── Coal Outage Calendar ──────────────────────────────────────────────────────
+let _coalCalData = null;
+let _coalCalLoading = false;
+let _coalCalRegion = 'ALL';
+let _coalCalOriginOnly = false;
+
+const ORIGIN_DUIDS_CAL = new Set([
+  "DDPS1","MSTUART1","MSTUART2","MSTUART3","ROMA_7",
+  "CLARESF1","DDSF1","DAYDSF1","SNB01",
+  "ER01","ER02","ER03","ER04",
+  "URANQ1","URANQ2","URANQ3","URANQ4",
+  "URANQ11","URANQ12","URANQ13","URANQ14",
+  "SHGEN","SHPUMP","MOREESF1","GUNNING1","ERGT01","ERB01",
+  "MORTLK11","MORTLK12","STOCKYD1",
+  "OSB-AG","QPS1","QPS2","QPS3","QPS4","QPS5",
+  "LADBROK1","LADBROK2","BNGSF1","BNGSF2","SNOWNTH1","SNOWSTH1",
+]);
+
+function renderCoalCalendar(data) {
+  let html = '<div class="section-title">MTPASA Outage Calendar — 2yr Horizon</div>';
+
+  // Region filter pills
+  const regions = ['ALL','QLD','NSW','VIC','SA','TAS'];
+  html += '<div class="region-pills" style="margin-bottom:8px">';
+  for (const r of regions) {
+    const col = r === 'ALL' ? '#94a3b8' : (REGION_COLORS[r+'1'] || '#94a3b8');
+    const active = _coalCalRegion === r ? 'active' : '';
+    html += `<button class="region-pill ${active}" style="color:${col};border-color:${col}"
+      onclick="setCoalCalRegion('${r}')">${r}</button>`;
+  }
+  // Origin toggle — right-aligned
+  const originActive = _coalCalOriginOnly ? 'active' : '';
+  const originCol = '#f97316';
+  html += `<button class="region-pill ${originActive}" style="color:${originCol};border-color:${originCol};margin-left:auto"
+    onclick="toggleCoalCalOrigin()">Origin</button>`;
+  html += '</div>';
+
+  if (_coalCalLoading) {
+    html += '<div class="state-msg"><div class="icon">⏳</div><div>Loading MT PASA calendar data…</div></div>';
+    return html;
+  }
+  if (!_coalCalData && !_coalCalLoading) {
+    loadCoalCalData();
+  }
+  if (!_coalCalData) {
+    html += '<div class="state-msg"><div class="icon">⏳</div><div>Fetching MT PASA data…</div></div>';
+    return html;
+  }
+
+  html += '<div id="coal-cal-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 180px)"></div>';
+  // Draw after DOM update
+  setTimeout(() => drawCoalCalendar(), 30);
+  return html;
+}
+
+async function loadCoalCalData() {
+  if (_coalCalLoading) return;
+  _coalCalLoading = true;
+  try {
+    const r = await fetch('/api/mtpasa-calendar');
+    const d = await r.json();
+    if (!d.error) _coalCalData = d;
+  } catch(e) { console.warn('Coal cal load failed:', e); }
+  _coalCalLoading = false;
+  if (currentPanel === 'coalcal' && latestData) renderPanel('coalcal', latestData);
+}
+
+function showMtpasaModal(duid, u, days) {
+  // Build list of outage/derate periods from change-points
+  const capacity = u.capacity;
+  const isOrigin = ORIGIN_DUIDS_CAL.has(duid);
+
+  // Condense days into periods: consecutive days with same state/avail grouped together
+  const periods = [];
+  let current = null;
+  for (const pt of days) {
+    const pct = capacity > 0 ? pt.avail / capacity : 1;
+    const type = pct >= 0.70 ? 'full' : pct <= 0.02 ? 'offline' : 'derated';
+    if (!current || current.type !== type || current.avail !== pt.avail || current.state !== pt.state) {
+      if (current) periods.push(current);
+      current = {start: pt.day, end: pt.day, avail: pt.avail, state: pt.state, type};
+    } else {
+      current.end = pt.day;
+    }
+  }
+  if (current) periods.push(current);
+
+  // Only show non-full periods (outages + deratings) plus context
+  const outages = periods.filter(p => p.type !== 'full');
+
+  // Format date YYYY/MM/DD → D Mon YY
+  function fmtDay(s) {
+    if (!s) return '—';
+    const [y,m,d] = s.split('/').map(Number);
+    const dt = new Date(y,m-1,d);
+    return dt.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'2-digit'});
+  }
+
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  let rows = '';
+  if (!outages.length) {
+    rows = '<tr><td colspan="5" style="text-align:center;color:#475569;padding:16px">No outages or deratings in MTPASA horizon</td></tr>';
+  } else {
+    for (const p of outages) {
+      const [sy,sm,sd] = p.start.split('/').map(Number);
+      const startDt = new Date(sy,sm-1,sd);
+      const isPast = startDt < today;
+      const typeCol = p.type === 'offline' ? '#ef4444' : '#92400e';
+      const typeLabel = p.type === 'offline' ? 'Offline' : 'Derated';
+      const mwShort = p.type === 'offline' ? '0 MW' : `${p.avail.toLocaleString()} MW`;
+      const pct = capacity > 0 ? Math.round(p.avail/capacity*100) : 0;
+      rows += `<tr style="opacity:${isPast?'0.45':'1'}">
+        <td style="color:${typeCol};font-weight:700">${typeLabel}</td>
+        <td>${fmtDay(p.start)}</td>
+        <td>${fmtDay(p.end)}</td>
+        <td style="color:${typeCol}">${mwShort}${p.type!=='offline'?` (${pct}%)`:''}/${capacity}MW</td>
+        <td style="color:#64748b;font-size:8px">${p.state}</td>
+      </tr>`;
+    }
+  }
+
+  const originBadge = isOrigin ? ' <span style="color:#fb923c;font-size:9px">● Origin</span>' : '';
+  const modal = document.createElement('div');
+  modal.id = 'mtpasa-modal';
+  modal.style.cssText = `position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);padding:16px`;
+  modal.innerHTML = `
+    <div style="background:#0d1420;border:1px solid #1e293b;border-radius:10px;padding:20px;max-width:520px;width:100%;max-height:80vh;overflow-y:auto;font-family:var(--font-mono)">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#e2e8f0">${duid}${originBadge}</div>
+          <div style="font-size:10px;color:#64748b;margin-top:2px">${u.station} · ${u.fuel} · ${(u.region||'').replace('1','')} · ${capacity.toLocaleString()}MW nameplate</div>
+        </div>
+        <button onclick="document.getElementById('mtpasa-modal').remove()"
+          style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;padding:0 0 0 12px;line-height:1">×</button>
+      </div>
+      <div style="font-size:9px;color:#475569;margin-bottom:10px">${outages.length} outage/derate period${outages.length!==1?'s':''} · faded = past</div>
+      <table style="width:100%;border-collapse:collapse;font-size:9px">
+        <thead>
+          <tr style="color:#475569;border-bottom:1px solid #1e293b">
+            <th style="text-align:left;padding:4px 6px">Type</th>
+            <th style="text-align:left;padding:4px 6px">From</th>
+            <th style="text-align:left;padding:4px 6px">To</th>
+            <th style="text-align:left;padding:4px 6px">Availability</th>
+            <th style="text-align:left;padding:4px 6px">PASA State</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+
+  // Close on backdrop click
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  document.body.appendChild(modal);
+}
+
+function setCoalCalRegion(r) {
+  _coalCalRegion = r;
+  if (latestData) renderPanel('coalcal', latestData);
+}
+
+function toggleCoalCalOrigin() {
+  _coalCalOriginOnly = !_coalCalOriginOnly;
+  if (latestData) renderPanel('coalcal', latestData);
+}
+
+function drawCoalCalendar() {
+  const container = document.getElementById('coal-cal-container');
+  if (!container || !_coalCalData) return;
+
+  const allDuids = _coalCalData.duids || {};
+
+  const FUEL_ORDER = ['Brown Coal','Black Coal','Gas','Hydro','Battery','Wind','Solar','Liquid','Other'];
+  const FUEL_LABEL_COLOR = {
+    'Brown Coal':'#92400e','Black Coal':'#6b7280','Gas':'#c2410c',
+    'Hydro':'#1d4ed8','Battery':'#7c3aed','Wind':'#059669',
+    'Solar':'#d97706','Liquid':'#4b5563','Other':'#374151',
+  };
+  const FUEL_FULL_COLOR = {
+    'Brown Coal':'#78350f','Black Coal':'#1f2937','Gas':'#431407',
+    'Hydro':'#1e3a5f','Battery':'#2e1065','Wind':'#064e3b',
+    'Solar':'#713f12','Liquid':'#1f2937','Other':'#1f2937',
+  };
+
+  const filtered = Object.entries(allDuids)
+    .filter(([duid,u]) => {
+      if (_coalCalRegion !== 'ALL' && u.region !== _coalCalRegion + '1') return false;
+      if (_coalCalOriginOnly && !ORIGIN_DUIDS_CAL.has(duid)) return false;
+      return true;
+    })
+    .sort(([,a],[,b]) => {
+      const fa = FUEL_ORDER.indexOf(a.fuel), fb = FUEL_ORDER.indexOf(b.fuel);
+      const fd = (fa<0?99:fa)-(fb<0?99:fb);
+      if (fd) return fd;
+      return a.station !== b.station ? a.station.localeCompare(b.station) : 0;
+    });
+
+  if (!filtered.length) {
+    container.innerHTML = '<div style="padding:20px;font-family:var(--font-mono);font-size:10px;color:#475569">No units for this region</div>';
+    return;
+  }
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const end2  = new Date(today); end2.setFullYear(end2.getFullYear()+2);
+  const weeks = [];
+  const ws = new Date(today); ws.setDate(ws.getDate()-ws.getDay());
+  while (ws <= end2) { weeks.push(new Date(ws)); ws.setDate(ws.getDate()+7); }
+
+  const CELL_W=7, ROW_H=14, HDR_H=16, LABEL_W=130, HEADER_H=20;
+
+  function parseDay(s) {
+    if (!s) return null;
+    const [y,m,d] = s.split('/').map(Number);
+    return new Date(y,m-1,d);
+  }
+  function getAvail(days, date) {
+    let cur=null;
+    for (const pt of days) { if (pt.dateObj<=date) cur=pt; else break; }
+    return cur;
+  }
+
+  // Build rows: interleave fuel header rows with DUID rows
+  const rows = []; // {type:'header',fuel} or {type:'duid',duid,u,days}
+  let lastFuel = null;
+  for (const [duid, u] of filtered) {
+    if (u.fuel !== lastFuel) {
+      rows.push({type:'header', fuel:u.fuel});
+      lastFuel = u.fuel;
+    }
+    const days = (u.days||[]).map(d=>({...d,dateObj:parseDay(d.day)}))
+                              .filter(d=>d.dateObj).sort((a,b)=>a.dateObj-b.dateObj);
+    rows.push({type:'duid', duid, u, days});
+  }
+
+  // Collect just duid rows for tooltip lookup
+  const duidRows = rows.filter(r=>r.type==='duid');
+
+  // Total canvas height
+  const totalH = HEADER_H + rows.reduce((s,r) => s + (r.type==='header' ? HDR_H : ROW_H), 0);
+  const totalW = LABEL_W + weeks.length * CELL_W;
+
+  container.innerHTML = `
+    <div style="overflow:auto;max-height:calc(100vh - 180px);-webkit-overflow-scrolling:touch">
+      <canvas id="coal-cal-canvas" width="${totalW}" height="${totalH}" style="display:block"></canvas>
+    </div>
+    <div id="coal-tip" style="display:none;position:fixed;z-index:200;background:#0f172a;border:1px solid #1e293b;
+      border-radius:6px;padding:6px 10px;font-family:var(--font-mono);font-size:9px;color:#e2e8f0;
+      box-shadow:0 4px 20px rgba(0,0,0,0.5);pointer-events:none;line-height:1.6"></div>`;
+
+  const canvas = document.getElementById('coal-cal-canvas');
+  const ctx = canvas.getContext('2d');
+
+  // Background
+  ctx.fillStyle='#080c14'; ctx.fillRect(0,0,totalW,totalH);
+
+  // Month grid lines + labels
+  let lastM=-1;
+  weeks.forEach((w,i)=>{
+    if (w.getMonth()!==lastM) {
+      const x=LABEL_W+i*CELL_W;
+      ctx.fillStyle='#1a2540'; ctx.fillRect(x,HEADER_H,1,totalH-HEADER_H);
+      ctx.fillStyle='#4a5568'; ctx.font='8px monospace';
+      ctx.fillText(w.toLocaleDateString('en-AU',{month:'short',year:'2-digit'}),x+2,HEADER_H-5);
+      lastM=w.getMonth();
+    }
+  });
+
+  // Today line
+  const todayIdx=weeks.findIndex(w=>{const we=new Date(w);we.setDate(we.getDate()+7);return today>=w&&today<we;});
+  if (todayIdx>=0) {
+    const tx=LABEL_W+todayIdx*CELL_W;
+    ctx.fillStyle='rgba(59,130,246,0.7)'; ctx.fillRect(tx,0,1,totalH);
+    ctx.fillStyle='#3b82f6'; ctx.font='7px monospace'; ctx.fillText('NOW',tx+2,9);
+  }
+  ctx.fillStyle='#1a2540'; ctx.fillRect(0,HEADER_H,totalW,1);
+
+  // Build per-row y positions and draw
+  const rowYs = []; // parallel to rows[]
+  let y = HEADER_H;
+
+  rows.forEach((row) => {
+    rowYs.push(y);
+    if (row.type === 'header') {
+      const fc = FUEL_LABEL_COLOR[row.fuel] || '#374151';
+      // Full-width accent line
+      ctx.fillStyle=fc; ctx.globalAlpha=0.8;
+      ctx.fillRect(0, y, totalW, 2);
+      ctx.globalAlpha=1;
+      // Label band
+      ctx.fillStyle='#080c14'; ctx.fillRect(0, y+2, LABEL_W, HDR_H-2);
+      ctx.fillStyle=fc; ctx.font='bold 8px monospace';
+      ctx.fillText(row.fuel.toUpperCase(), 6, y+HDR_H/2+4);
+      // Subtle tint across data area
+      ctx.fillStyle=fc; ctx.globalAlpha=0.06;
+      ctx.fillRect(LABEL_W, y+2, totalW-LABEL_W, HDR_H-2);
+      ctx.globalAlpha=1;
+      y += HDR_H;
+    } else {
+      const {duid, u, days} = row;
+      const regColor = REGION_COLORS[u.region]||'#64748b';
+      const fullColor = FUEL_FULL_COLOR[u.fuel]||'#1f2937';
+      const isOrigin = ORIGIN_DUIDS_CAL.has(duid);
+
+      // Label bg
+      ctx.fillStyle='#0d1420'; ctx.fillRect(0,y,LABEL_W,ROW_H);
+
+      // Origin highlight
+      if (isOrigin) {
+        ctx.fillStyle='rgba(249,115,22,0.08)'; ctx.fillRect(0,y,LABEL_W,ROW_H);
+      }
+
+      // Region dot
+      ctx.fillStyle=regColor; ctx.beginPath();
+      ctx.arc(8,y+ROW_H/2,2.5,0,Math.PI*2); ctx.fill();
+
+      // DUID text — orange tint for Origin DUIDs
+      ctx.fillStyle = isOrigin ? '#fb923c' : '#94a3b8';
+      ctx.font='8.5px monospace'; ctx.fillText(duid,15,y+ROW_H/2+3);
+
+      // Capacity
+      ctx.fillStyle='#374151'; ctx.font='7px monospace';
+      ctx.textAlign='right'; ctx.fillText(u.capacity+'MW',LABEL_W-3,y+ROW_H/2+3);
+      ctx.textAlign='left';
+
+      // Divider
+      ctx.fillStyle='#1a2540'; ctx.fillRect(LABEL_W,y,1,ROW_H);
+      ctx.fillStyle='#0d1117'; ctx.fillRect(LABEL_W,y+ROW_H-1,weeks.length*CELL_W,1);
+
+      // Week cells — batch by colour
+      const groups={};
+      weeks.forEach((w,wi)=>{
+        const mid=new Date(w); mid.setDate(mid.getDate()+3);
+        const pt=getAvail(days,mid);
+        let fill='#0d1420';
+        if (pt&&u.capacity>0) {
+          const pct=pt.avail/u.capacity;
+          if (pct>=0.70)      fill='#0d1117';  // full / minor derate — black
+          else if (pct<=0.02) fill='#7f1d1d';  // full outage — red
+          else                fill='#78350f';   // significant derate (>15%) — brown
+        }
+        if (!groups[fill]) groups[fill]=[];
+        groups[fill].push(wi);
+      });
+      for (const [fill,wis] of Object.entries(groups)) {
+        ctx.fillStyle=fill;
+        wis.forEach(wi=>ctx.fillRect(LABEL_W+wi*CELL_W,y+1,CELL_W-1,ROW_H-2));
+      }
+      y += ROW_H;
+    }
+  });
+
+  // Tooltip — map mouse y to duid row using rowYs
+  canvas.addEventListener('mousemove', e=>{
+    const rect=canvas.getBoundingClientRect();
+    const mx=e.clientX-rect.left, my=e.clientY-rect.top;
+    const tip=document.getElementById('coal-tip');
+    const colIdx=Math.floor((mx-LABEL_W)/CELL_W);
+    if (colIdx<0||colIdx>=weeks.length) { tip.style.display='none'; return; }
+
+    // Find which row was hit
+    let hitRow=null;
+    for (let i=0;i<rows.length;i++) {
+      const rh = rows[i].type==='header' ? HDR_H : ROW_H;
+      if (my>=rowYs[i] && my<rowYs[i]+rh) { hitRow=rows[i]; break; }
+    }
+    if (!hitRow||hitRow.type==='header') { tip.style.display='none'; return; }
+
+    const {duid,u,days}=hitRow;
+    const w=weeks[colIdx];
+    const mid=new Date(w); mid.setDate(mid.getDate()+3);
+    const pt=getAvail(days,mid);
+    const wLabel=w.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'2-digit'});
+    const isOr=ORIGIN_DUIDS_CAL.has(duid);
+    let html2=`<b>${duid}</b>${isOr?' <span style="color:#fb923c">●Origin</span>':''} — ${u.station}<br>`;
+    html2+=`<span style="color:#64748b">${u.fuel} · ${(u.region||'').replace('1','')}</span><br>wk ${wLabel}<br>`;
+    if (pt) {
+      const pct=u.capacity>0?Math.round(pt.avail/u.capacity*100):0;
+      html2+=`${pt.avail.toLocaleString()} / ${u.capacity.toLocaleString()} MW (${pct}%)<br>`;
+      html2+=`<span style="color:#64748b">${pt.state}</span>`;
+    } else html2+='No MTPASA data';
+    tip.innerHTML=html2; tip.style.display='block';
+    tip.style.left=(e.clientX+12)+'px'; tip.style.top=(e.clientY-10)+'px';
+  });
+  canvas.addEventListener('mouseleave',()=>{const t=document.getElementById('coal-tip');if(t)t.style.display='none';});
+
+  // Click on a DUID row → show outage summary modal
+  canvas.addEventListener('click', e=>{
+    const rect=canvas.getBoundingClientRect();
+    const my=e.clientY-rect.top;
+    let hitRow=null;
+    for (let i=0;i<rows.length;i++) {
+      const rh=rows[i].type==='header'?HDR_H:ROW_H;
+      if (my>=rowYs[i]&&my<rowYs[i]+rh) { hitRow=rows[i]; break; }
+    }
+    if (!hitRow||hitRow.type==='header') return;
+    showMtpasaModal(hitRow.duid, hitRow.u, hitRow.days);
+  });
+}
+
+
+
+</script>
+</body>
+</html>

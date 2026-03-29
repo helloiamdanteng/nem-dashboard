@@ -2333,14 +2333,16 @@ async def gas_excel_debug():
             out["bytes"] = len(r.content)
             wb = _xl.load_workbook(_io.BytesIO(r.content), read_only=True, data_only=True)
             out["sheet_names"] = wb.sheetnames
-            # Just read first 6 rows of each sheet
             for ws in wb.worksheets[:3]:
-                rows = []
+                first_rows, last_rows = [], []
                 for i, row in enumerate(ws.iter_rows(values_only=True)):
-                    rows.append([str(c) if c is not None else None for c in row[:10]])
-                    if i >= 5:
-                        break
-                out[ws.title] = rows
+                    r2 = [str(c) if c is not None else None for c in row[:6]]
+                    if i < 4:
+                        first_rows.append(r2)
+                    last_rows.append(r2)
+                    if len(last_rows) > 5:
+                        last_rows.pop(0)
+                out[ws.title] = {"first": first_rows, "last": last_rows}
             wb.close()
         except Exception as e:
             import traceback

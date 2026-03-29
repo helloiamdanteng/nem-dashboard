@@ -3794,31 +3794,32 @@ def scrape_gbb() -> dict:
                 "supply": s, "demand": d, "net": round(s - d, 1)
             }
 
-        # ── State history: daily supply/demand for last 14 days ─────────────
-        state_history = {}  # { state: { date: {supply, demand} } }
+        # ── Demand by sector: GPG, LNG Export, Large Industrial, Residential ─
+        sector_hist = {}  # { sector: { date: demand_tj } }
         for row in rows:
-            st  = row.get("State", "")
-            gd  = row.get("GasDate", "").replace("/", "-")
-            if not st or not gd:
+            ft     = row.get("FacilityType", "")
+            gd     = row.get("GasDate", "").replace("/", "-")
+            demand = float(row.get("Demand") or 0)
+            if not gd or demand == 0:
                 continue
-            state_history.setdefault(st, {}).setdefault(gd, {"supply": 0.0, "demand": 0.0})
-            try:
-                state_history[st][gd]["supply"] += float(row.get("Supply") or 0)
-                state_history[st][gd]["demand"] += float(row.get("Demand") or 0)
-            except (ValueError, TypeError):
-                pass
+            if ft == "BBGPG":
+                key = "Gas Power Generation"
+            elif ft == "LNGEXPORT":
+                key = "LNG Export"
+            elif ft == "BBLARGE":
+                key = "Large Industrial"
+            elif ft == "PIPE":
+                key = "Residential & Commercial"
+            else:
+                continue
+            sector_hist.setdefault(key, {}).setdefault(gd, 0.0)
+            sector_hist[key][gd] = round(sector_hist[key][gd] + demand, 1)
 
-        # Convert to sorted lists, last 14 days
-        result["state_history"] = {}
-        for st, dates in state_history.items():
+        result["demand_by_sector"] = {}
+        for key, dates in sector_hist.items():
             sorted_dates = sorted(dates.keys())[-14:]
-            result["state_history"][st] = [
-                {
-                    "gas_date": d,
-                    "supply":   round(dates[d]["supply"], 1),
-                    "demand":   round(dates[d]["demand"], 1),
-                    "net":      round(dates[d]["supply"] - dates[d]["demand"], 1),
-                }
+            result["demand_by_sector"][key] = [
+                {"gas_date": d, "demand_tj": dates[d]}
                 for d in sorted_dates
             ]
 

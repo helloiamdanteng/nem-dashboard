@@ -2279,55 +2279,42 @@ async def gas_data(refresh: bool = False):
 
 @app.get("/api/gas-debug")
 async def gas_debug():
-    """Force a fresh gas scrape and inspect raw CSV headers."""
+    """Inspect STTM and VicGas CSV contents in detail."""
     import zipfile as _zf, io as _io, csv as _csv
     from scraper import STTM_BASE, VICGAS_BASE, _get
 
     loop = asyncio.get_running_loop()
-    result = {}
 
-    # Check STTM CURRENTDAY.ZIP
-    def _inspect_sttm():
+    def _inspect():
+        out = {}
+        # STTM CURRENTDAY — int676 all rows, int678 all rows
         url = f"{STTM_BASE}/CURRENTDAY.ZIP"
         r = _get(url, timeout=30)
-        if not r:
-            return {"error": "no response", "url": url}
-        files = {}
-        try:
+        if r:
             with _zf.ZipFile(_io.BytesIO(r.content)) as z:
-                for name in z.namelist():
-                    if name.lower().endswith('.csv'):
-                        with z.open(name) as f:
-                            reader = _csv.reader(_io.TextIOWrapper(f, errors='replace'))
-                            headers = next(reader, [])
-                            row1 = next(reader, [])
-                            files[name] = {"headers": headers, "row1": row1}
-        except Exception as e:
-            return {"error": str(e), "url": url}
-        return {"url": url, "bytes": len(r.content), "files": files}
+                out["sttm_files"] = z.namelist()
+                for prefix, key in [("int676", "int676_rows"), ("int678", "int678_rows"), ("int651", "int651_rows")]:
+                    matches = [n for n in z.namelist() if prefix in n.lower()]
+                    if matches:
+                        with z.open(matches[0]) as f:
+                            out[key] = list(_csv.DictReader(_io.TextIOWrapper(f, errors="replace")))
+        # VicGas INT041 all rows
+        r041 = _get(f"{VICGAS_BASE}/INT041_V4_MARKET_AND_REFERENCE_PRICES_1.CSV", timeout=15)
+        if r041:
+            out["vicgas_int041_rows"] = list(_csv.DictReader(_io.StringIO(r041.text)))
+        # VicGas INT037B first 5 lines
+        r037 = _get(f"{VICGAS_BASE}/INT037B_V4_INDICATIVE_MKT_PRICE_1.CSV", timeout=15)
+        if r037:
+            out["vicgas_int037b_first5"] = r037.text.splitlines()[:5]
+        # VicGas INT050 all rows
+        r050 = _get(f"{VICGAS_BASE}/INT050_V4_SCHED_WITHDRAWALS_1.CSV", timeout=15)
+        if r050:
+            out["vicgas_int050_rows"] = list(_csv.DictReader(_io.StringIO(r050.text)))
+        return out
 
-    # Check VicGas INT041
-    def _inspect_vicgas():
-        url = f"{VICGAS_BASE}/INT041_V4_MARKET_AND_REFERENCE_PRICES_1.CSV"
-        r = _get(url, timeout=15)
-        if not r:
-            return {"error": "no response", "url": url}
-        lines = r.text.splitlines()[:10]
-        return {"url": url, "first_10_lines": lines}
-
-    # Check VicGas INT050
-    def _inspect_int050():
-        url = f"{VICGAS_BASE}/INT050_V4_SCHED_WITHDRAWALS_1.CSV"
-        r = _get(url, timeout=15)
-        if not r:
-            return {"error": "no response"}
-        lines = r.text.splitlines()[:5]
-        return {"first_5_lines": lines}
-
-    result["sttm"] = await loop.run_in_executor(None, _inspect_sttm)
-    result["vicgas_int041"] = await loop.run_in_executor(None, _inspect_vicgas)
-    result["vicgas_int050"] = await loop.run_in_executor(None, _inspect_int050)
+    result = await loop.run_in_executor(None, _inspect)
     return JSONResponse(content=result)
+
 
 
 @app.get("/api/weather-debug")

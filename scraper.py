@@ -3822,6 +3822,46 @@ def scrape_gbb() -> dict:
                 for d in sorted_dates
             ]
 
+        # ── Production by region: VIC/SA individually, QLD+NT aggregated ──────
+        # Key facilities to show individually
+        VIC_PROD = {'Longford', 'Otway', 'Orbost', 'ATHENA', 'Lang Lang'}
+        SA_PROD  = {'Moomba'}
+        NT_PROD  = {'Mereenie', 'Palm Valley', 'Yelcherr'}
+
+        prod_rows = [row for row in rows if row.get("FacilityType") == "PROD"]
+        prod_hist = {}  # { series_name: { date: supply_tj } }
+
+        for row in prod_rows:
+            name   = row.get("FacilityName", "")
+            st     = row.get("State", "")
+            gd     = row.get("GasDate", "").replace("/", "-")
+            supply = float(row.get("Supply") or 0)
+            if not gd or supply == 0:
+                continue
+
+            if name in VIC_PROD:
+                key = f"VIC: {name}"
+            elif name in SA_PROD:
+                key = "SA: Moomba"
+            elif st == "QLD":
+                key = "QLD (CSG+LNG)"
+            elif st == "NT":
+                key = "NT"
+            else:
+                continue
+
+            prod_hist.setdefault(key, {}).setdefault(gd, 0.0)
+            prod_hist[key][gd] = round(prod_hist[key][gd] + supply, 1)
+
+        # Convert to sorted lists, last 14 days
+        result["production_history"] = {}
+        for key, dates in prod_hist.items():
+            sorted_dates = sorted(dates.keys())[-14:]
+            result["production_history"][key] = [
+                {"gas_date": d, "supply_tj": dates[d]}
+                for d in sorted_dates
+            ]
+
         logger.info(
             f"scrape_gbb: {len(rows)} rows, {len(all_dates)} dates, "
             f"storage={list(result['storage'].keys())}, latest={latest_date}"

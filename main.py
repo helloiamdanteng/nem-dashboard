@@ -2277,6 +2277,39 @@ async def gas_data(refresh: bool = False):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+_gbb_cache: dict = {"data": None, "last_updated": None}
+
+@app.get("/api/gbb")
+async def gbb_data(refresh: bool = False):
+    """Return GBB storage levels and state summary. Cached for 1 hour."""
+    from scraper import scrape_gbb
+    from datetime import timezone, timedelta
+
+    if not refresh and _gbb_cache["data"] and _gbb_cache["last_updated"]:
+        age = datetime.now(timezone.utc) - _gbb_cache["last_updated"]
+        if age < timedelta(hours=1):
+            return JSONResponse(content=_gbb_cache["data"])
+
+    loop = asyncio.get_running_loop()
+    try:
+        data = await asyncio.wait_for(
+            loop.run_in_executor(None, scrape_gbb),
+            timeout=30.0
+        )
+        _gbb_cache["data"] = data
+        _gbb_cache["last_updated"] = datetime.now(timezone.utc)
+        return JSONResponse(content=data)
+    except asyncio.TimeoutError:
+        if _gbb_cache["data"]:
+            return JSONResponse(content=_gbb_cache["data"])
+        return JSONResponse(status_code=504, content={"error": "timeout"})
+    except Exception as e:
+        logger.error(f"gbb_data error: {e}")
+        if _gbb_cache["data"]:
+            return JSONResponse(content=_gbb_cache["data"])
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @app.get("/api/gas-debug")
 async def gas_debug():
     """Inspect STTM and VicGas CSV contents in detail."""

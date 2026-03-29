@@ -3800,11 +3800,25 @@ def scrape_gbb() -> dict:
                 "supply": s, "demand": d, "net": round(s - d, 1)
             }
 
-        # ── Demand by sector: GPG, LNG Export, Large Industrial ─────────────
-        # Exclude PIPE — double-counts transit. No reliable "residential" figure available.
+        # ── Demand by sector ─────────────────────────────────────────────────
+        # LNGEXPORT = LNG export terminals (Curtis Island)
+        # BBGPG = gas power generation
+        # BBLARGE = large industrial (>10 TJ/year BB threshold)
+        # PIPE at city/state locations = residential + small commercial distribution
+        #   Include: city names + Regional-STATE (excl QLD which is mostly transit)
+        #   Exclude: Curtis Island (already in LNGEXPORT), Hub locations, Wallumbilla, Ballera
+        RESI_LOCATIONS = {
+            "Melbourne", "Sydney", "Adelaide", "Brisbane", "Geelong",
+            "Ballarat", "Northern", "Western", "Canberra", "Darwin",
+            "Regional - TAS", "Regional - ACT", "Regional - SA",
+            "Regional - NSW", "Regional - NT", "Regional - VIC",
+            "Gippsland",
+        }
+
         sector_hist = {}
         for row in rows:
             ft     = row.get("FacilityType", "")
+            loc    = row.get("LocationName", "")
             gd     = row.get("GasDate", "").replace("/", "-")
             demand = float(row.get("Demand") or 0)
             if not gd or demand == 0:
@@ -3815,6 +3829,8 @@ def scrape_gbb() -> dict:
                 key = "LNG Export"
             elif ft == "BBLARGE":
                 key = "Large Industrial"
+            elif ft == "PIPE" and loc in RESI_LOCATIONS:
+                key = "Residential & Commercial"
             else:
                 continue
             sector_hist.setdefault(key, {}).setdefault(gd, 0.0)

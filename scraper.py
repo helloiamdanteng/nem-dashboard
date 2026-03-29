@@ -3507,21 +3507,36 @@ def scrape_gas(days: int = 14) -> dict:
                     except (ValueError, TypeError):
                         pass
 
-                # int652 — today's withdrawals (flow_direction F = from hub)
+                # int652 — today's withdrawals: take the LATEST schedule run per hub
+                # Multiple int652 files = multiple schedule runs; use highest schedule_identifier
+                qty_best = {}  # { hub: (sched_id, total_qty) }
                 for fname in sorted(n for n in names if "int652" in n.lower()):
                     with z.open(fname) as f:
                         reader = csv.DictReader(io.TextIOWrapper(f, errors="replace"))
+                        # Sum F-direction qty per hub within this schedule file
+                        sched_qty  = {}
+                        sched_id   = 0
+                        date_raw_h = {}
                         for row in reader:
                             hub       = (row.get("hub_name") or "").strip().title()
                             direction = (row.get("flow_direction") or "").strip().upper()
                             qty       = (row.get("scheduled_qty") or "").strip()
                             date_raw  = (row.get("gas_date") or "").strip()
+                            sid       = int(row.get("schedule_identifier") or 0)
                             if hub and direction == "F" and qty:
                                 try:
-                                    today_qty[hub] = today_qty.get(hub, 0.0) + float(qty)
-                                    today_date_raw[hub] = date_raw
+                                    sched_qty[hub]  = sched_qty.get(hub, 0.0) + float(qty)
+                                    date_raw_h[hub] = date_raw
+                                    sched_id = max(sched_id, sid)
                                 except (ValueError, TypeError):
                                     pass
+                        # Keep this file's totals only if schedule_id is newer
+                        for hub, total in sched_qty.items():
+                            if hub not in qty_best or sched_id > qty_best[hub][0]:
+                                qty_best[hub] = (sched_id, total)
+                                today_date_raw[hub] = date_raw_h.get(hub, "")
+
+                today_qty = {hub: v[1] for hub, v in qty_best.items()}
 
             # Determine today's date (most recent in int651)
             from datetime import datetime as _dt

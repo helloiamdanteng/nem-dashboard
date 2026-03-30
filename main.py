@@ -2351,60 +2351,56 @@ async def gas_debug():
 
 @app.get("/api/gbb-debug")
 async def gbb_debug():
-    """Check nomination demand types and pipeline direction data."""
+    """Show detailed state supply/demand breakdown for latest complete date."""
     import csv as _csv
     from scraper import _get
     loop = asyncio.get_running_loop()
 
     def _inspect():
-        out = {}
-        # 1. Nominations file - what demand exists?
-        nom_r = _get("https://www.nemweb.com.au/Reports/Current/GBB/GasBBNominationAndForecastNext7.CSV", timeout=20)
-        if nom_r:
-            nom_rows = list(_csv.DictReader(nom_r.text.splitlines()))
-            # Show demand by facility type for first nomination date
-            nom_dates = sorted({row.get("Gasdate","") for row in nom_rows if row.get("Gasdate","")})
-            out["nomination_dates"] = nom_dates
-            first_date = nom_dates[0] if nom_dates else ""
-            by_type = {}
-            for row in nom_rows:
-                if row.get("Gasdate","") != first_date: continue
-                ft = row.get("FacilityType","")
-                by_type.setdefault(ft, {"count":0,"supply":0.0,"demand":0.0})
-                by_type[ft]["count"] += 1
-                try:
-                    by_type[ft]["supply"] += float(row.get("Supply") or 0)
-                    by_type[ft]["demand"] += float(row.get("Demand") or 0)
-                except: pass
-            out["nom_first_date_by_type"] = {k:{"count":v["count"],"supply":round(v["supply"],1),"demand":round(v["demand"],1)} for k,v in by_type.items()}
+        url = "https://www.nemweb.com.au/Reports/Current/GBB/GasBBActualFlowStorageLast31.CSV"
+        r = _get(url, timeout=30)
+        if not r:
+            return {"error": "fetch failed"}
+        rows = list(_csv.DictReader(r.text.splitlines()))
+        all_dates = sorted({row["GasDate"] for row in rows})
 
-        # 2. Actuals - show EGP pipeline rows with TransferIn/Out for direction
-        act_r = _get("https://www.nemweb.com.au/Reports/Current/GBB/GasBBActualFlowStorageLast31.CSV", timeout=30)
-        if act_r:
-            act_rows = list(_csv.DictReader(act_r.text.splitlines()))
-            all_dates = sorted({r["GasDate"] for r in act_rows})
-            latest = all_dates[-2]  # use second-to-last (complete day)
-            # Show key interstate pipeline rows
-            key_pipes = ["EGP", "TGP", "MSP", "SWQP", "VTS", "MAPS", "RBP"]
-            pipe_rows = [r for r in act_rows if r["GasDate"] == latest and r["FacilityName"] in key_pipes and r["FacilityType"] == "PIPE"]
-            out["key_pipe_rows_latest"] = [{"pipe": r["FacilityName"], "loc": r["LocationName"],
-                "state": r["State"], "supply": r["Supply"], "demand": r["Demand"],
-                "transferIn": r["TransferIn"], "transferOut": r["TransferOut"]} for r in pipe_rows]
+        # Find last complete date
+        last_complete = None
+        for d in reversed(all_dates):
+            types = {ro["FacilityType"] for ro in rows if ro["GasDate"] == d}
+            if "PROD" in types and "LNGEXPORT" in types:
+                last_complete = d
+                break
 
-            # Check april 5 data completeness
-            apr5 = "2026/04/05"
-            apr5_rows = [r for r in act_rows if r["GasDate"] == apr5]
-            if apr5_rows:
-                by_type = {}
-                for r in apr5_rows:
-                    ft = r["FacilityType"]
-                    by_type.setdefault(ft, {"count":0,"supply":0.0})
-                    by_type[ft]["count"] += 1
-                    try: by_type[ft]["supply"] += float(r.get("Supply") or 0)
-                    except: pass
-                out["apr5_by_type"] = {k:{"count":v["count"],"supply":round(v["supply"],1)} for k,v in by_type.items()}
-            else:
-                out["apr5_by_type"] = "not in file"
+        out = {"last_complete": last_complete, "by_state": {}}
+        date_rows = [ro for ro in rows if ro["GasDate"] == last_complete]
+
+        # Show every row for VIC grouped by facility type
+        vic_rows = [ro for ro in date_rows if ro["State"] == "VIC"]
+        out["VIC_detail"] = []
+        for ro in sorted(vic_rows, key=lambda x: x["FacilityType"]):
+            sup = float(ro.get("Supply") or 0)
+            dem = float(ro.get("Demand") or 0)
+            if sup > 0 or dem > 0:
+                out["VIC_detail"].append({
+                    "type": ro["FacilityType"],
+                    "name": ro["FacilityName"],
+                    "loc": ro["LocationName"],
+                    "supply": round(sup,1),
+                    "demand": round(dem,1),
+                })
+
+        # Summary by state and type
+        for ro in date_rows:
+            st = ro.get("State","")
+            ft = ro.get("FacilityType","")
+            try:
+                sup = float(ro.get("Supply") or 0)
+                dem = float(ro.get("Demand") or 0)
+            except: sup = dem = 0
+            out["by_state"].setdefault(st, {}).setdefault(ft, {"supply":0.0,"demand":0.0})
+            out["by_state"][st][ft]["supply"] = round(out["by_state"][st][ft]["supply"] + sup, 1)
+            out["by_state"][st][ft]["demand"] = round(out["by_state"][st][ft]["demand"] + dem, 1)
 
         return out
 

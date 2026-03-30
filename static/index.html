@@ -4257,21 +4257,24 @@ function _renderPriceHistCharts(data, liveData) {
     s += '<td style="padding:4px 8px;color:#94a3b8;font-family:var(--font-mono);font-size:10px">Flat avg</td>';
     for (const r of allRegions) {
       const v = aggData[r]?.avg ?? null;
-      s += `<td style="text-align:right;padding:4px 8px;font-family:var(--font-mono);font-size:10px;color:var(--text);font-weight:600">${_fmtPrice(v)}</td>`;
+      const col = REGION_COLORS[r];
+      s += `<td style="text-align:right;padding:4px 8px;font-family:var(--font-mono);font-size:10px;color:${col};font-weight:600">${_fmtPrice(v)}</td>`;
     }
     s += '</tr>';
     s += '<tr>';
     s += '<td style="padding:4px 8px;color:#475569;font-family:var(--font-mono);font-size:10px">Energy avg</td>';
     for (const r of allRegions) {
       const v = aggData[r]?.energy_avg ?? null;
-      s += `<td style="text-align:right;padding:4px 8px;font-family:var(--font-mono);font-size:10px;color:var(--text)">${_fmtPrice(v)}</td>`;
+      const col = REGION_COLORS[r];
+      s += `<td style="text-align:right;padding:4px 8px;font-family:var(--font-mono);font-size:10px;color:${col}">${_fmtPrice(v)}</td>`;
     }
     s += '</tr>';
     s += '<tr>';
     s += '<td style="padding:4px 8px 8px;color:#475569;font-family:var(--font-mono);font-size:10px">Cap est</td>';
     for (const r of allRegions) {
       const v = aggData[r]?.cap_avg ?? null;
-      s += `<td style="text-align:right;padding:4px 8px 8px;font-family:var(--font-mono);font-size:10px;color:var(--text)">${_fmtPrice(v)}</td>`;
+      const col = REGION_COLORS[r];
+      s += `<td style="text-align:right;padding:4px 8px 8px;font-family:var(--font-mono);font-size:10px;color:${col}">${_fmtPrice(v)}</td>`;
     }
     s += '</tr>';
     return s;
@@ -4320,13 +4323,12 @@ function _renderPriceHistCharts(data, liveData) {
 
   const _buildSectionWithCapMin = (label, aggData, capMinData) => {
     let s = _buildSection(label, aggData);
-    // Replace last </tr> with nothing, then add cap min row before closing
-    // Actually just append cap min row
     s += '<tr>';
     s += '<td style="padding:2px 8px 8px;color:#475569;font-family:var(--font-mono);font-size:10px">Cap min</td>';
     for (const r of allRegions) {
       const v = capMinData[r]?.cap_min ?? null;
-      s += `<td style="text-align:right;padding:2px 8px 8px;font-family:var(--font-mono);font-size:10px;color:var(--text)">${v === null ? '—' : '$'+v.toFixed(2)}</td>`;
+      const col = REGION_COLORS[r];
+      s += `<td style="text-align:right;padding:2px 8px 8px;font-family:var(--font-mono);font-size:10px;color:${col}">${v === null ? '—' : '$'+v.toFixed(2)}</td>`;
     }
     s += '</tr>';
     return s;
@@ -4349,7 +4351,7 @@ function _renderPriceHistCharts(data, liveData) {
     _capMin(qtdDays, qStartStr, qEndStr));
 
   t += '</table>';
-  t += '<div style="font-family:var(--font-mono);font-size:8px;color:#475569;margin-top:8px">Flat avg = simple $/MWh · Energy avg = avg(min(p,$300)) · Cap est = avg(max(0,p−$300)) actuals+PD · Cap min = cap payout avg over full period (future=0) · Today includes predispatch</div>';
+  t += '<div style="font-family:var(--font-mono);font-size:8px;color:#475569;margin-top:8px">Calculated on 30-min half-hourly trading intervals · Flat avg = simple $/MWh · Energy avg = avg(min(p,$300)) · Cap est = avg(max(0,p−$300)) actuals+PD · Cap min = cap payout avg over full period (future=0) · Today includes predispatch</div>';
   t += '</div>';
 
   // Daily breakdown table

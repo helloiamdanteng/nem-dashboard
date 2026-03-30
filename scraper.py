@@ -2977,18 +2977,23 @@ def scrape_historical_price_averages(days: int = 90) -> dict:
             logger.warning(f"scrape_historical_price_averages: TradingIS archive failed: {e}")
 
     # ── Step 3: compute daily stats ───────────────────────────────────────────
+    CAP = 300.0
     results: dict = {r: {} for r in NEM_REGIONS}
     for (region, day_str), prices in raw.items():
         if not prices:
             continue
         prices_sorted = sorted(prices)
         p90_idx = min(int(len(prices_sorted) * 0.90), len(prices_sorted) - 1)
+        cap_prices = [p for p in prices if p > CAP]
         results[region][day_str] = {
-            "avg":   round(statistics.mean(prices), 2),
-            "min":   round(min(prices), 2),
-            "max":   round(max(prices), 2),
-            "p90":   round(prices_sorted[p90_idx], 2),
-            "count": len(prices),
+            "avg":        round(statistics.mean(prices), 2),
+            "min":        round(min(prices), 2),
+            "max":        round(max(prices), 2),
+            "p90":        round(prices_sorted[p90_idx], 2),
+            "count":      len(prices),
+            "energy_avg": round(statistics.mean(min(p, CAP) for p in prices), 2),
+            "cap_avg":    round(statistics.mean(cap_prices), 2) if cap_prices else 0.0,
+            "cap_count":  len(cap_prices),
         }
 
     total = sum(len(v) for v in results.values())

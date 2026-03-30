@@ -4561,7 +4561,7 @@ function _renderGBB(gbb) {
         label: k.replace("VIC: ","").replace("SA: ",""),
         data: chartDates.map(d=>{const p=(prodHist[k]||[]).find(x=>x.gas_date===d);return p?p.supply_tj:null;}),
         borderColor: PROD_COLORS[k],
-        backgroundColor: k==="Storage (net)" ? PROD_COLORS[k]+"22" : PROD_COLORS[k]+"99",
+        backgroundColor: k==="Storage (net)" ? PROD_COLORS[k]+"22" : PROD_COLORS[k]+"cc",
         borderWidth: k==="Storage (net)" ? 2 : 1.5,
         pointRadius: k==="Storage (net)" ? 2 : 0,
         tension: 0.2, fill: k==="Storage (net)" ? "origin" : true,
@@ -4590,7 +4590,7 @@ function _renderGBB(gbb) {
       _makeChart("gbbDemandSectorChart","gbbDemandSector",
         SECTOR_ORDER.filter(k=>demSector[k]).map(k=>({ label:k,
           data:chartDates.map(d=>{const p=(demSector[k]||[]).find(x=>x.gas_date===d);return p?p.demand_tj:null;}),
-          borderColor:SECTOR_COLORS[k],backgroundColor:SECTOR_COLORS[k]+"99",borderWidth:1.5,pointRadius:0,tension:0.2,fill:true,
+          borderColor:SECTOR_COLORS[k],backgroundColor:SECTOR_COLORS[k]+"cc",borderWidth:1.5,pointRadius:0,tension:0.2,fill:true,
           segment:{borderDash:ctx=>_dashStyle(chartDates[ctx.p0DataIndex])} })),
         _dateLabels(chartDates), CHART_OPT(true, v=>v.toFixed(0)+" TJ"));
     }
@@ -5424,17 +5424,64 @@ function renderAbout(data) {
         <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-top:2px">REGIONS</div>
       </div>
       <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px;text-align:center">
-        <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:#2ed573">200+</div>
+        <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:#2ed573">500+</div>
         <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-top:2px">GENERATORS</div>
       </div>
     </div>
   </div>
 
-  <div class="chart-card" style="padding:14px">
+  <div class="chart-card" style="padding:14px;margin-bottom:12px">
     <div style="font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--text);margin-bottom:8px">ABOUT THIS DASHBOARD</div>
     <div style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-bottom:12px">
-      Built for NEM geeks to monitor the market in real time. Data is sourced directly from AEMO's NEMWeb public files — spot prices refresh every 5 minutes, generation every 15 minutes, and week-ahead forecasts every 30 minutes.
+      Built for NEM geeks to monitor the electricity and gas markets in real time. All data is sourced directly from AEMO's public files — no third-party data providers.
     </div>
+    <div style="font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--text);margin-bottom:8px">ELECTRICITY DATA SOURCES</div>
+    <table style="width:100%;font-family:var(--font-mono);font-size:10px;border-collapse:collapse;margin-bottom:12px">
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 0;color:var(--text)">Spot prices &amp; predispatch</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · TRADINGIS / PREDISPATCH</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 0;color:var(--text)">Generation &amp; fuel mix</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · DISPATCH_UNIT_SCADA</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 0;color:var(--text)">Interconnector flows</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · DISPATCHIS</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 0;color:var(--text)">Rooftop solar</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · ROOFTOP_PV_ACTUAL</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 0;color:var(--text)">Capacity outlook (PASA)</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · MT_PASA / ST_PASA</td>
+      </tr>
+    </table>
+    <div style="font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--text);margin-bottom:8px">GAS DATA SOURCES</div>
+    <table style="width:100%;font-family:var(--font-mono);font-size:10px;border-collapse:collapse;margin-bottom:12px">
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 0;color:var(--text)">STTM prices (Adelaide, Brisbane, Sydney)</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · STTM/CURRENTDAY</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 0;color:var(--text)">Victorian DWGM prices</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · VicGas INT037B / INT041</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 0;color:var(--text)">Gas production, demand &amp; pipeline flows</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · GBB ActualFlowStorageLast31</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 0;color:var(--text)">Gas nominations &amp; forecasts (D+0 to D+6)</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · GBB NominationAndForecastNext7</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 0;color:var(--text)">Storage levels (Iona, Moomba, RUGS etc.)</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · GBB ActualFlowStorageLast31</td>
+      </tr>
+    </table>
+    <div style="font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--text);margin-bottom:8px">REFRESH RATES</div>
     <table style="width:100%;font-family:var(--font-mono);font-size:10px;border-collapse:collapse">
       <tr style="border-bottom:1px solid var(--border)">
         <td style="padding:6px 0;color:var(--text)">Spot prices &amp; predispatch</td>
@@ -5445,11 +5492,15 @@ function renderAbout(data) {
         <td style="padding:6px 0;color:var(--accent);text-align:right">Every 15 min</td>
       </tr>
       <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:6px 0;color:var(--text)">Interconnector flows</td>
-        <td style="padding:6px 0;color:var(--accent);text-align:right">Every 5 min</td>
+        <td style="padding:6px 0;color:var(--text)">Gas prices (STTM &amp; DWGM)</td>
+        <td style="padding:6px 0;color:var(--accent);text-align:right">Every 6 hours</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 0;color:var(--text)">Gas production, storage &amp; pipeline flows</td>
+        <td style="padding:6px 0;color:var(--accent);text-align:right">Every 1 hour</td>
       </tr>
       <tr>
-        <td style="padding:6px 0;color:var(--text)">Week-ahead PASA forecast</td>
+        <td style="padding:6px 0;color:var(--text)">Capacity outlook (PASA)</td>
         <td style="padding:6px 0;color:var(--accent);text-align:right">Every 30 min</td>
       </tr>
     </table>

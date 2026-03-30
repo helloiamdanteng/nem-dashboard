@@ -4107,27 +4107,7 @@ function renderPricesHist() {
   let html = '<div class="section-title">Average Pool Prices</div>';
 
   // Summary table at top (populated by _renderPriceHistCharts)
-  html += '<div id="prices-hist-table" style="margin-bottom:8px"></div>';
-
-  // Region toggle pills — attached to chart
-  const allOn = REGIONS.every(r => window._priceHistActive.has(r));
-  html += '<div class="region-pills" style="margin-bottom:8px">';
-  html += `<button class="region-pill ${allOn?'active':''}" style="color:#94a3b8;border-color:#94a3b8"
-    onclick="togglePriceHistNEM()">NEM</button>`;
-  for (const r of REGIONS) {
-    const col = REGION_COLORS[r];
-    const on  = window._priceHistActive.has(r);
-    html += `<button class="region-pill ${on?'active':''}" style="color:${col};border-color:${col}"
-      onclick="togglePriceHistRegion('${r}')">${REGION_SHORT[r]}</button>`;
-  }
-  html += '</div>';
-
-  // Chart
-  html += '<div class="chart-card" style="margin-bottom:8px">' +
-    '<div class="chart-title">Daily Average Price — Last 14 Days ($/MWh)</div>' +
-    '<div id="prices-hist-status" style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:8px 0"></div>' +
-    '<div class="chart-container" style="height:260px"><canvas id="pricesHistChart"></canvas></div>' +
-    '</div>';
+  html += '<div id="prices-hist-table"></div>';
 
   return html;
 }
@@ -4172,10 +4152,6 @@ async function drawPricesHist() {
 }
 
 function _renderPriceHistCharts(data, liveData) {
-  destroyChart('pricesHist');
-  const ctx1 = document.getElementById('pricesHistChart');
-  if (!ctx1) return;
-
   if (!window._priceHistActive) window._priceHistActive = new Set(REGIONS);
   const regions = REGIONS.filter(r => window._priceHistActive.has(r));
 
@@ -4183,48 +4159,6 @@ function _renderPriceHistCharts(data, liveData) {
   const allDays = new Set();
   for (const r of REGIONS) Object.keys(data[r] || {}).forEach(d => allDays.add(d));
   const days = Array.from(allDays).sort();
-
-  // Chart uses last 14 days only; table uses all days
-  const chartDays = days.slice(-14);
-  const chartLabels = chartDays.map(d => {
-    const dt = new Date(d + 'T00:00:00');
-    return dt.toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short'});
-  });
-
-  const sharedOpts = {
-    ...CHART_DEFAULTS,
-    plugins: { ...CHART_DEFAULTS.plugins,
-      legend: { display: true,
-        labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 } },
-      tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
-        callbacks: { label: c => c.raw===null ? null : ` ${c.dataset.label}: $${c.raw.toFixed(2)}/MWh` } }
-    },
-    scales: {
-      x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:45,autoSkip:false},
-           grid:{color:'#1e2d4544'} },
-      y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>'$'+v.toFixed(0)},
-           grid:{color:'#1e2d45'}, beginAtZero: false }
-    }
-  };
-
-  const avgDatasets = regions.map(r => {
-    const color = REGION_COLORS[r];
-    const dayData = data[r] || {};
-    return {
-      label: REGION_SHORT[r],
-      data: chartDays.map(d => dayData[d]?.avg ?? null),
-      backgroundColor: color + '99',
-      borderColor: color,
-      borderWidth: 1,
-      borderRadius: 3,
-    };
-  });
-
-  charts.pricesHist = new Chart(ctx1, {
-    type: 'bar',
-    data: { labels: chartLabels, datasets: avgDatasets },
-    options: { ...sharedOpts, scales: { ...sharedOpts.scales, x: { ...sharedOpts.scales.x, stacked: false } } }
-  });
 
   // ── Summary table — Today / MTD / QTD ──────────────────────────────────
   const tableDiv = document.getElementById('prices-hist-table');
@@ -4316,41 +4250,28 @@ function _renderPriceHistCharts(data, liveData) {
   const qtdDays    = days.filter(d => d >= qStartStr && d <= todayStr);
 
   const _fmtPrice = v => v === null ? '—' : `$${v.toFixed(2)}`;
-  const _priceCol = v => {
-    if (v === null) return '#475569';
-    if (v < 0)   return '#2ed573';
-    if (v < 50)  return '#94a3b8';
-    if (v < 100) return '#ffd32a';
-    if (v < 300) return '#ff6b35';
-    return '#ff4757';
-  };
 
   const _buildSection = (label, aggData) => {
     let s = `<tr><td colspan="${allRegions.length + 1}" style="padding:8px 8px 4px;font-family:var(--font-mono);font-size:9px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.08em;border-top:1px solid #1e2d45">${label}</td></tr>`;
-    // Flat avg row
     s += '<tr>';
     s += '<td style="padding:4px 8px;color:#94a3b8;font-family:var(--font-mono);font-size:10px">Flat avg</td>';
     for (const r of allRegions) {
       const v = aggData[r]?.avg ?? null;
-      s += `<td style="text-align:right;padding:4px 8px;font-family:var(--font-mono);font-size:10px;font-weight:700;color:${_priceCol(v)}">${_fmtPrice(v)}</td>`;
+      s += `<td style="text-align:right;padding:4px 8px;font-family:var(--font-mono);font-size:10px;color:var(--text);font-weight:600">${_fmtPrice(v)}</td>`;
     }
     s += '</tr>';
-    // Energy avg (capped at $300)
     s += '<tr>';
     s += '<td style="padding:4px 8px;color:#475569;font-family:var(--font-mono);font-size:10px">Energy avg</td>';
     for (const r of allRegions) {
       const v = aggData[r]?.energy_avg ?? null;
-      s += `<td style="text-align:right;padding:4px 8px;font-family:var(--font-mono);font-size:10px;color:${_priceCol(v)}">${_fmtPrice(v)}</td>`;
+      s += `<td style="text-align:right;padding:4px 8px;font-family:var(--font-mono);font-size:10px;color:var(--text)">${_fmtPrice(v)}</td>`;
     }
     s += '</tr>';
-    // Cap est (avg of max(0,p-300) across ALL intervals)
     s += '<tr>';
     s += '<td style="padding:4px 8px 8px;color:#475569;font-family:var(--font-mono);font-size:10px">Cap est</td>';
     for (const r of allRegions) {
       const v = aggData[r]?.cap_avg ?? null;
-      const disp = v === null ? '—' : `$${v.toFixed(2)}`;
-      const col = v && v > 0 ? '#ff6b35' : '#475569';
-      s += `<td style="text-align:right;padding:4px 8px 8px;font-family:var(--font-mono);font-size:10px;color:${col}">${disp}</td>`;
+      s += `<td style="text-align:right;padding:4px 8px 8px;font-family:var(--font-mono);font-size:10px;color:var(--text)">${_fmtPrice(v)}</td>`;
     }
     s += '</tr>';
     return s;

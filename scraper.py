@@ -3737,6 +3737,10 @@ def scrape_gbb() -> dict:
         "demand_by_sector": {},
         "pipeline_flows": {},
         "latest_date": None,
+        "last_complete_date": None,
+        "partial_dates": [],
+        "forecast_dates": [],
+        "chart_dates": [],
         "last_updated": datetime.now(timezone.utc).isoformat(),
     }
     try:
@@ -4052,6 +4056,12 @@ def scrape_gbb() -> dict:
 
                 result["forecast_dates"] = clean_nom_dates
 
+                # ── Unified chart_dates: complete actuals + clean nominations ──
+                # All charts use this exact date range; missing series return null
+                result["chart_dates"] = [
+                    d.replace("/", "-") for d in sorted(complete_dates)
+                ] + clean_nom_dates
+
                 # Sort all series by date after merging
                 for key in result["production_history"]:
                     result["production_history"][key].sort(key=lambda x: x["gas_date"])
@@ -4061,6 +4071,10 @@ def scrape_gbb() -> dict:
                 logger.info(f"scrape_gbb: nominations {len(nom_rows)} rows, dates={nom_dates[:3]}")
         except Exception as e:
             logger.warning(f"scrape_gbb: nominations failed: {e}")
+
+        # Fallback chart_dates if nominations didn't run
+        if not result["chart_dates"]:
+            result["chart_dates"] = [d.replace("/", "-") for d in sorted(complete_dates)]
 
         logger.info(
             f"scrape_gbb: {len(rows)} rows, {N} dates, "

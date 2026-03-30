@@ -4269,42 +4269,44 @@ function _renderPriceHistCharts(data, liveData) {
   const CAP = 300;
   // _stats: weighted average where each entry has {price, weight}
   // weight=1 for 30-min intervals, weight=1/6 for 5-min intervals
-  const _statsW = entries => {
-    if (!entries.length) return null;
-    const totW = entries.reduce((s,e)=>s+e.w,0);
-    if (!totW) return null;
-    return {
-      avg:        Math.round(entries.reduce((s,e)=>s+e.p*e.w,0)/totW*100)/100,
-      energy_avg: Math.round(entries.reduce((s,e)=>s+Math.min(e.p,CAP)*e.w,0)/totW*100)/100,
-      cap_avg:    Math.round(entries.reduce((s,e)=>s+Math.max(0,e.p-CAP)*e.w,0)/totW*100)/100,
-    };
-  };
-
-  // For a set of days, build weighted entries:
-  // - Historical 30-min (TradingIS): count≈48, weight=1 each → push count entries w=1
-  // - Historical 5-min (dispatch): count≈288, weight=1/6 each → same effective weight
-  // - PD intervals: 30-min each, weight=1
-  // Distinguish by count: if count > 100 for a day → 5-min data, else 30-min
+  // Weighted aggregation across days
+  // Each day contributes proportionally to its effective interval count (30-min equivalent)
+  // 5-min data (count>100): effective weight = count/6  (288 intervals → 48 equivalent 30-min)
+  // 30-min data (count≤100): effective weight = count
+  // energy_avg and cap_avg are pre-computed per day from raw prices in scraper → use directly
   const _agg = (daySet) => {
     const out = {};
     for (const r of allRegions) {
       const rd = data[r] || {};
-      const entries = [];
+      let totW = 0, sumAvg = 0, sumEnergy = 0, sumCap = 0;
+      let pdPrices = [];
+
       for (const d of daySet) {
         const dp = rd[d];
         if (!dp || !dp.count) continue;
-        const is5min = dp.count > 100;
-        const w = is5min ? 1/6 : 1;
-        if (d === todayStr) {
-          // Actuals: dp.count intervals each weighted appropriately
-          for (let i = 0; i < dp.count; i++) entries.push({p: dp.avg, w});
-          // PD future 30-min intervals: weight=1 each
-          for (const p of (pdByRegion[r] || [])) entries.push({p, w: 1});
-        } else {
-          for (let i = 0; i < dp.count; i++) entries.push({p: dp.avg, w});
-        }
+        const effW = dp.count > 100 ? dp.count / 6 : dp.count;  // 30-min equivalent intervals
+        totW     += effW;
+        sumAvg   += dp.avg         * effW;
+        sumEnergy += dp.energy_avg * effW;
+        sumCap   += dp.cap_avg     * effW;
+        // Collect PD future prices for today
+        if (d === todayStr) pdPrices = pdByRegion[r] || [];
       }
-      out[r] = _statsW(entries);
+
+      // Blend in predispatch for today's remaining intervals (30-min each)
+      for (const p of pdPrices) {
+        totW      += 1;
+        sumAvg    += p;
+        sumEnergy += Math.min(p, CAP);
+        sumCap    += Math.max(0, p - CAP);
+      }
+
+      if (!totW) { out[r] = null; continue; }
+      out[r] = {
+        avg:        Math.round(sumAvg    / totW * 100) / 100,
+        energy_avg: Math.round(sumEnergy / totW * 100) / 100,
+        cap_avg:    Math.round(sumCap    / totW * 100) / 100,
+      };
     }
     return out;
   };

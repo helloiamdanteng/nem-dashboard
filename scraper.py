@@ -3819,9 +3819,13 @@ def scrape_gbb() -> dict:
             try:
                 sup = float(row.get("Supply") or 0)
                 dem = float(row.get("Demand") or 0)
-                # Supply: production + storage + pipe terminal deliveries for import-only states
-                if ft in ("PROD", "STOR"):
+                # Supply: production receipted + storage withdrawals (demand field = gas released to market)
+                # Note: STOR "Demand" = withdrawals from storage = supply to market
+                #       STOR "Supply" = injections into storage = NOT supply to market
+                if ft == "PROD":
                     state_agg[st]["supply"] += sup
+                elif ft == "STOR":
+                    state_agg[st]["supply"] += dem   # withdrawals from storage = market supply
                 elif ft == "PIPE" and loc in TERMINAL_SUPPLY_LOCS and sup > 0:
                     state_agg[st]["supply"] += sup
                 # Demand: end-use only

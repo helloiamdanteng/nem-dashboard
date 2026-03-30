@@ -2984,16 +2984,17 @@ def scrape_historical_price_averages(days: int = 90) -> dict:
             continue
         prices_sorted = sorted(prices)
         p90_idx = min(int(len(prices_sorted) * 0.90), len(prices_sorted) - 1)
-        cap_prices = [p for p in prices if p > CAP]
         results[region][day_str] = {
             "avg":        round(statistics.mean(prices), 2),
             "min":        round(min(prices), 2),
             "max":        round(max(prices), 2),
             "p90":        round(prices_sorted[p90_idx], 2),
             "count":      len(prices),
+            # energy_avg: avg of min(p, $300) per interval — correct contract settlement basis
             "energy_avg": round(statistics.mean(min(p, CAP) for p in prices), 2),
-            "cap_avg":    round(statistics.mean(cap_prices), 2) if cap_prices else 0.0,
-            "cap_count":  len(cap_prices),
+            # cap_avg: avg of max(0, p-$300) per interval across ALL intervals
+            # This is the correct cap contract payout figure (zero-payout periods dilute the avg)
+            "cap_avg":    round(statistics.mean(max(0.0, p - CAP) for p in prices), 2),
         }
 
     total = sum(len(v) for v in results.values())

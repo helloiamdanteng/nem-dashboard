@@ -4557,35 +4557,22 @@ function _renderGBB(gbb) {
     const PROD_COLORS = { "QLD (CSG+LNG)":"#f39c12","SA: Moomba":"#e74c3c","VIC: Longford":"#2ed573","VIC: Otway":"#1abc9c","VIC: Orbost":"#3498db","VIC: ATHENA":"#9b59b6","VIC: Lang Lang":"#27ae60","NT":"#64748b","Storage (net)":"#ffffff" };
     const PROD_ORDER = ["QLD (CSG+LNG)","SA: Moomba","VIC: Longford","VIC: Otway","VIC: Orbost","VIC: ATHENA","VIC: Lang Lang","NT","Storage (net)"];
     if (Object.keys(prodHist).length) {
-      // Only show up to last complete day (exclude partial + forecast)
-      const allProdDates = _allDates(Object.values(prodHist));
-      const dates = allProdDates.filter(d => !_skipDate(d) && !forecastDates.has(d))
-                                .concat(allProdDates.filter(d => forecastDates.has(d)));
-      // Cut off partial nomination dates that have incomplete data
-      // Last complete date = most recent non-partial, non-forecast date
-      const lastComplete = [...dates].filter(d => !forecastDates.has(d)).slice(-1)[0];
-      const cutoff = lastComplete || dates.slice(-1)[0];
-      const chartDates = dates.filter(d => d <= cutoff || forecastDates.has(d));
-
+      const dates = _allDates(Object.values(prodHist));
       const prodDatasets = PROD_ORDER.filter(k=>prodHist[k]).map(k=>({
         label: k.replace("VIC: ","").replace("SA: ",""),
-        data: chartDates.map(d=>{
-          if(_skipDate(d)) return null;
-          const p=(prodHist[k]||[]).find(x=>x.gas_date===d);
-          return p?p.supply_tj:null;
-        }),
+        data: dates.map(d=>{const p=(prodHist[k]||[]).find(x=>x.gas_date===d);return p?p.supply_tj:null;}),
         borderColor: PROD_COLORS[k],
         backgroundColor: k==="Storage (net)" ? PROD_COLORS[k]+"33" : PROD_COLORS[k]+"44",
         borderWidth: k==="Storage (net)" ? 2 : 1.5,
         pointRadius: k==="Storage (net)" ? 2 : 0,
         tension: 0.2,
         fill: k==="Storage (net)" ? "origin" : true,
-        segment: {borderDash: ctx=>_dashStyle(chartDates[ctx.p0DataIndex])},
+        segment: {borderDash: ctx=>_dashStyle(dates[ctx.p0DataIndex])},
       }));
       const prodCtx = document.getElementById("gbbProductionChart");
       if (prodCtx) {
         destroyChart("gbbProduction");
-        charts.gbbProduction = new Chart(prodCtx, {type:"line", data:{labels:_dateLabels(chartDates), datasets:prodDatasets},
+        charts.gbbProduction = new Chart(prodCtx, {type:"line", data:{labels:_dateLabels(dates), datasets:prodDatasets},
           options:{ ...CHART_DEFAULTS, plugins:{ ...CHART_DEFAULTS.plugins,
             legend:{display:true,labels:{color:"#94a3b8",font:{family:"Space Mono",size:9},boxWidth:10,padding:6}},
             tooltip:{...CHART_DEFAULTS.plugins.tooltip,callbacks:{label:c=>c.raw===null?null:(` ${c.dataset.label}: `+(c.raw>=0?"+":"")+c.raw.toFixed(0)+" TJ")}}},
@@ -4606,7 +4593,7 @@ function _renderGBB(gbb) {
       const dates = _allDates(Object.values(demSector));
       _makeChart("gbbDemandSectorChart","gbbDemandSector",
         SECTOR_ORDER.filter(k=>demSector[k]).map(k=>({ label:k,
-          data:dates.map(d=>{if(_skipDate(d))return null;const p=(demSector[k]||[]).find(x=>x.gas_date===d);return p?p.demand_tj:null;}),
+          data:dates.map(d=>{const p=(demSector[k]||[]).find(x=>x.gas_date===d);return p?p.demand_tj:null;}),
           borderColor:SECTOR_COLORS[k],backgroundColor:SECTOR_COLORS[k]+"44",borderWidth:1.5,pointRadius:0,tension:0.2,fill:true })),
         _dateLabels(dates), CHART_OPT(true, v=>v.toFixed(0)+" TJ"));
     }
@@ -4618,7 +4605,7 @@ function _renderGBB(gbb) {
       const dates = _allDates(Object.values(pipeFlows));
       _makeChart("gbbPipelineChart","gbbPipeline",
         Object.entries(pipeFlows).map(([lbl,pts],i)=>({ label:lbl.replace(/\(|\)/g,"").trim(),
-          data:dates.map(d=>{if(_skipDate(d))return null;const p=pts.find(x=>x.gas_date===d);return p?p.flow_tj:null;}),
+          data:dates.map(d=>{const p=pts.find(x=>x.gas_date===d);return p?p.flow_tj:null;}),
           borderColor:PIPE_COLORS[i%PIPE_COLORS.length],backgroundColor:"transparent",borderWidth:1.5,pointRadius:0,tension:0.2,
           segment:{borderDash:ctx=>_dashStyle(dates[ctx.p0DataIndex])} })),
         _dateLabels(dates), CHART_OPT(false, v=>v.toFixed(0)+" TJ"));

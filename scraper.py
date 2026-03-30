@@ -4023,9 +4023,34 @@ def scrape_gbb() -> dict:
                                 {"gas_date": gd, "flow_tj": val, "forecast": is_forecast}
                             )
 
-                # Store which dates are forecasts
+                # Store which dates are forecasts — only keep dates where ALL
+                # production series have a value (drop incomplete nomination dates)
                 nom_dates = sorted({row.get("Gasdate","").replace("/","-") for row in nom_rows if row.get("Gasdate","")})
-                result["forecast_dates"] = nom_dates
+
+                # Count how many prod series have each nomination date
+                prod_keys = [k for k in result["production_history"] if k != "Storage (net)"]
+                clean_nom_dates = []
+                for d in nom_dates:
+                    coverage = sum(
+                        1 for k in prod_keys
+                        if any(p["gas_date"] == d for p in result["production_history"].get(k, []))
+                    )
+                    # Require at least 80% of series to have data for this date
+                    if len(prod_keys) == 0 or coverage >= len(prod_keys) * 0.8:
+                        clean_nom_dates.append(d)
+                    else:
+                        # Drop this date from all histories
+                        logger.info(f"scrape_gbb: dropping incomplete nomination date {d} ({coverage}/{len(prod_keys)} series)")
+                        for key in result["production_history"]:
+                            result["production_history"][key] = [
+                                p for p in result["production_history"][key] if p["gas_date"] != d
+                            ]
+                        for label in result["pipeline_flows"]:
+                            result["pipeline_flows"][label] = [
+                                p for p in result["pipeline_flows"][label] if p["gas_date"] != d
+                            ]
+
+                result["forecast_dates"] = clean_nom_dates
 
                 # Sort all series by date after merging
                 for key in result["production_history"]:

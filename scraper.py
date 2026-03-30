@@ -3787,7 +3787,6 @@ def scrape_gbb() -> dict:
         }
 
         # Determine which dates are complete (have PROD + LNGEXPORT = full settlement)
-        # and which are partial (only some operators have submitted)
         complete_dates = set()
         partial_dates  = set()
         for d in all_dates:
@@ -3797,9 +3796,9 @@ def scrape_gbb() -> dict:
             else:
                 partial_dates.add(d)
 
-        result["partial_dates"] = sorted(
-            d.replace("/", "-") for d in partial_dates
-        )
+        last_complete = max(complete_dates).replace("/", "-") if complete_dates else None
+        result["partial_dates"] = sorted(d.replace("/", "-") for d in partial_dates)
+        result["last_complete_date"] = last_complete
 
         # Use the most recent COMPLETE date for the state summary table
         summary_date = max(complete_dates) if complete_dates else latest_date
@@ -3859,6 +3858,7 @@ def scrape_gbb() -> dict:
         for key, dates in sector_hist.items():
             result["demand_by_sector"][key] = [
                 {"gas_date": d, "demand_tj": dates[d]} for d in sorted(dates)
+                if last_complete is None or d <= last_complete
             ]
 
         # ── Production by source (all days) ─────────────────────────────────
@@ -3908,14 +3908,13 @@ def scrape_gbb() -> dict:
         result["production_history"] = {}
         for key, dates in prod_hist.items():
             if isinstance(list(dates.values())[0], float):
-                # dict format from storage net
-                result["production_history"][key] = [
-                    {"gas_date": d, "supply_tj": v} for d, v in sorted(dates.items())
-                ]
+                pts = [{"gas_date": d, "supply_tj": v} for d, v in sorted(dates.items())
+                       if last_complete is None or d <= last_complete]
             else:
-                result["production_history"][key] = [
-                    {"gas_date": d, "supply_tj": dates[d]} for d in sorted(dates)
-                ]
+                pts = [{"gas_date": d, "supply_tj": dates[d]} for d in sorted(dates)
+                       if last_complete is None or d <= last_complete]
+            if pts:
+                result["production_history"][key] = pts
 
         # ── Pipeline flows (all days) ─────────────────────────────────────────
         # Key interstate pipelines with direction label
@@ -3948,6 +3947,7 @@ def scrape_gbb() -> dict:
         for label, dates in pipe_hist.items():
             result["pipeline_flows"][label] = [
                 {"gas_date": d, "flow_tj": dates[d]} for d in sorted(dates)
+                if last_complete is None or d <= last_complete
             ]
 
         # ── Nominations: today + D+1 production and pipeline forecasts ──────

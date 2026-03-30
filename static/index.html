@@ -4561,9 +4561,9 @@ function _renderGBB(gbb) {
       const prodDatasets = PROD_ORDER.filter(k=>prodHist[k]).map(k=>({
         label: k.replace("VIC: ","").replace("SA: ",""),
         data: chartDates.map(d=>{const p=(prodHist[k]||[]).find(x=>x.gas_date===d);return p?p.supply_tj:null;}),
-        borderColor: chartDates.map(d=>forecastDates.has(d) ? PROD_COLORS[k]+"99" : PROD_COLORS[k]),
+        borderColor: chartDates.map(d=>forecastDates.has(d) ? PROD_COLORS[k]+"55" : PROD_COLORS[k]),
         backgroundColor: k==="Storage (net)" ? PROD_COLORS[k]+"22" :
-          chartDates.map(d=>forecastDates.has(d) ? PROD_COLORS[k]+"44" : PROD_COLORS[k]+"cc"),
+          chartDates.map(d=>forecastDates.has(d) ? PROD_COLORS[k]+"22" : PROD_COLORS[k]+"cc"),
         borderWidth: k==="Storage (net)" ? 2 : 1.5,
         pointRadius: k==="Storage (net)" ? 2 : 0,
         tension: 0.2, fill: k==="Storage (net)" ? "origin" : true,

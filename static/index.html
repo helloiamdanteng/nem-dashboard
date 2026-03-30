@@ -4106,6 +4106,9 @@ function renderPricesHist() {
 
   let html = '<div class="section-title">Average Pool Prices</div>';
 
+  // Summary table at top (populated by _renderPriceHistCharts)
+  html += '<div id="prices-hist-table" style="margin-bottom:8px"></div>';
+
   // Region toggle pills — attached to chart
   const allOn = REGIONS.every(r => window._priceHistActive.has(r));
   html += '<div class="region-pills" style="margin-bottom:8px">';
@@ -4119,15 +4122,12 @@ function renderPricesHist() {
   }
   html += '</div>';
 
-  // Chart first
+  // Chart
   html += '<div class="chart-card" style="margin-bottom:8px">' +
     '<div class="chart-title">Daily Average Price — Last 14 Days ($/MWh)</div>' +
     '<div id="prices-hist-status" style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:8px 0"></div>' +
     '<div class="chart-container" style="height:260px"><canvas id="pricesHistChart"></canvas></div>' +
     '</div>';
-
-  // Summary + daily tables below
-  html += '<div id="prices-hist-table"></div>';
 
   return html;
 }
@@ -4233,8 +4233,9 @@ function _renderPriceHistCharts(data, liveData) {
   const visRegions = regions.length ? regions : REGIONS;
   const daysDesc = [...days].reverse();
 
-  // Build today's predispatch intervals (future periods only, from liveData)
+  // Build today's predispatch intervals (future periods for today only)
   // predispatch_prices[region] = [{interval: "HH:MM", rrp: N}, ...]
+  // These are 30-min intervals, each counts once toward the daily average
   const nowUTC = new Date();
   const aestMs = nowUTC.getTime() + 10 * 3600 * 1000;
   const aestDate = new Date(aestMs);
@@ -4250,58 +4251,59 @@ function _renderPriceHistCharts(data, liveData) {
   const qMonth    = Math.floor(aestMonth / 3) * 3;
   const qStartStr = aestYear + '-' + String(qMonth + 1).padStart(2,'0') + '-01';
   const mStartStr = aestYear + '-' + String(aestMonth + 1).padStart(2,'0') + '-01';
+  const qLabels   = ['Q1','Q2','Q3','Q4'];
+  const qLabel    = qLabels[Math.floor(aestMonth/3)] + ' ' + aestYear;
+  const mLabel    = aestDate.toLocaleDateString('en-AU', {timeZone:'UTC', month:'short', year:'numeric'});
 
-  // Quarter/month labels
-  const qLabels = ['Q1','Q2','Q3','Q4'];
-  const qLabel  = qLabels[Math.floor(aestMonth/3)] + ' ' + aestYear;
-  const mLabel  = aestDate.toLocaleDateString('en-AU', {timeZone:'UTC', month:'short', year:'numeric'});
-
-  // PD intervals for today by region (future only)
+  // PD future intervals for today by region (30-min each, future only)
   const pdByRegion = {};
   if (liveData?.predispatch_prices) {
     for (const r of REGIONS) {
-      const arr = liveData.predispatch_prices[r] || [];
-      pdByRegion[r] = arr.filter(p => p.interval > nowTimeStr).map(p => p.rrp);
+      pdByRegion[r] = (liveData.predispatch_prices[r] || [])
+        .filter(p => p.interval > nowTimeStr)
+        .map(p => p.rrp);
     }
   }
 
-  // _aggStats: compute {avg, energy_avg, cap_avg} from array of prices
-  // cap_avg = average of max(0, p-300) across ALL intervals (not just those > 300)
   const CAP = 300;
-  const _stats = prices => {
-    if (!prices.length) return null;
-    const avg        = prices.reduce((s,p) => s+p, 0) / prices.length;
-    const energy_avg = prices.reduce((s,p) => s+Math.min(p,CAP), 0) / prices.length;
-    const cap_avg    = prices.reduce((s,p) => s+Math.max(0,p-CAP), 0) / prices.length;
-    return { avg: Math.round(avg*100)/100, energy_avg: Math.round(energy_avg*100)/100, cap_avg: Math.round(cap_avg*100)/100, count: prices.length };
+  // _stats: weighted average where each entry has {price, weight}
+  // weight=1 for 30-min intervals, weight=1/6 for 5-min intervals
+  const _statsW = entries => {
+    if (!entries.length) return null;
+    const totW = entries.reduce((s,e)=>s+e.w,0);
+    if (!totW) return null;
+    return {
+      avg:        Math.round(entries.reduce((s,e)=>s+e.p*e.w,0)/totW*100)/100,
+      energy_avg: Math.round(entries.reduce((s,e)=>s+Math.min(e.p,CAP)*e.w,0)/totW*100)/100,
+      cap_avg:    Math.round(entries.reduce((s,e)=>s+Math.max(0,e.p-CAP)*e.w,0)/totW*100)/100,
+    };
   };
 
-  // Compute aggregated stats for a set of days, blending PD into today
+  // For a set of days, build weighted entries:
+  // - Historical 30-min (TradingIS): count≈48, weight=1 each → push count entries w=1
+  // - Historical 5-min (dispatch): count≈288, weight=1/6 each → same effective weight
+  // - PD intervals: 30-min each, weight=1
+  // Distinguish by count: if count > 100 for a day → 5-min data, else 30-min
   const _agg = (daySet) => {
     const out = {};
     for (const r of visRegions) {
       const rd = data[r] || {};
-      // Collect all raw prices from historical intervals
-      // We store count+avg, so reconstruct approximate prices for non-today days
-      // For today: blend actuals (from daily stat) + PD future intervals
-      let allPrices = [];
+      const entries = [];
       for (const d of daySet) {
         const dp = rd[d];
         if (!dp || !dp.count) continue;
+        const is5min = dp.count > 100;
+        const w = is5min ? 1/6 : 1;
         if (d === todayStr) {
-          // Approximate actual prices from stored stats (count * avg as single aggregate)
-          // Plus PD for remainder
-          // We don't have raw intervals, so use the stored avg*count as a weighted contribution
-          // blended with PD
-          const pdPrices = pdByRegion[r] || [];
-          // Reconstruct: treat actuals as dp.count copies of dp.avg (best we can without raw)
-          const actuals = Array(dp.count).fill(dp.avg);
-          allPrices = allPrices.concat(actuals, pdPrices);
+          // Actuals: dp.count intervals each weighted appropriately
+          for (let i = 0; i < dp.count; i++) entries.push({p: dp.avg, w});
+          // PD future 30-min intervals: weight=1 each
+          for (const p of (pdByRegion[r] || [])) entries.push({p, w: 1});
         } else {
-          allPrices = allPrices.concat(Array(dp.count).fill(dp.avg));
+          for (let i = 0; i < dp.count; i++) entries.push({p: dp.avg, w});
         }
       }
-      out[r] = _stats(allPrices);
+      out[r] = _statsW(entries);
     }
     return out;
   };
@@ -4368,35 +4370,42 @@ function _renderPriceHistCharts(data, liveData) {
   t += '</table>';
   t += '<div style="font-family:var(--font-mono);font-size:8px;color:#475569;margin-top:8px">Flat avg = simple average $/MWh · Energy avg = avg with each interval capped at $300 · Cap est = avg of max(0, price−$300) across all intervals · Today includes predispatch for remaining periods</div>';
   t += '</div>';
+  tableDiv.innerHTML = t;
 
-  // Daily breakdown table
-  t += '<div class="chart-card" style="padding:12px 14px;overflow-x:auto">';
-  t += '<div class="chart-title" style="margin-bottom:8px">Daily Average ($/MWh)</div>';
-  t += '<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px">';
-  t += '<tr>';
-  t += '<th style="text-align:left;padding:5px 8px;color:#64748b;border-bottom:1px solid #1e2d45;white-space:nowrap">Date</th>';
+  // Daily breakdown table — rendered below chart in separate div
+  const dailyDiv = document.getElementById('prices-hist-daily-table') || (() => {
+    const d = document.createElement('div');
+    d.id = 'prices-hist-daily-table';
+    tableDiv.parentNode.insertBefore(d, tableDiv.nextSibling.nextSibling);
+    return d;
+  })();
+  let dt = '<div class="chart-card" style="padding:12px 14px;overflow-x:auto;margin-top:8px">';
+  dt += '<div class="chart-title" style="margin-bottom:8px">Daily Average ($/MWh)</div>';
+  dt += '<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px">';
+  dt += '<tr>';
+  dt += '<th style="text-align:left;padding:5px 8px;color:#64748b;border-bottom:1px solid #1e2d45;white-space:nowrap">Date</th>';
   for (const r of visRegions) {
     const col = REGION_COLORS[r];
-    t += `<th style="text-align:right;padding:5px 8px;color:${col};border-bottom:1px solid #1e2d45">${REGION_SHORT[r]}</th>`;
+    dt += `<th style="text-align:right;padding:5px 8px;color:${col};border-bottom:1px solid #1e2d45">${REGION_SHORT[r]}</th>`;
   }
-  t += '</tr>';
+  dt += '</tr>';
   for (const d of daysDesc) {
-    const dt = new Date(d + 'T00:00:00');
-    const label = dt.toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short'});
+    const ddt = new Date(d + 'T00:00:00');
+    const label = ddt.toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short'});
     const isToday = d === todayStr;
-    t += '<tr>';
-    t += `<td style="padding:5px 8px;color:#94a3b8;border-bottom:1px solid #1e2d4533;white-space:nowrap">${label}${isToday?' <span style="color:#64748b;font-size:8px">partial</span>':''}</td>`;
+    dt += '<tr>';
+    dt += `<td style="padding:5px 8px;color:#94a3b8;border-bottom:1px solid #1e2d4533;white-space:nowrap">${label}${isToday?' <span style="color:#64748b;font-size:8px">partial</span>':''}</td>`;
     for (const r of visRegions) {
       const val = data[r]?.[d]?.avg;
       const col = val !== undefined ? priceClass(val) : '';
       const colMap = {negative:'#2ed573', low:'#e2e8f0', medium:'#ffd32a', high:'#ff6b35', vhigh:'#ff4757'};
       const textCol = colMap[col] || '#e2e8f0';
-      t += `<td style="text-align:right;padding:5px 8px;color:${textCol};border-bottom:1px solid #1e2d4533;font-weight:${col==='negative'||col==='vhigh'?'700':'400'}">${val !== undefined ? '$'+val.toFixed(2) : '—'}</td>`;
+      dt += `<td style="text-align:right;padding:5px 8px;color:${textCol};border-bottom:1px solid #1e2d4533;font-weight:${col==='negative'||col==='vhigh'?'700':'400'}">${val !== undefined ? '$'+val.toFixed(2) : '—'}</td>`;
     }
-    t += '</tr>';
+    dt += '</tr>';
   }
-  t += '</table></div>';
-  tableDiv.innerHTML = t;
+  dt += '</table></div>';
+  dailyDiv.innerHTML = dt;
 }
 
 // ── Gas Page ──────────────────────────────────────────────────────────────────

@@ -4465,6 +4465,7 @@ function _renderGBB(gbb) {
   html += '<div class="chart-card" style="margin-top:8px;padding:12px 14px">';
   html += `<div class="chart-title">East Coast Gas — Supply & Demand by State`;
   if (latestDate) html += ` <span style="font-weight:400;color:#475569">${latestDate.replace(/\//g,'-')}</span>`;
+  html += ` <span style="font-weight:400;color:#334155;font-size:9px"> · last complete day</span>`;
   html += '</div>';
   html += '<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px;margin-top:8px">';
   html += '<thead><tr style="color:#475569;border-bottom:1px solid #1e2d45">' +
@@ -4592,7 +4593,7 @@ function _renderGBB(gbb) {
           data:chartDates.map(d=>{const p=(demSector[k]||[]).find(x=>x.gas_date===d);return p?p.demand_tj:null;}),
           borderColor:SECTOR_COLORS[k],backgroundColor:SECTOR_COLORS[k]+"cc",borderWidth:1.5,pointRadius:0,tension:0.2,fill:true,
           segment:{borderDash:ctx=>_dashStyle(chartDates[ctx.p0DataIndex])} })),
-        _dateLabels(chartDates), CHART_OPT(true, v=>v.toFixed(0)+" TJ"));
+        _dateLabels(chartDates), CHART_OPT(true, v=>v>=1000?(v/1000).toFixed(1)+"k TJ":v.toFixed(0)+" TJ"));
     }
 
     // ── Pipeline flows chart — bold selected, dim others ──
@@ -5425,7 +5426,7 @@ function renderAbout(data) {
       </div>
       <div style="flex:1;background:var(--bg);border-radius:6px;padding:8px;text-align:center">
         <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:#2ed573">500+</div>
-        <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-top:2px">GENERATORS</div>
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);margin-top:2px">GENERATION DUIDs</div>
       </div>
     </div>
   </div>

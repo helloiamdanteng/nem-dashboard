@@ -5161,9 +5161,9 @@ function dMinusBuildCalendar() {
     const isSel   = _dCmp(cell, sel) === 0;
     const isFuture = _dCmp(cell, today) > 0;
     const isToday = _dCmp(cell, today) === 0;
-    // Grey out dates older than 15 days — beyond TradingIS window
+    // Grey out dates older than 56 days (TradingIS archive ~8 weeks)
     const cellDate = new Date(y, m-1, d);
-    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 15);
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 56);
     const isTooOld = cellDate < cutoff;
     const isDisabled = isFuture || isTooOld;
     const bg      = isSel ? '#3b82f6' : isToday ? '#475569' : 'transparent';

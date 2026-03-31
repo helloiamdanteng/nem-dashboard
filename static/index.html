@@ -4614,6 +4614,7 @@ function _renderGBB(gbb) {
   html += '<div class="chart-card" style="margin-top:8px">' +
     '<div class="chart-title">Gas Production by Source — 30 Days (TJ/day)</div>' +
     `<div style="font-family:var(--font-mono);font-size:8px;color:#475569;margin:-4px 0 6px">Actuals to prior complete day · dashed = nominations (D+0 to D+6)</div>` +
+    '<div id="gbbProdLegend" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px"></div>' +
     '<div class="chart-container" style="height:240px"><canvas id="gbbProductionChart"></canvas></div>' +
     '</div>';
 
@@ -4621,6 +4622,7 @@ function _renderGBB(gbb) {
   html += '<div class="chart-card" style="margin-top:8px">' +
     '<div class="chart-title">Gas Demand by Sector — 30 Days (TJ/day)</div>' +
     `<div style="font-family:var(--font-mono);font-size:8px;color:#475569;margin:-4px 0 6px">LNG export · residential & commercial · large industrial · gas generation · actuals settle D+1</div>` +
+    '<div id="gbbDemLegend" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px"></div>' +
     '<div class="chart-container" style="height:240px"><canvas id="gbbDemandSectorChart"></canvas></div>' +
     '</div>';
 
@@ -4628,12 +4630,14 @@ function _renderGBB(gbb) {
   html += '<div class="chart-card" style="margin-top:8px">' +
     '<div class="chart-title">Key Pipeline Flows — 30 Days (TJ/day)</div>' +
     `<div style="font-family:var(--font-mono);font-size:8px;color:#475569;margin:-4px 0 6px">Actuals to prior complete day · dashed = nominations (D+0 to D+6)</div>` +
+    '<div id="gbbPipeLegend" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px"></div>' +
     '<div class="chart-container" style="height:240px"><canvas id="gbbPipelineChart"></canvas></div>' +
     '</div>';
 
   // ── Storage levels ──
   html += '<div class="chart-card" style="margin-top:8px">' +
     '<div class="chart-title">Gas Storage Levels — 31 Days (TJ)</div>' +
+    '<div id="gbbStorLegend" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px"></div>' +
     '<div class="chart-container" style="height:220px"><canvas id="gbbStorageChart"></canvas></div>' +
     '</div>';
 
@@ -4649,9 +4653,36 @@ function _renderGBB(gbb) {
       destroyChart(key);
       charts[key] = new Chart(ctx, {type, data: {labels, datasets: data}, options: opts});
     };
+
+    // Button-style legend: click to toggle, styles match IC/pipeline pattern
+    const _makeLegend = (containerId, chartKey, colorArr) => {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      container.innerHTML = '';
+      const c = charts[chartKey];
+      if (!c) return;
+      c.data.datasets.forEach((ds, i) => {
+        const col = colorArr[i] || colorArr[i % colorArr.length] || '#94a3b8';
+        const btn = document.createElement('button');
+        btn.dataset.hidden = '0';
+        btn.style.cssText = `font-family:var(--font-mono);font-size:9px;padding:3px 8px;border-radius:20px;cursor:pointer;border:1px solid ${col};background:${col}22;color:${col};transition:all 0.15s;white-space:nowrap`;
+        btn.textContent = ds.label;
+        btn.onclick = () => {
+          const isHidden = btn.dataset.hidden === '1';
+          c.getDatasetMeta(i).hidden = !isHidden;
+          btn.dataset.hidden = isHidden ? '0' : '1';
+          btn.style.background = isHidden ? col+'22' : 'transparent';
+          btn.style.borderColor = isHidden ? col : col+'44';
+          btn.style.color = isHidden ? col : col+'44';
+          c.update('none');
+        };
+        container.appendChild(btn);
+      });
+    };
+
     const CHART_OPT = (stacked, yFmt, maxTicks=12) => ({ ...CHART_DEFAULTS,
       plugins: { ...CHART_DEFAULTS.plugins,
-        legend: { display: true, labels: { color:"#94a3b8", font:{family:"Space Mono",size:9}, boxWidth:10, padding:6 } },
+        legend: { display: false },
         tooltip: { ...CHART_DEFAULTS.plugins.tooltip, callbacks: { label: c => c.raw===null?null:(` ${c.dataset.label}: `+yFmt(c.raw)) } }
       },
       scales: {
@@ -4686,13 +4717,14 @@ function _renderGBB(gbb) {
         destroyChart("gbbProduction");
         charts.gbbProduction = new Chart(prodCtx, {type:"line", data:{labels:_dateLabels(chartDates), datasets:prodDatasets},
           options:{ ...CHART_DEFAULTS, plugins:{ ...CHART_DEFAULTS.plugins,
-            legend:{display:true,labels:{color:"#94a3b8",font:{family:"Space Mono",size:9},boxWidth:10,padding:6}},
+            legend:{display:false},
             tooltip:{...CHART_DEFAULTS.plugins.tooltip,callbacks:{label:c=>c.raw===null?null:(` ${c.dataset.label}: `+(c.raw>=0?"+":"")+c.raw.toFixed(0)+" TJ")}}},
             scales:{
               x:{ticks:{color:"#64748b",font:{family:"Space Mono",size:9},maxRotation:45,autoSkip:true,maxTicksLimit:12},grid:{color:"#1e2d4544"}},
               y:{stacked:true,ticks:{color:"#94a3b8",font:{family:"Space Mono",size:9},callback:v=>v.toFixed(0)+" TJ"},grid:{color:"#1e2d45"}}
             }}
         });
+        _makeLegend("gbbProdLegend","gbbProduction", PROD_ORDER.filter(k=>prodHist[k]).map(k=>PROD_COLORS[k]));
       }
     }
 
@@ -4707,6 +4739,7 @@ function _renderGBB(gbb) {
           borderColor:SECTOR_COLORS[k],backgroundColor:SECTOR_COLORS[k]+"cc",borderWidth:1.5,pointRadius:0,tension:0.2,fill:true,
           segment:{borderDash:ctx=>_dashStyle(chartDates[ctx.p0DataIndex])} })),
         _dateLabels(chartDates), CHART_OPT(true, v=>v>=1000?(v/1000).toFixed(1)+"k TJ":v.toFixed(0)+" TJ"));
+      _makeLegend("gbbDemLegend","gbbDemandSector", SECTOR_ORDER.filter(k=>demSector[k]).map(k=>SECTOR_COLORS[k]));
     }
 
     // ── Pipeline flows chart — bold selected, dim others ──
@@ -4726,14 +4759,25 @@ function _renderGBB(gbb) {
       if (pipeCtx) {
         destroyChart("gbbPipeline");
         let _selectedPipe = null;
-        const _applyPipeStyle = () => {
+        const _applyPipeStyle = (selLabel) => {
           const c = charts.gbbPipeline;
           if (!c) return;
+          _selectedPipe = selLabel;
           c.data.datasets.forEach((ds, i) => {
             const isSel = _selectedPipe === null || ds.label === _selectedPipe;
             ds.borderWidth = isSel ? 3 : 1;
             ds.borderColor = isSel ? PIPE_COLORS[i%PIPE_COLORS.length]
               : PIPE_COLORS[i%PIPE_COLORS.length] + "44";
+          });
+          // Update button styles
+          const container = document.getElementById("gbbPipeLegend");
+          if (container) container.querySelectorAll('button').forEach((btn, i) => {
+            const col = PIPE_COLORS[i%PIPE_COLORS.length];
+            const isSel = _selectedPipe === null || btn.textContent === _selectedPipe;
+            btn.style.background = isSel ? col+'22' : 'transparent';
+            btn.style.borderColor = isSel ? col : col+'44';
+            btn.style.color = isSel ? col : col+'44';
+            btn.style.fontWeight = (isSel && _selectedPipe !== null) ? '700' : '400';
           });
           c.update("none");
         };
@@ -4741,13 +4785,7 @@ function _renderGBB(gbb) {
           data:{labels:_dateLabels(chartDates), datasets:pipeDatasets},
           options:{ ...CHART_DEFAULTS,
             plugins:{ ...CHART_DEFAULTS.plugins,
-              legend:{display:true,labels:{color:"#94a3b8",font:{family:"Space Mono",size:9},boxWidth:10,padding:6},
-                onClick:(e, item, legend) => {
-                  const lbl = item.text;
-                  _selectedPipe = (_selectedPipe === lbl) ? null : lbl;
-                  _applyPipeStyle();
-                }
-              },
+              legend:{display:false},
               tooltip:{...CHART_DEFAULTS.plugins.tooltip,callbacks:{label:c=>c.raw===null?null:(` ${c.dataset.label}: `+c.raw.toFixed(0)+" TJ")}}
             },
             scales:{
@@ -4756,21 +4794,39 @@ function _renderGBB(gbb) {
             }
           }
         });
+        // Build pipeline buttons with bold-on-click behaviour
+        const pipeLegend = document.getElementById("gbbPipeLegend");
+        if (pipeLegend) {
+          pipeLegend.innerHTML = '';
+          pipeDatasets.forEach((ds, i) => {
+            const col = PIPE_COLORS[i%PIPE_COLORS.length];
+            const btn = document.createElement('button');
+            btn.style.cssText = `font-family:var(--font-mono);font-size:9px;padding:3px 8px;border-radius:20px;cursor:pointer;border:1px solid ${col};background:${col}22;color:${col};transition:all 0.15s;white-space:nowrap`;
+            btn.textContent = ds.label;
+            btn.onclick = () => {
+              const newSel = (_selectedPipe === ds.label) ? null : ds.label;
+              _applyPipeStyle(newSel);
+            };
+            pipeLegend.appendChild(btn);
+          });
+        }
       }
     }
 
     // ── Storage levels chart ──
     if (Object.keys(storage).length && chartDates.length) {
+      const storColors = Object.keys(storage).map(name => STOR_COLORS[name]||"#64748b");
       _makeChart("gbbStorageChart","gbbStorage",
         Object.entries(storage).map(([name,pts])=>({ label:name,
           data:chartDates.map(d=>{const p=pts.find(x=>x.gas_date===d);return p?p.held_tj:null;}),
           borderColor:STOR_COLORS[name]||"#64748b",backgroundColor:"transparent",borderWidth:1.5,pointRadius:0,tension:0.2 })),
         _dateLabels(chartDates),
         { ...CHART_DEFAULTS, plugins:{ ...CHART_DEFAULTS.plugins,
-            legend:{display:true,labels:{color:"#94a3b8",font:{family:"Space Mono",size:9},boxWidth:10,padding:6}},
+            legend:{display:false},
             tooltip:{...CHART_DEFAULTS.plugins.tooltip,callbacks:{label:c=>c.raw===null?null:(` ${c.dataset.label}: `+c.raw.toLocaleString()+` TJ`)}} },
           scales:{ x:{ticks:{color:"#64748b",font:{family:"Space Mono",size:9},maxRotation:45,autoSkip:true,maxTicksLimit:12},grid:{color:"#1e2d4544"}},
             y:{ticks:{color:"#94a3b8",font:{family:"Space Mono",size:9},callback:v=>v>=1000?(v/1000).toFixed(1)+"k TJ":v+" TJ"},grid:{color:"#1e2d45"},beginAtZero:false} }});
+      _makeLegend("gbbStorLegend","gbbStorage", storColors);
     }
     } catch(e) { console.error('GBB chart error:', e); }
   }, 50);

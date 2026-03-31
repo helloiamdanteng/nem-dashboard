@@ -5658,16 +5658,16 @@ function _drawDm1PortfolioChart(histData, priceData) {
     if (isBatt) {
       genDatasets.push({ label: s.name,
         data: allSlots.map(t => { const v=s.histMap[t]; return v!=null ? Math.max(0,v) : null; }),
-        backgroundColor:col+'cc', borderColor:col, borderWidth:0.5, fill:'origin', stack:'pos', pointRadius:0, tension:0.2, spanGaps:false, yAxisID:'y', order:2 });
+        backgroundColor:col+'cc', borderColor:col, borderWidth:0.5, fill:'origin', stack:'pos', pointRadius:0, tension:0.2, spanGaps:true, yAxisID:'y', order:2 });
       genDatasets.push({ label: s.name+' (chg)',
         data: allSlots.map(t => { const v=s.histMap[t]; return v!=null ? Math.min(0,v) : null; }),
         backgroundColor:(fc['Battery (charging)']||col)+'cc', borderColor:fc['Battery (charging)']||col,
-        borderWidth:0.5, fill:'origin', stack:'neg', pointRadius:0, tension:0.2, spanGaps:false, yAxisID:'y', order:2 });
+        borderWidth:0.5, fill:'origin', stack:'neg', pointRadius:0, tension:0.2, spanGaps:true, yAxisID:'y', order:2 });
     } else {
       genDatasets.push({ label: s.name,
         data: allSlots.map(t => { const v=s.histMap[t]; return v!=null ? (isPump?Math.min(0,v):Math.max(0,v)) : null; }),
         backgroundColor:col+'cc', borderColor:col, borderWidth:0.5, fill:'origin',
-        stack:isPump?'neg':'pos', pointRadius:0, tension:0.2, spanGaps:false, yAxisID:'y', order:2 });
+        stack:isPump?'neg':'pos', pointRadius:0, tension:0.2, spanGaps:true, yAxisID:'y', order:2 });
     }
   });
 

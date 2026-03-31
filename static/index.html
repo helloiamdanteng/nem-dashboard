@@ -5005,8 +5005,8 @@ async function fetchGasData() {
 
 
 function renderDMinus1(data) {
-  if (!window._dm1PriceRegions)  window._dm1PriceRegions  = new Set(REGIONS);
-  if (!window._dm1DemandRegions) window._dm1DemandRegions = new Set(REGIONS);
+  if (!window._dm1PriceRegions)  window._dm1PriceRegions  = new Set(REGIONS.filter(r => r !== 'TAS1'));
+  if (!window._dm1DemandRegions) window._dm1DemandRegions = new Set(REGIONS.filter(r => r !== 'TAS1'));
   if (!window._dm1RenewRegions)  window._dm1RenewRegions  = new Set(REGIONS.filter(r => r !== 'TAS1'));
   if (window._dm1RenewSolar === undefined) window._dm1RenewSolar = false;
   if (window._dm1RenewWind  === undefined) window._dm1RenewWind  = true;
@@ -5055,7 +5055,8 @@ function renderDMinus1(data) {
   html += '</div></div>';
 
   // ── Renewables chart ─────────────────────────────────────────────────────────
-  html += '<div class="chart-card" style="margin-top:8px"><div class="chart-title">Wind + Solar</div>';
+  html += '<div class="section-title" style="margin-top:8px">Wind + Solar (MW)</div>';
+  html += '<div class="chart-card"><div class="chart-title">Wind + Solar — Actuals by state</div>';
   html += '<div class="chart-container" style="height:220px"><canvas id="dm1RenewChart"></canvas></div>';
   html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
   html += _regionBtns('dm1rr', window._dm1RenewRegions, 'toggleDm1RenewRegion');
@@ -5440,32 +5441,39 @@ function drawDMinus1RenewChart(data) {
       slots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
 
   const activeRegions = [...(window._dm1RenewRegions || new Set(REGIONS.filter(r=>r!=='TAS1')))].filter(r => REGIONS.includes(r));
-  const showSolar = window._dm1RenewSolar !== false ? window._dm1RenewSolar : false;
-  const showWind  = window._dm1RenewWind  !== false ? window._dm1RenewWind  : true;
+  const showSolar = window._dm1RenewSolar || false;
+  const showWind  = window._dm1RenewWind !== false;
 
-  // Aggregate solar + wind by region across active regions
-  const solarMap = {}, windMap = {};
-  for (const r of activeRegions) {
+  const SOLAR_COLORS = {QLD1:'#fbd07c', NSW1:'#90c8f0', VIC1:'#86e8b0', SA1:'#f0908a', TAS1:'#c49fd8'};
+
+  const datasets = [];
+  for (const r of [...activeRegions].reverse()) {
+    const col      = REGION_COLORS[r] || '#94a3b8';
+    const colSolar = SOLAR_COLORS[r]  || col;
+
+    const solarLookup = {}, windLookup = {};
     (fuelHist[r] || []).forEach(pt => {
-      const t = pt.interval;
-      if (pt.Solar)  solarMap[t] = (solarMap[t] || 0) + pt.Solar;
-      if (pt.Wind)   windMap[t]  = (windMap[t]  || 0) + pt.Wind;
+      if (pt.Solar) solarLookup[pt.interval] = pt.Solar;
+      if (pt.Wind)  windLookup[pt.interval]  = pt.Wind;
+    });
+
+    if (showSolar && Object.keys(solarLookup).length) datasets.push({
+      label: REGION_SHORT[r] + ' Solar',
+      data: slots.map(l => solarLookup[l] ?? null),
+      borderColor: colSolar, backgroundColor: colSolar + 'cc',
+      borderWidth: 1, pointRadius: 0, tension: 0.2,
+      fill: 'origin', stack: 'renew', spanGaps: false,
+    });
+    if (showWind && Object.keys(windLookup).length) datasets.push({
+      label: REGION_SHORT[r] + ' Wind',
+      data: slots.map(l => windLookup[l] ?? null),
+      borderColor: col, backgroundColor: col + 'cc',
+      borderWidth: 1.5, pointRadius: 0, tension: 0.2,
+      fill: 'stack', stack: 'renew', spanGaps: false,
     });
   }
 
-  const datasets = [];
-  if (showWind && Object.keys(windMap).length) datasets.push({
-    label: 'Wind', data: slots.map(l => windMap[l] ?? null),
-    borderColor: '#34d399', backgroundColor: '#34d39933',
-    borderWidth: 1.5, pointRadius: 0, tension: 0.2, fill: true, spanGaps: true,
-  });
-  if (showSolar && Object.keys(solarMap).length) datasets.push({
-    label: 'Solar', data: slots.map(l => solarMap[l] ?? null),
-    borderColor: '#fbbf24', backgroundColor: '#fbbf2433',
-    borderWidth: 1.5, pointRadius: 0, tension: 0.2, fill: true, spanGaps: true,
-  });
   if (!datasets.length) return;
-
   charts.dm1Renew = new Chart(ctx, {
     type: 'line', data: { labels: slots, datasets },
     options: { ...CHART_DEFAULTS,
@@ -5477,9 +5485,9 @@ function drawDMinus1RenewChart(data) {
       scales: {
         x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:0,
                callback:(v,i) => slots[i]?.endsWith(':00') ? slots[i] : null},
-             grid:{color:'#1e2d4544'} },
+             grid:{color:'#1e2d4544'}, stacked: true },
         y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>fmt(v,0)+' MW'},
-             grid:{color:'#1e2d45'}, beginAtZero: true }
+             grid:{color:'#1e2d45'}, beginAtZero: true, stacked: true }
       }
     }
   });

@@ -2732,10 +2732,12 @@ function toggleStationsHideSmall() {
 
 function toggleStationFuel(fuel) {
   if (fuel === 'ALL') {
-    const allOn = STATIONS_FUEL_ORDER.every(f => stationsFuelFilter.has(f));
-    allOn ? stationsFuelFilter.clear() : STATIONS_FUEL_ORDER.forEach(f => stationsFuelFilter.add(f));
+    STATIONS_FUEL_ORDER.forEach(f => stationsFuelFilter.add(f));
   } else {
-    stationsFuelFilter.has(fuel) ? stationsFuelFilter.delete(fuel) : stationsFuelFilter.add(fuel);
+    // Radio style: selecting a fuel shows only that fuel; re-clicking goes back to ALL
+    const onlyThis = stationsFuelFilter.size === 1 && stationsFuelFilter.has(fuel);
+    if (onlyThis) { STATIONS_FUEL_ORDER.forEach(f => stationsFuelFilter.add(f)); }
+    else { stationsFuelFilter.clear(); stationsFuelFilter.add(fuel); }
   }
   if (genData) renderPanel('generation', latestData);
 }
@@ -6095,8 +6097,9 @@ function drawDm1FuelMixChart(data) {
   const rooftopDataset = (dm1ShowRooftop && hasRooftop) ? {
     label: 'Rooftop Solar',
     data: allSlots.map(l => {
+      if (!activeRegions.some(r => rooftopLookup[r]?.[l] !== undefined)) return null;
       const v = activeRegions.reduce((s,r) => s + (rooftopLookup[r]?.[l]??0), 0);
-      return v > 0 ? Math.round(v) : null;
+      return Math.round(v);
     }),
     backgroundColor: (fc['Rooftop Solar'] || '#fde68a')+'cc',
     borderColor: fc['Rooftop Solar'] || '#fde68a',
@@ -6465,10 +6468,11 @@ function toggleDm1StationRegion(r) {
 
 function toggleDm1StationFuel(fuel) {
   if (fuel === 'ALL') {
-    const allOn = STATIONS_FUEL_ORDER.every(f => dm1StationsFuelFilter.has(f));
-    allOn ? dm1StationsFuelFilter.clear() : STATIONS_FUEL_ORDER.forEach(f => dm1StationsFuelFilter.add(f));
+    STATIONS_FUEL_ORDER.forEach(f => dm1StationsFuelFilter.add(f));
   } else {
-    dm1StationsFuelFilter.has(fuel) ? dm1StationsFuelFilter.delete(fuel) : dm1StationsFuelFilter.add(fuel);
+    const onlyThis = dm1StationsFuelFilter.size === 1 && dm1StationsFuelFilter.has(fuel);
+    if (onlyThis) { STATIONS_FUEL_ORDER.forEach(f => dm1StationsFuelFilter.add(f)); }
+    else { dm1StationsFuelFilter.clear(); dm1StationsFuelFilter.add(fuel); }
   }
   _renderDm1StationsInPlace();
 }

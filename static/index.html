@@ -6062,8 +6062,16 @@ function drawDm1FuelMixChart(data) {
     for (const pt of (demHist[r] || [])) demLookup[r][pt.interval] = pt.demand;
   }
 
+  // Rooftop solar from fast data (DISPATCH_REGIONSUM SS_SOLAR_CLEAREDMW)
+  const rooftopHist = data.rooftop_history || {};
+  const rooftopLookup = {};
+  for (const r of activeRegions) {
+    rooftopLookup[r] = {};
+    for (const pt of (rooftopHist[r] || [])) rooftopLookup[r][pt.interval] = pt.mw;
+  }
+
   const activeFuels = fuelOrderFiltered.filter(fuel =>
-    fuel !== 'Battery' &&
+    fuel !== 'Battery' && fuel !== 'Rooftop Solar' &&
     activeRegions.some(r => (fuelHist[r]||[]).some(pt => (pt[fuel]||0) > 0))
   );
 
@@ -6082,52 +6090,22 @@ function drawDm1FuelMixChart(data) {
     };
   });
 
-  const battColor = fc['Battery'] || '#9b59b6';
-  const battDataset = {
-    label: 'Battery',
+  // Rooftop Solar dataset (separate source — DISPATCH_REGIONSUM, not SCADA)
+  const hasRooftop = activeRegions.some(r => Object.keys(rooftopLookup[r]||{}).length > 0);
+  const rooftopDataset = (dm1ShowRooftop && hasRooftop) ? {
+    label: 'Rooftop Solar',
     data: allSlots.map(l => {
-      const hasData = activeRegions.some(r => histLookup[r]?.[l]);
-      if (!hasData) return null;
-      return Math.round(activeRegions.reduce((s,r) => s + (histLookup[r]?.[l]?.['Battery']||0), 0));
+      const v = activeRegions.reduce((s,r) => s + (rooftopLookup[r]?.[l]??0), 0);
+      return v > 0 ? Math.round(v) : null;
     }),
-    backgroundColor: battColor+'cc', borderColor: battColor,
+    backgroundColor: (fc['Rooftop Solar'] || '#fde68a')+'cc',
+    borderColor: fc['Rooftop Solar'] || '#fde68a',
     borderWidth: 0.5, fill: true, pointRadius: 0,
     tension: 0.2, stack: 'actual', spanGaps: true, yAxisID: 'y', order: 1,
-  };
+  } : null;
 
-  const demValMap = {};
-  for (const slot of allSlots) {
-    const hasData = activeRegions.some(r => demLookup[r]?.[slot] !== undefined);
-    if (!hasData) continue;
-    demValMap[slot] = Math.round(activeRegions.reduce((s,r) => s + (demLookup[r]?.[slot]??0), 0));
-  }
-  const demDataset = {
-    label: 'Demand + NonSched',
-    data: allSlots.map(l => demValMap[l] ?? null),
-    borderColor: '#ffffff', backgroundColor: 'transparent',
-    borderWidth: 2, pointRadius: 0, tension: 0.2,
-    spanGaps: true, fill: false, yAxisID: 'y', order: -1,
-  };
 
-  const priceDatasets = [];
-  if (dm1PriceFilter.size > 0) {
-    const priceData = data.dispatch_prices_5min || {};
-    for (const r of REGIONS) {
-      if (!dm1PriceFilter.has(r)) continue;
-      const color = dm1PriceWhite ? '#ffffff' : REGION_COLORS[r];
-      const pm = {};
-      (priceData[r] || []).forEach(p => { pm[p.interval] = p.rrp; });
-      priceDatasets.push({
-        label: `${REGION_SHORT[r]} Price`,
-        data: allSlots.map(t => pm[t] ?? null),
-        borderColor: color, backgroundColor: 'transparent',
-        borderWidth: 1, pointRadius: 0, tension: 0.2,
-        spanGaps: true, fill: false, yAxisID: 'yPrice', order: 0,
-      });
-    }
-  }
-
-  const allDatasets = [...actualDatasets, battDataset, demDataset, ...priceDatasets];
+  const allDatasets = [...actualDatasets, battDataset, ...(rooftopDataset ? [rooftopDataset] : []), demDataset, ...priceDatasets];
   if (card) card.querySelector('.chart-title').textContent = `${regionLabel} — fuel mix actuals`;
 
   charts.dm1FuelMix = new Chart(ctx, {

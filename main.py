@@ -1918,17 +1918,17 @@ async def historical_price_averages(refresh: bool = False):
 @app.get("/api/price-cache-inspect")
 async def price_cache_inspect():
     """Show sample of cached price data to verify tod field is present."""
+    from datetime import datetime, timezone
     if not _price_avg_cache["data"]:
         return JSONResponse(content={"status": "empty cache"})
     data = _price_avg_cache["data"]
-    # Show latest day for NSW1
     r = "NSW1"
     days = sorted(data.get(r, {}).keys())
     if not days:
         return JSONResponse(content={"status": "no NSW1 data"})
     latest = days[-1]
     sample = data[r][latest]
-    # Also show raw structure keys
+    # Also show a few raw interval hhmm values to debug format
     return JSONResponse(content={
         "cache_age_s": round((datetime.now(timezone.utc) - _price_avg_cache["last_updated"]).total_seconds()),
         "total_days_nsw": len(days),
@@ -1937,6 +1937,61 @@ async def price_cache_inspect():
         "has_tod": "tod" in sample,
         "tod_values": sample.get("tod"),
         "count": sample.get("count"),
+    })
+
+@app.get("/api/price-tod-test")
+async def price_tod_test():
+    """Run a minimal scrape for 2 days and show raw interval data + TOD result."""
+    import os, json, base64, statistics
+    from datetime import datetime, timedelta, timezone
+    from scraper import AEST, NEM_REGIONS
+    import httpx
+
+    GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+    GH_REPO  = os.environ.get("GITHUB_REPO", "")
+    if not GH_TOKEN or not GH_REPO:
+        return JSONResponse(content={"error": "no GitHub credentials"})
+
+    now_aest = datetime.now(AEST)
+    test_date = (now_aest - timedelta(days=2)).strftime("%Y-%m-%d")
+    path = f"data/prices/{test_date}.json"
+    headers = {"Authorization": f"token {GH_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(f"https://api.github.com/repos/{GH_REPO}/contents/{path}", headers=headers)
+        if r.status_code != 200:
+            return JSONResponse(content={"error": f"GitHub {r.status_code}", "path": path})
+        day_data = json.loads(base64.b64decode(r.json()["content"]).decode())
+
+    nsw = day_data.get("NSW1", {})
+    sample_keys = sorted(nsw.keys())[:5]
+    all_keys = sorted(nsw.keys())
+
+    # Run TOD bucketing
+    TOD_BANDS = {
+        "overnight":    ("00:00", "06:00"),
+        "morning":      ("06:00", "10:00"),
+        "midday":       ("10:00", "16:00"),
+        "evening":      ("16:00", "20:00"),
+        "late_evening": ("20:00", "24:00"),
+    }
+    tod = {k: [] for k in TOD_BANDS}
+    for hhmm, p in nsw.items():
+        for band, (start, end) in TOD_BANDS.items():
+            if start <= hhmm < end or (end == "24:00" and hhmm >= start):
+                tod[band].append(float(p))
+                break
+
+    return JSONResponse(content={
+        "date": test_date,
+        "total_intervals": len(nsw),
+        "sample_keys": sample_keys,
+        "tod_counts": {k: len(v) for k, v in tod.items()},
+        "tod_avgs": {k: round(statistics.mean(v), 2) if v else None for k, v in tod.items()},
+        "unmatched": sum(1 for h in all_keys if not any(
+            s <= h < e or (e == "24:00" and h >= s)
+            for s, e in TOD_BANDS.values()
+        )),
     })
 
 

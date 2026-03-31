@@ -2351,7 +2351,7 @@ async def gas_debug():
 
 @app.get("/api/gbb-debug")
 async def gbb_debug():
-    """Show detailed state supply/demand breakdown for latest complete date."""
+    """Show state summary breakdown for last complete date."""
     import csv as _csv
     from scraper import _get
     loop = asyncio.get_running_loop()
@@ -2364,44 +2364,64 @@ async def gbb_debug():
         rows = list(_csv.DictReader(r.text.splitlines()))
         all_dates = sorted({row["GasDate"] for row in rows})
 
-        # Find last complete date
-        last_complete = None
-        for d in reversed(all_dates):
+        # Find complete dates
+        complete = []
+        partial  = []
+        for d in all_dates:
             types = {ro["FacilityType"] for ro in rows if ro["GasDate"] == d}
             if "PROD" in types and "LNGEXPORT" in types:
-                last_complete = d
-                break
+                complete.append(d)
+            else:
+                partial.append(d)
 
-        out = {"last_complete": last_complete, "by_state": {}}
+        last_complete = complete[-1] if complete else None
+        out = {"all_dates": all_dates[-5:], "last_complete": last_complete, "partial": partial[-3:]}
+
+        if not last_complete:
+            return out
+
         date_rows = [ro for ro in rows if ro["GasDate"] == last_complete]
 
-        # Show every row for VIC grouped by facility type
-        vic_rows = [ro for ro in date_rows if ro["State"] == "VIC"]
-        out["VIC_detail"] = []
-        for ro in sorted(vic_rows, key=lambda x: x["FacilityType"]):
-            sup = float(ro.get("Supply") or 0)
-            dem = float(ro.get("Demand") or 0)
-            if sup > 0 or dem > 0:
-                out["VIC_detail"].append({
-                    "type": ro["FacilityType"],
-                    "name": ro["FacilityName"],
-                    "loc": ro["LocationName"],
-                    "supply": round(sup,1),
-                    "demand": round(dem,1),
-                })
+        # Replicate our scraper logic and show per-state per-type breakdown
+        DEMAND_TYPES = {"LNGEXPORT","BBGPG","BBLARGE"}
+        RESI_LOCS = {"Melbourne","Sydney","Adelaide","Brisbane","Geelong","Ballarat","Northern","Western","Canberra","Darwin","Regional - TAS","Regional - ACT","Regional - SA","Regional - NSW","Regional - NT","Regional - VIC","Gippsland"}
+        TERM_LOCS = {"Regional - TAS","Darwin","Regional - ACT"}
 
-        # Summary by state and type
+        by_state = {}
         for ro in date_rows:
-            st = ro.get("State","")
-            ft = ro.get("FacilityType","")
-            try:
-                sup = float(ro.get("Supply") or 0)
-                dem = float(ro.get("Demand") or 0)
-            except: sup = dem = 0
-            out["by_state"].setdefault(st, {}).setdefault(ft, {"supply":0.0,"demand":0.0})
-            out["by_state"][st][ft]["supply"] = round(out["by_state"][st][ft]["supply"] + sup, 1)
-            out["by_state"][st][ft]["demand"] = round(out["by_state"][st][ft]["demand"] + dem, 1)
+            st  = ro.get("State","")
+            ft  = ro.get("FacilityType","")
+            loc = ro.get("LocationName","")
+            if not st: continue
+            try: sup = float(ro.get("Supply") or 0)
+            except: sup = 0
+            try: dem = float(ro.get("Demand") or 0)
+            except: dem = 0
+            by_state.setdefault(st,{"supply":0.0,"demand":0.0,"detail":[]})
+            if st == "VIC":
+                if ft == "PIPE" and sup > 0:
+                    by_state[st]["supply"] += sup
+                    by_state[st]["detail"].append(f"+sup {ft} {ro['FacilityName']} {loc} {round(sup,1)}")
+                if ft in DEMAND_TYPES:
+                    by_state[st]["demand"] += dem
+                elif ft == "PIPE" and loc in RESI_LOCS:
+                    by_state[st]["demand"] += dem
+            else:
+                if ft == "PROD":
+                    by_state[st]["supply"] += sup
+                elif ft == "STOR":
+                    by_state[st]["supply"] += dem
+                    by_state[st]["detail"].append(f"+stor_withdrawal {ro['FacilityName']} {round(dem,1)}")
+                elif ft == "PIPE" and loc in TERM_LOCS and sup > 0:
+                    by_state[st]["supply"] += sup
+                    by_state[st]["detail"].append(f"+terminal {ft} {loc} {round(sup,1)}")
+                if ft in DEMAND_TYPES:
+                    by_state[st]["demand"] += dem
+                elif ft == "PIPE" and loc in RESI_LOCS:
+                    by_state[st]["demand"] += dem
 
+        out["state_summary"] = {st:{"supply":round(v["supply"],1),"demand":round(v["demand"],1),"net":round(v["supply"]-v["demand"],1)} for st,v in by_state.items()}
+        out["supply_detail"] = {st:v["detail"] for st,v in by_state.items() if v["detail"]}
         return out
 
     result = await loop.run_in_executor(None, _inspect)

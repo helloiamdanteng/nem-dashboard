@@ -4695,6 +4695,7 @@ function _renderGBB(gbb) {
     const chartDates    = gbb.chart_dates || [];
     const forecastDates = new Set(gbb.forecast_dates || []);
     const _dashStyle    = d => forecastDates.has(d) ? [4,3] : undefined;
+    const _yTJ = v => v >= 1000 || v <= -1000 ? (v/1000).toFixed(1)+'k TJ' : v.toFixed(0)+' TJ';
 
     // ── Production chart ──
     const prodHist = gbb.production_history || {};
@@ -4718,10 +4719,10 @@ function _renderGBB(gbb) {
         charts.gbbProduction = new Chart(prodCtx, {type:"line", data:{labels:_dateLabels(chartDates), datasets:prodDatasets},
           options:{ ...CHART_DEFAULTS, plugins:{ ...CHART_DEFAULTS.plugins,
             legend:{display:false},
-            tooltip:{...CHART_DEFAULTS.plugins.tooltip,callbacks:{label:c=>c.raw===null?null:(` ${c.dataset.label}: `+(c.raw>=0?"+":"")+c.raw.toFixed(0)+" TJ")}}},
+            tooltip:{...CHART_DEFAULTS.plugins.tooltip,callbacks:{label:c=>c.raw===null?null:(` ${c.dataset.label}: `+(c.raw>=0?"+":"")+_yTJ(c.raw))}}},
             scales:{
               x:{ticks:{color:"#64748b",font:{family:"Space Mono",size:9},maxRotation:45,autoSkip:true,maxTicksLimit:12},grid:{color:"#1e2d4544"}},
-              y:{stacked:true,ticks:{color:"#94a3b8",font:{family:"Space Mono",size:9},callback:v=>v.toFixed(0)+" TJ"},grid:{color:"#1e2d45"}}
+              y:{stacked:true,ticks:{color:"#94a3b8",font:{family:"Space Mono",size:9},callback:_yTJ},grid:{color:"#1e2d45"}}
             }}
         });
         _makeLegend("gbbProdLegend","gbbProduction", PROD_ORDER.filter(k=>prodHist[k]).map(k=>PROD_COLORS[k]));
@@ -4738,7 +4739,7 @@ function _renderGBB(gbb) {
           data:chartDates.map(d=>{const p=(demSector[k]||[]).find(x=>x.gas_date===d);return p?p.demand_tj:null;}),
           borderColor:SECTOR_COLORS[k],backgroundColor:SECTOR_COLORS[k]+"cc",borderWidth:1.5,pointRadius:0,tension:0.2,fill:true,
           segment:{borderDash:ctx=>_dashStyle(chartDates[ctx.p0DataIndex])} })),
-        _dateLabels(chartDates), CHART_OPT(true, v=>v>=1000?(v/1000).toFixed(1)+"k TJ":v.toFixed(0)+" TJ"));
+        _dateLabels(chartDates), CHART_OPT(true, _yTJ));
       _makeLegend("gbbDemLegend","gbbDemandSector", SECTOR_ORDER.filter(k=>demSector[k]).map(k=>SECTOR_COLORS[k]));
     }
 
@@ -4786,11 +4787,11 @@ function _renderGBB(gbb) {
           options:{ ...CHART_DEFAULTS,
             plugins:{ ...CHART_DEFAULTS.plugins,
               legend:{display:false},
-              tooltip:{...CHART_DEFAULTS.plugins.tooltip,callbacks:{label:c=>c.raw===null?null:(` ${c.dataset.label}: `+c.raw.toFixed(0)+" TJ")}}
+              tooltip:{...CHART_DEFAULTS.plugins.tooltip,callbacks:{label:c=>c.raw===null?null:(` ${c.dataset.label}: `+_yTJ(c.raw))}}
             },
             scales:{
               x:{ticks:{color:"#64748b",font:{family:"Space Mono",size:9},maxRotation:45,autoSkip:true,maxTicksLimit:12},grid:{color:"#1e2d4544"}},
-              y:{ticks:{color:"#94a3b8",font:{family:"Space Mono",size:9},callback:v=>v.toFixed(0)+" TJ"},grid:{color:"#1e2d45"},beginAtZero:true}
+              y:{ticks:{color:"#94a3b8",font:{family:"Space Mono",size:9},callback:_yTJ},grid:{color:"#1e2d45"},beginAtZero:true}
             }
           }
         });
@@ -4823,9 +4824,9 @@ function _renderGBB(gbb) {
         _dateLabels(chartDates),
         { ...CHART_DEFAULTS, plugins:{ ...CHART_DEFAULTS.plugins,
             legend:{display:false},
-            tooltip:{...CHART_DEFAULTS.plugins.tooltip,callbacks:{label:c=>c.raw===null?null:(` ${c.dataset.label}: `+c.raw.toLocaleString()+` TJ`)}} },
+            tooltip:{...CHART_DEFAULTS.plugins.tooltip,callbacks:{label:c=>c.raw===null?null:(` ${c.dataset.label}: `+_yTJ(c.raw))}} },
           scales:{ x:{ticks:{color:"#64748b",font:{family:"Space Mono",size:9},maxRotation:45,autoSkip:true,maxTicksLimit:12},grid:{color:"#1e2d4544"}},
-            y:{ticks:{color:"#94a3b8",font:{family:"Space Mono",size:9},callback:v=>v>=1000?(v/1000).toFixed(1)+"k TJ":v+" TJ"},grid:{color:"#1e2d45"},beginAtZero:false} }});
+            y:{ticks:{color:"#94a3b8",font:{family:"Space Mono",size:9},callback:_yTJ},grid:{color:"#1e2d45"},beginAtZero:false} }});
       _makeLegend("gbbStorLegend","gbbStorage", storColors);
     }
     } catch(e) { console.error('GBB chart error:', e); }

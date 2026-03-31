@@ -4372,7 +4372,18 @@ function _renderPriceHistCharts(data, liveData) {
 
   // State selector buttons
   t += '<div class="chart-card" style="padding:12px 14px;margin-top:8px;overflow-x:auto">';
-  t += '<div class="chart-title" style="margin-bottom:8px">Daily Average by Time of Day ($/MWh)</div>';
+  t += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+  t += '<div class="chart-title" style="margin-bottom:0">Daily Average by Time of Day ($/MWh)</div>';
+
+  // Check if tod data is present in first available day
+  const _firstDay = daysDesc[0];
+  const _hasTod = _firstDay && data[selRegion || 'NSW1']?.[_firstDay]?.tod;
+  if (!_hasTod) {
+    t += `<button onclick="fetch('/api/historical_price_averages?refresh=true').then(r=>r.json()).then(d=>{window._priceHistData=d;_renderPriceHistCharts(d,window._liveDataRef);})"
+      style="font-family:var(--font-mono);font-size:9px;padding:3px 10px;border-radius:20px;cursor:pointer;border:1px solid #f39c12;background:#f39c1222;color:#f39c12">
+      ↻ Refresh data</button>`;
+  }
+  t += '</div>';
   t += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">';
   for (const r of allRegions) {
     const col = REGION_COLORS[r];
@@ -4406,10 +4417,11 @@ function _renderPriceHistCharts(data, liveData) {
     t += `<td style="padding:5px 8px;color:#94a3b8;border-bottom:1px solid #1e2d4533;white-space:nowrap">${label}${isToday?' <span style="color:#64748b;font-size:8px">partial</span>':''}</td>`;
     for (const col of TOD_COLS) {
       const val = col.key === 'avg' ? dp?.avg : dp?.tod?.[col.key];
-      const pc  = val !== undefined && val !== null ? priceClass(val) : '';
+      const hasVal = val !== undefined && val !== null;
+      const pc  = hasVal ? priceClass(val) : '';
       const colMap = {negative:'#2ed573', low:'#e2e8f0', medium:'#ffd32a', high:'#ff6b35', vhigh:'#ff4757'};
       const textCol = colMap[pc] || '#e2e8f0';
-      t += `<td style="text-align:right;padding:5px 4px;color:${textCol};border-bottom:1px solid #1e2d4533;font-weight:${pc==='negative'||pc==='vhigh'?'700':'400'}">${val !== undefined && val !== null ? '$'+val.toFixed(2) : '—'}</td>`;
+      t += `<td style="text-align:right;padding:5px 4px;color:${textCol};border-bottom:1px solid #1e2d4533;font-weight:${pc==='negative'||pc==='vhigh'?'700':'400'}">${hasVal ? '$'+val.toFixed(2) : '—'}</td>`;
     }
     t += '</tr>';
   }

@@ -2695,127 +2695,162 @@ def scrape_pasa_duid_availability(source: str = "STPASA") -> dict:
 def scrape_historical_day(date_str: str) -> dict:
     """
     Fetch a full day of historical data for the D-1 page.
-    Returns prices (5-min), demand, op_demand, solar, wind from DispatchIS + TradingIS.
+    All file fetches run in parallel via ThreadPoolExecutor.
     date_str: YYYYMMDD
     """
     from datetime import datetime as _dt, timedelta as _td
-    from concurrent.futures import ThreadPoolExecutor as _TPE
-
-    now_aest = datetime.now(AEST)
-    today    = now_aest.date()
+    from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed
 
     try:
         req_date = _dt.strptime(date_str, "%Y%m%d").date()
     except ValueError:
         return {}
 
-    # ── Step 1: Get price data (already handles DispatchIS + TradingIS fallback) ──
-    prices_5m = scrape_historical_dispatch_prices(date_str)
-    prices_30m_raw = {}
+    MAX_WORKERS = 20
+
+    # ── List all file URLs in parallel ───────────────────────────────────────
+    dispatch_urls, trading_urls, scada_urls = [], [], []
     try:
-        from scraper import scrape_historical_prices as _shp
-        prices_30m_raw = _shp(date_str)
-    except Exception:
-        pass
-
-    # ── Step 2: Demand from DispatchIS REGIONSUM ──────────────────────────────
-    demand:    dict = {r: {} for r in NEM_REGIONS}  # { region: { HH:MM: mw } }
-    op_demand: dict = {r: {} for r in NEM_REGIONS}
-
-    try:
-        dispatch_files = _list_hrefs(DISPATCH_IS_URL)
-        date_files = sorted([f for f in dispatch_files if date_str in f and "PUBLIC_DISPATCHIS" in f.upper()])
-        logger.info(f"scrape_historical_day: {len(date_files)} DispatchIS files")
-
-        for url in date_files:
-            try:
-                text = _read_zip(url)
-                if not text: continue
-                for row in _parse_aemo(text, "DISPATCH_REGIONSUM"):
-                    region = row.get("REGIONID", "").strip()
-                    if region not in NEM_REGIONS: continue
-                    dt_str2 = row.get("SETTLEMENTDATE", "")
-                    dem_str = row.get("TOTALDEMAND", "")
-                    op_str  = row.get("DEMAND_AND_NONSCHEDGEN", "")
-                    if not dt_str2: continue
-                    try:
-                        dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - _td(minutes=5)
-                        if dt.date() != req_date: continue
-                        label = dt.strftime("%H:%M")
-                        if dem_str: demand[region][label]    = round(float(dem_str), 1)
-                        if op_str:  op_demand[region][label] = round(float(op_str), 1)
-                    except (ValueError, TypeError):
-                        continue
-            except Exception as e:
-                logger.debug(f"scrape_historical_day: DispatchIS error {url}: {e}")
+        all_files = _list_hrefs(DISPATCH_IS_URL)
+        dispatch_urls = sorted([f for f in all_files if date_str in f and "PUBLIC_DISPATCHIS" in f.upper()])
+        trading_urls  = sorted([f for f in all_files if date_str in f and "PUBLIC_TRADINGIS"  in f.upper()])
     except Exception as e:
         logger.warning(f"scrape_historical_day: DispatchIS listing failed: {e}")
 
-    # ── Step 3: SCADA-based fuel mix from Dispatch_SCADA files ───────────────
-    # Fetch all SCADA files for the date (they're ~5min each, ~288 for a day)
-    fuel_history: dict = {r: {} for r in NEM_REGIONS}  # { region: { HH:MM: {fuel: mw} } }
-
+    # SCADA listing — separate URL
     try:
-        scada_files = _list_hrefs(SCADA_URL)
-        date_scada = sorted([f for f in scada_files if date_str in f and "PUBLIC_DISPATCHSCADA" in f.upper()])
-        logger.info(f"scrape_historical_day: {len(date_scada)} SCADA files")
-
-        def _fetch_scada(url):
-            try:
-                text = _read_zip(url)
-                if not text: return {}
-                snapshot = {}  # { duid: mw }
-                dt_seen = None
-                for row in _parse_aemo(text, "DISPATCH_UNIT_SCADA"):
-                    duid = row.get("DUID", "").strip().upper()
-                    dt_str2 = row.get("SETTLEMENTDATE", "")
-                    v = row.get("SCADAVALUE", "")
-                    if not duid or not dt_str2 or not v: continue
-                    try:
-                        dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - _td(minutes=5)
-                        if dt.date() != req_date: continue
-                        dt_seen = dt.strftime("%H:%M")
-                        snapshot[duid] = round(float(v), 1)
-                    except (ValueError, TypeError): continue
-                return (dt_seen, snapshot)
-            except Exception:
-                return None
-
-        with _TPE(max_workers=10) as ex:
-            results = list(ex.map(_fetch_scada, date_scada))
-
-        for result in results:
-            if not result or not result[0]: continue
-            label, snapshot = result
-            fuel_mix_snap = {r: {} for r in NEM_REGIONS}
-            for duid, mw in snapshot.items():
-                info = NEM_UNITS.get(duid, {})
-                region = info.get("region", "")
-                fuel = info.get("fuel", "") or _infer_fuel_from_duid(duid)
-                if region not in NEM_REGIONS: continue
-                mw_pos = max(mw, 0)
-                fuel_mix_snap[region][fuel] = round(fuel_mix_snap[region].get(fuel, 0) + mw_pos, 1)
-            for region in NEM_REGIONS:
-                if fuel_mix_snap[region]:
-                    fuel_history[region][label] = fuel_mix_snap[region]
-
+        scada_all  = _list_hrefs(SCADA_URL)
+        scada_urls = sorted([f for f in scada_all if date_str in f and "PUBLIC_DISPATCHSCADA" in f.upper()])
     except Exception as e:
-        logger.warning(f"scrape_historical_day: SCADA fetch failed: {e}")
+        logger.warning(f"scrape_historical_day: SCADA listing failed: {e}")
 
-    # Convert to list format
+    logger.info(f"scrape_historical_day {date_str}: {len(dispatch_urls)} dispatch, {len(trading_urls)} trading, {len(scada_urls)} scada")
+
+    # ── Parallel fetch helpers ────────────────────────────────────────────────
+    def _fetch(url):
+        try: return _read_zip(url)
+        except: return None
+
+    def _fetch_all(urls):
+        results = [None] * len(urls)
+        with _TPE(max_workers=MAX_WORKERS) as ex:
+            futs = {ex.submit(_fetch, u): i for i, u in enumerate(urls)}
+            for f in as_completed(futs):
+                results[futs[f]] = f.result()
+        return results
+
+    # Fetch dispatch + scada in parallel (two batches simultaneously)
+    prices:    dict = {r: {} for r in NEM_REGIONS}
+    demand:    dict = {r: {} for r in NEM_REGIONS}
+    op_demand: dict = {r: {} for r in NEM_REGIONS}
+    fuel_history: dict = {r: {} for r in NEM_REGIONS}
+
+    # Run dispatch fetch and scada fetch concurrently
+    dispatch_texts, scada_texts = None, None
+    with _TPE(max_workers=2) as outer:
+        f_dispatch = outer.submit(_fetch_all, dispatch_urls)
+        f_scada    = outer.submit(_fetch_all, scada_urls)
+        dispatch_texts = f_dispatch.result()
+        scada_texts    = f_scada.result()
+
+    # ── Parse dispatch files (prices + demand) ────────────────────────────────
+    for text in dispatch_texts:
+        if not text: continue
+        # Prices from DISPATCH_PRICE table
+        for row in _parse_aemo(text, "PRICE"):
+            if row.get("INTERVENTION", "0").strip() != "0": continue
+            region = row.get("REGIONID", "").strip()
+            if region not in NEM_REGIONS: continue
+            dt_str2 = row.get("SETTLEMENTDATE", "")
+            rrp_str = row.get("RRP", "")
+            if not dt_str2 or not rrp_str: continue
+            try:
+                dt = datetime.fromisoformat(dt_str2.replace("/","-")) - _td(minutes=5)
+                if dt.date() != req_date: continue
+                prices[region][dt.strftime("%H:%M")] = round(float(rrp_str), 2)
+            except (ValueError, TypeError): continue
+        # Demand from DISPATCH_REGIONSUM table
+        for row in _parse_aemo(text, "DISPATCH_REGIONSUM"):
+            region = row.get("REGIONID", "").strip()
+            if region not in NEM_REGIONS: continue
+            dt_str2 = row.get("SETTLEMENTDATE", "")
+            dem_str = row.get("TOTALDEMAND", "")
+            op_str  = row.get("DEMAND_AND_NONSCHEDGEN", "")
+            if not dt_str2: continue
+            try:
+                dt = datetime.fromisoformat(dt_str2.replace("/","-")) - _td(minutes=5)
+                if dt.date() != req_date: continue
+                label = dt.strftime("%H:%M")
+                if dem_str: demand[region][label]    = round(float(dem_str), 1)
+                if op_str:  op_demand[region][label] = round(float(op_str),  1)
+            except (ValueError, TypeError): continue
+
+    # If no dispatch prices, fall back to TradingIS
+    if not any(prices.values()) and trading_urls:
+        trading_texts = _fetch_all(trading_urls)
+        for text in trading_texts:
+            if not text: continue
+            for row in _parse_aemo(text, "PRICE"):
+                region = row.get("REGIONID","").strip()
+                if region not in NEM_REGIONS: continue
+                period_str = row.get("PERIODID","")
+                rrp_str    = row.get("RRP","")
+                if not period_str or not rrp_str: continue
+                try:
+                    period = int(float(period_str))
+                    total_min = (period - 1) * 5
+                    hh, mm = divmod(total_min, 60)
+                    prices[region][f"{hh:02d}:{mm:02d}"] = round(float(rrp_str), 2)
+                except (ValueError, TypeError): continue
+
+    # ── Parse SCADA files (fuel mix) ──────────────────────────────────────────
+    scada_snapshots = []  # list of (label, {duid: mw})
+    for text in scada_texts:
+        if not text: continue
+        snapshot = {}
+        label = None
+        for row in _parse_aemo(text, "DISPATCH_UNIT_SCADA"):
+            duid    = row.get("DUID","").strip().upper()
+            dt_str2 = row.get("SETTLEMENTDATE","")
+            v       = row.get("SCADAVALUE","")
+            if not duid or not dt_str2 or not v: continue
+            try:
+                dt = datetime.fromisoformat(dt_str2.replace("/","-")) - _td(minutes=5)
+                if dt.date() != req_date: continue
+                label = dt.strftime("%H:%M")
+                snapshot[duid] = round(float(v), 1)
+            except (ValueError, TypeError): continue
+        if label and snapshot:
+            scada_snapshots.append((label, snapshot))
+
+    for label, snapshot in scada_snapshots:
+        fuel_mix_snap = {r: {} for r in NEM_REGIONS}
+        for duid, mw in snapshot.items():
+            info   = NEM_UNITS.get(duid, {})
+            region = info.get("region","")
+            fuel   = info.get("fuel","") or _infer_fuel_from_duid(duid)
+            if region not in NEM_REGIONS: continue
+            fuel_mix_snap[region][fuel] = round(fuel_mix_snap[region].get(fuel,0) + max(mw,0), 1)
+        for region in NEM_REGIONS:
+            if fuel_mix_snap[region]:
+                fuel_history[region][label] = fuel_mix_snap[region]
+
+    logger.info(f"scrape_historical_day {date_str}: prices={sum(len(v) for v in prices.values())} "
+                f"demand={sum(len(v) for v in op_demand.values())} "
+                f"fuel_slots={sum(len(v) for v in fuel_history.values())}")
+
     def _to_list(d):
-        return {r: [{"interval": k, **v} for k, v in sorted(s.items())] for r, s in d.items() if s}
-
+        return {r: [{"interval":k, **v} for k,v in sorted(s.items())] for r,s in d.items() if s}
     def _to_series(d):
-        return {r: [{"interval": k, "demand": v} for k, v in sorted(s.items())] for r, s in d.items() if s}
+        return {r: [{"interval":k, "demand":v} for k,v in sorted(s.items())] for r,s in d.items() if s}
 
     return {
-        "date": date_str,
-        "dispatch_prices_5min": prices_5m,
-        "historical_prices":   prices_30m_raw,
-        "demand_history":      _to_series(demand),
-        "op_demand_history":   _to_series(op_demand),
-        "fuel_history":        _to_list(fuel_history),
+        "date":                 date_str,
+        "dispatch_prices_5min": {r:[{"interval":k,"rrp":v} for k,v in sorted(pts.items())] for r,pts in prices.items() if pts},
+        "historical_prices":    {},
+        "demand_history":       _to_series(demand),
+        "op_demand_history":    _to_series(op_demand),
+        "fuel_history":         _to_list(fuel_history),
     }
 
 

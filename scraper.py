@@ -398,7 +398,7 @@ ORIGIN_DUIDS: set = {
 # Only needed where AEMO's registered name differs from what Origin calls it.
 ORIGIN_DISPLAY_NAMES: dict = {
     "SNB01":    "Supernode Battery",
-    "SN02":     "Supernode 2",
+    "SN02":     "Supernode Battery",
     "OSB-AG":   "Osborne Cogen",
     "ROMA_7":   "Roma Gas",
     "BNGSF1":   "Bungala Solar 1",

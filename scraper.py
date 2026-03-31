@@ -2890,7 +2890,7 @@ def scrape_historical_day_fast(date_str: str) -> dict:
         try: return _read_zip(url)
         except: return None
 
-    if days_ago <= 3:
+    if days_ago <= 1:
         # ── DispatchIS CURRENT: 5-min prices + demand ─────────────────────────
         try:
             all_files     = _list_hrefs(DISPATCH_IS_URL)

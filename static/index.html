@@ -5234,9 +5234,12 @@ async function dMinusLoadPrices(dateStr) {
   const fuelLegend = document.getElementById('dm1FuelLegend');
   if (fuelLegend) fuelLegend.innerHTML = '';
 
-  try {
-    // Step 1: Fast — prices + demand (TradingIS archive, ~5-10s)
-    const fast = await fetch(`/api/historical_day_fast?date=${dateStr}`).then(r => r.json());
+  // Fire both requests simultaneously
+  const fastPromise = fetch(`/api/historical_day_fast?date=${dateStr}`).then(r => r.json());
+  const fuelPromise = fetch(`/api/historical_day_fuel?date=${dateStr}`).then(r => r.json());
+
+  // Render prices + demand as soon as fast resolves
+  fastPromise.then(fast => {
     if (!fast || fast.error) {
       if (status) status.textContent = `No data for ${dateStr}`;
       return;
@@ -5246,18 +5249,21 @@ async function dMinusLoadPrices(dateStr) {
     drawDMinus1PriceChart(fast);
     drawDMinus1DemandChart(fast);
     drawDMinus1RenewChart(fast);
-
-    // Step 2: Slow — fuel mix (SCADA, ~15-20s)
-    const fuel = await fetch(`/api/historical_day_fuel?date=${dateStr}`).then(r => r.json());
-    if (fuel && !fuel.error && fuel.fuel_history) {
-      window._dMinus1Data = { ...fast, fuel_history: fuel.fuel_history };
-      drawDMinus1RenewChart(window._dMinus1Data);
-      drawDMinus1FuelChart(window._dMinus1Data);
-    }
-    if (status) status.textContent = '';
-  } catch(e) {
+  }).catch(e => {
     if (status) status.textContent = `Error: ${e.message}`;
-  }
+  });
+
+  // Render fuel chart as soon as slow resolves
+  fuelPromise.then(fuel => {
+    if (!fuel || fuel.error || !fuel.fuel_history) return;
+    const base = window._dMinus1Data || {};
+    window._dMinus1Data = { ...base, fuel_history: fuel.fuel_history };
+    drawDMinus1RenewChart(window._dMinus1Data);
+    drawDMinus1FuelChart(window._dMinus1Data);
+    if (status) status.textContent = '';
+  }).catch(() => {
+    if (status) status.textContent = '';
+  });
 }
 
 // ── D-1 toggle handlers ───────────────────────────────────────────────────────

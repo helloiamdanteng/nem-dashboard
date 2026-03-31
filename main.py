@@ -2176,8 +2176,67 @@ async def historical_dispatch_prices(date: str):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
-@app.get("/api/origin")
-async def origin_history():
+@app.get("/api/origin_d1")
+async def origin_d1_history():
+    """Return Origin asset DUID history for yesterday from DispatchIS CURRENT SCADA."""
+    from scraper import ORIGIN_DUIDS, SCADA_URL, _list_hrefs, _read_zip, _parse_aemo, NEM_REGIONS, AEST
+    from datetime import datetime, timedelta
+    from concurrent.futures import ThreadPoolExecutor
+    import zipfile, io
+
+    now_aest  = datetime.now(AEST)
+    yest_date = (now_aest - timedelta(days=1)).date()
+    date_str  = yest_date.strftime("%Y%m%d")
+    origin_set = set(ORIGIN_DUIDS)
+
+    loop = asyncio.get_running_loop()
+
+    def _scrape():
+        duid_hist = {d: {} for d in ORIGIN_DUIDS}
+        try:
+            all_files  = _list_hrefs(SCADA_URL)
+            scada_urls = sorted([f for f in all_files if date_str in f and "PUBLIC_DISPATCHSCADA" in f.upper()])
+
+            def _fetch(url):
+                try:
+                    text = _read_zip(url)
+                    if not text: return None
+                    label, snap = None, {}
+                    for row in _parse_aemo(text, "DISPATCH_UNIT_SCADA"):
+                        duid = row.get("DUID","").strip().upper()
+                        if duid not in origin_set: continue
+                        dt_str2 = row.get("SETTLEMENTDATE",""); v = row.get("SCADAVALUE","")
+                        if not dt_str2 or not v: continue
+                        try:
+                            from datetime import timedelta as _td
+                            dt = datetime.fromisoformat(dt_str2.replace("/","-")) - _td(minutes=5)
+                            if dt.date() != yest_date: continue
+                            label = dt.strftime("%H:%M")
+                            snap[duid] = round(float(v), 1)
+                        except (ValueError, TypeError): continue
+                    return (label, snap) if label else None
+                except Exception: return None
+
+            with ThreadPoolExecutor(max_workers=20) as ex:
+                for result in ex.map(_fetch, scada_urls):
+                    if not result: continue
+                    label, snap = result
+                    for duid, mw in snap.items():
+                        duid_hist[duid][label] = mw
+        except Exception as e:
+            logger.warning(f"origin_d1: SCADA failed: {e}")
+
+        return {d: [{"interval": k, "mw": v} for k,v in sorted(h.items())]
+                for d, h in duid_hist.items() if h}
+
+    try:
+        data = await asyncio.wait_for(loop.run_in_executor(None, _scrape), timeout=120.0)
+        return JSONResponse(content=data)
+    except Exception as e:
+        logger.error(f"origin_d1 error: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
     """Return Origin asset history — separate from fast cache to keep /api/data lean."""
     from scraper import _duid_history, ORIGIN_DUIDS
     from datetime import datetime

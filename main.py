@@ -1908,7 +1908,31 @@ async def historical_price_averages(refresh: bool = False):
         logger.error(f"historical_price_averages error: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-@app.get("/api/historical_day")
+@app.get("/api/price-cache-inspect")
+async def price_cache_inspect():
+    """Show sample of cached price data to verify tod field is present."""
+    if not _price_avg_cache["data"]:
+        return JSONResponse(content={"status": "empty cache"})
+    data = _price_avg_cache["data"]
+    # Show latest day for NSW1
+    r = "NSW1"
+    days = sorted(data.get(r, {}).keys())
+    if not days:
+        return JSONResponse(content={"status": "no NSW1 data"})
+    latest = days[-1]
+    sample = data[r][latest]
+    # Also show raw structure keys
+    return JSONResponse(content={
+        "cache_age_s": round((datetime.now(timezone.utc) - _price_avg_cache["last_updated"]).total_seconds()),
+        "total_days_nsw": len(days),
+        "latest_day": latest,
+        "sample": sample,
+        "has_tod": "tod" in sample,
+        "tod_values": sample.get("tod"),
+        "count": sample.get("count"),
+    })
+
+
 async def historical_day(date: str):
     """Fetch full day of historical data for D-1 page: prices, demand, fuel mix."""
     import re

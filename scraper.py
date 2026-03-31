@@ -2881,7 +2881,8 @@ def scrape_historical_day_fast(date_str: str) -> dict:
     prices:    dict = {r: {} for r in NEM_REGIONS}
     demand:    dict = {r: {} for r in NEM_REGIONS}
     op_demand: dict = {r: {} for r in NEM_REGIONS}
-    ic_flows:  dict = {}  # { ic_id: { HH:MM: mw } }
+    ic_flows:  dict = {}
+    bdu:       dict = {r: {} for r in NEM_REGIONS}  # { region: { HH:MM: {net_mw, gen, load, storage} } }
 
     def _fetch(url):
         try: return _read_zip(url)
@@ -2918,6 +2919,16 @@ def scrape_historical_day_fast(date_str: str) -> dict:
                         label = dt.strftime("%H:%M")
                         if dem_str: demand[region][label]    = round(float(dem_str), 1)
                         if op_str:  op_demand[region][label] = round(float(op_str),  1)
+                        # BDU (battery) fields
+                        bdu_gen  = row.get("BDU_CLEAREDMW_GEN","")
+                        bdu_load = row.get("BDU_CLEAREDMW_LOAD","")
+                        bdu_soc  = row.get("BDU_ENERGY_STORAGE","")
+                        bdu_cap  = row.get("BDU_MAX_AVAIL","")
+                        if bdu_gen or bdu_load:
+                            g = round(float(bdu_gen or 0), 1)
+                            l = round(float(bdu_load or 0), 1)
+                            s = round(float(bdu_soc), 1) if bdu_soc else None
+                            bdu[region][label] = {"net_mw": round(g-l,1), "gen": g, "load": l, "storage": s}
                     except (ValueError, TypeError): continue
                 for row in _parse_aemo(text, "DISPATCH_INTERCONNECTORRES"):
                     if row.get("INTERVENTION","0").strip() != "0": continue
@@ -2947,6 +2958,7 @@ def scrape_historical_day_fast(date_str: str) -> dict:
         "op_demand_history":    _to_series(op_demand),
         "fuel_history":         {},
         "ic_history":           {ic:[{"interval":k,"flow":v} for k,v in sorted(h.items())] for ic,h in ic_flows.items() if h},
+        "bdu_history":          {r:[{"interval":k,**v} for k,v in sorted(h.items())] for r,h in bdu.items() if h},
     }
 
 def scrape_historical_day_fuel(date_str: str) -> dict:

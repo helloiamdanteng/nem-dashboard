@@ -4359,24 +4359,29 @@ function _renderPriceHistCharts(data, liveData) {
   t += '</div>';
 
   // Daily breakdown table
-  // Daily time-of-day breakdown table
   if (!window._priceHistRegion) window._priceHistRegion = 'NSW1';
+  if (window._todCapPrices === undefined) window._todCapPrices = false;
+
   const TOD_COLS = [
-    {key:'avg',         label:'All Day',       sub:''},
-    {key:'overnight',   label:'Overnight',     sub:'12am–6am'},
-    {key:'morning',     label:'Morn Peak',     sub:'6am–10am'},
-    {key:'midday',      label:'Midday',        sub:'10am–4pm'},
-    {key:'evening',     label:'Eve Peak',      sub:'4pm–8pm'},
-    {key:'late_evening',label:'Late Eve',      sub:'8pm–12am'},
+    {key:'avg',         label:'All Day',   sub:''},
+    {key:'overnight',   label:'Overnight', sub:'12am–6am'},
+    {key:'morning',     label:'Morn Peak', sub:'6am–10am'},
+    {key:'midday',      label:'Midday',    sub:'10am–4pm'},
+    {key:'evening',     label:'Eve Peak',  sub:'4pm–8pm'},
+    {key:'late_evening',label:'Late Eve',  sub:'8pm–12am'},
   ];
 
-  // State selector buttons
+  // Limit to 60 days
+  const todDays = daysDesc.slice(0, 60);
+
   t += '<div class="chart-card" style="padding:12px 14px;margin-top:8px;overflow-x:auto">';
   t += '<div class="chart-title" style="margin-bottom:8px">Daily Average by Time of Day ($/MWh)</div>';
 
   const selRegion = window._priceHistRegion;
   const selCol    = REGION_COLORS[selRegion] || '#94a3b8';
-  t += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">';
+
+  // State selector buttons
+  t += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">';
   for (const r of allRegions) {
     const col = REGION_COLORS[r];
     const active = window._priceHistRegion === r;
@@ -4386,6 +4391,17 @@ function _renderPriceHistCharts(data, liveData) {
       font-weight:${active?'700':'400'}">${REGION_SHORT[r]}</button>`;
   }
   t += '</div>';
+
+  // Cap prices button
+  const capOn = window._todCapPrices;
+  t += `<div style="margin-bottom:10px">
+    <button onclick="window._todCapPrices=!window._todCapPrices;_renderPriceHistCharts(window._priceHistData,window._liveDataRef)"
+      style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;cursor:pointer;
+      border:1px solid ${capOn?selCol:'#475569'};background:${capOn?selCol+'33':'transparent'};
+      color:${capOn?selCol:'#64748b'}">
+      ${capOn?'✓ ':''} Cap prices at $300
+    </button>
+  </div>`;
 
   t += '<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px">';
   t += '<tr>';
@@ -4397,25 +4413,26 @@ function _renderPriceHistCharts(data, liveData) {
   }
   t += '</tr>';
 
-  for (const d of daysDesc) {
-    const ddt   = new Date(d + 'T00:00:00');
-    const label = ddt.toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short'});
+  const minCounts = {avg:0, overnight:20, morning:14, midday:20, evening:14, late_evening:14};
+
+  for (const d of todDays) {
+    const ddt    = new Date(d + 'T00:00:00');
+    const label  = ddt.toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short'});
     const isToday = d === todayStr;
-    const dp    = data[selRegion]?.[d];
+    const dp     = data[selRegion]?.[d];
     t += '<tr>';
     t += `<td style="padding:5px 8px;color:#94a3b8;border-bottom:1px solid #1e2d4533;white-space:nowrap">${label}${isToday?' <span style="color:#64748b;font-size:8px">partial</span>':''}</td>`;
     for (const col of TOD_COLS) {
-      const val = col.key === 'avg' ? dp?.avg : dp?.tod?.[col.key];
       const cnt = col.key === 'avg' ? dp?.count : dp?.tod_count?.[col.key];
-      // Expected minimum counts (5-min: overnight=72,morning=48,midday=72,evening=48,late=48; 30-min: 12,8,12,8,8)
-      // Use 30% of 5-min full-band count as threshold
-      const minCounts = {avg:0, overnight:20, morning:14, midday:20, evening:14, late_evening:14};
       const enoughData = !isToday || col.key === 'avg' || (cnt !== undefined && cnt >= minCounts[col.key]);
+      let val;
+      if (col.key === 'avg') {
+        val = capOn ? dp?.energy_avg : dp?.avg;
+      } else {
+        val = capOn ? dp?.tod_energy?.[col.key] : dp?.tod?.[col.key];
+      }
       const hasVal = enoughData && val !== undefined && val !== null;
-      const pc  = hasVal ? priceClass(val) : '';
-      const colMap = {negative:'#2ed573', low:'#e2e8f0', medium:'#ffd32a', high:'#ff6b35', vhigh:'#ff4757'};
-      const textCol = colMap[pc] || '#e2e8f0';
-      t += `<td style="text-align:right;padding:5px 4px;color:${textCol};border-bottom:1px solid #1e2d4533;font-weight:${pc==='negative'||pc==='vhigh'?'700':'400'}">${hasVal ? '$'+val.toFixed(2) : '—'}</td>`;
+      t += `<td style="text-align:right;padding:5px 4px;color:${hasVal ? selCol : '#334155'};border-bottom:1px solid #1e2d4533">${hasVal ? '$'+val.toFixed(2) : '—'}</td>`;
     }
     t += '</tr>';
   }

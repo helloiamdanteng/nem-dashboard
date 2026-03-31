@@ -2842,7 +2842,7 @@ def scrape_historical_price_averages(days: int = 90) -> dict:
     cutoff    = (now_aest - _td(days=days)).date()
     today     = now_aest.date()
 
-    raw: dict = {}  # { (region, "YYYY-MM-DD"): [rrp, ...] }
+    raw: dict = {}  # { (region, "YYYY-MM-DD"): [(hhmm, rrp), ...] }
     days_covered = set()  # dates fully covered by GitHub files
 
     # ── Source 1: GitHub daily price files ───────────────────────────────────
@@ -2872,7 +2872,7 @@ def scrape_historical_price_averages(days: int = 90) -> dict:
                             continue
                         for hhmm, rrp in intervals.items():
                             key = (region, date_str)
-                            raw.setdefault(key, []).append(float(rrp))
+                            raw.setdefault(key, []).append((hhmm, float(rrp)))
                     days_covered.add(check_date)
                 if check_date == today:
                     break
@@ -2917,8 +2917,9 @@ def scrape_historical_price_averages(days: int = 90) -> dict:
                 day_date = dt.date()
                 if day_date < cutoff or day_date >= today:
                     continue
-                key = (region, dt.strftime("%Y-%m-%d"))
-                raw.setdefault(key, []).append(round(float(rrp_str), 2))
+                key  = (region, dt.strftime("%Y-%m-%d"))
+                hhmm = dt.strftime("%H:%M")
+                raw.setdefault(key, []).append((hhmm, round(float(rrp_str), 2)))
             except (ValueError, TypeError):
                 continue
 
@@ -2978,23 +2979,51 @@ def scrape_historical_price_averages(days: int = 90) -> dict:
 
     # ── Step 3: compute daily stats ───────────────────────────────────────────
     CAP = 300.0
+    # Time-of-day bands (AEST, 30-min intervals, start inclusive, end exclusive)
+    TOD_BANDS = {
+        "overnight":   ("00:00", "06:00"),  # 12am–6am
+        "morning":     ("06:00", "10:00"),  # 6am–10am
+        "midday":      ("10:00", "16:00"),  # 10am–4pm
+        "evening":     ("16:00", "20:00"),  # 4pm–8pm
+        "late_evening":("20:00", "24:00"),  # 8pm–12am
+    }
+
+    def _band_avg(band_prices):
+        if not band_prices: return None
+        return round(statistics.mean(band_prices), 2)
+
     results: dict = {r: {} for r in NEM_REGIONS}
-    for (region, day_str), prices in raw.items():
-        if not prices:
+    for (region, day_str), interval_list in raw.items():
+        if not interval_list:
             continue
+        try:
+            prices = [p for _, p in interval_list]
+        except (TypeError, ValueError) as e:
+            logger.warning(f"scrape_historical_price_averages: bad interval_list for {region} {day_str}: {e} sample={interval_list[:2]}")
+            # Fall back: treat as plain floats
+            prices = [float(x) for x in interval_list]
+            interval_list = [(f"{i*5//60:02d}:{i*5%60:02d}", p) for i, p in enumerate(prices)]
+
         prices_sorted = sorted(prices)
         p90_idx = min(int(len(prices_sorted) * 0.90), len(prices_sorted) - 1)
+
+        # Bucket prices into time-of-day bands
+        tod = {k: [] for k in TOD_BANDS}
+        for hhmm, p in interval_list:
+            for band, (start, end) in TOD_BANDS.items():
+                if start <= hhmm < end or (end == "24:00" and hhmm >= start):
+                    tod[band].append(p)
+                    break
+
         results[region][day_str] = {
             "avg":        round(statistics.mean(prices), 2),
             "min":        round(min(prices), 2),
             "max":        round(max(prices), 2),
             "p90":        round(prices_sorted[p90_idx], 2),
             "count":      len(prices),
-            # energy_avg: avg of min(p, $300) per interval — correct contract settlement basis
             "energy_avg": round(statistics.mean(min(p, CAP) for p in prices), 2),
-            # cap_avg: avg of max(0, p-$300) per interval across ALL intervals
-            # This is the correct cap contract payout figure (zero-payout periods dilute the avg)
             "cap_avg":    round(statistics.mean(max(0.0, p - CAP) for p in prices), 2),
+            "tod":        {band: _band_avg(tod[band]) for band in TOD_BANDS},
         }
 
     total = sum(len(v) for v in results.values())

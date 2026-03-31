@@ -2044,26 +2044,6 @@ async def price_tod_test():
     return JSONResponse(content=result)
 
 
-@app.get("/api/historical_day")
-async def historical_day(date: str):
-    """Fetch full day of historical data for D-1 page: prices, demand, fuel mix."""
-    import re
-    if not re.match(r'^\d{8}$', date):
-        return JSONResponse(status_code=400, content={"error": "date must be YYYYMMDD"})
-    from scraper import scrape_historical_day
-    loop = asyncio.get_running_loop()
-    try:
-        data = await asyncio.wait_for(
-            loop.run_in_executor(None, scrape_historical_day, date),
-            timeout=120.0
-        )
-        return JSONResponse(content=data)
-    except asyncio.TimeoutError:
-        return JSONResponse(status_code=504, content={"error": "timeout"})
-    except Exception as e:
-        logger.error(f"historical_day error: {e}")
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
 @app.get("/api/historical_day_fast")
 async def historical_day_fast(date: str):
     """Fetch prices + demand only (no SCADA fuel mix) — fast path using TradingIS archive."""
@@ -2220,27 +2200,6 @@ async def historical_day_debug(date: str):
         return result
     data = await loop.run_in_executor(None, _check)
     return JSONResponse(content=data)
-
-@app.get("/api/historical_dispatch_prices")
-async def historical_dispatch_prices(date: str):
-    """Fetch 5-min dispatch prices for a given date (YYYYMMDD)."""
-    import re
-    if not re.match(r'^\d{8}$', date):
-        return JSONResponse(status_code=400, content={"error": "date must be YYYYMMDD"})
-    from scraper import scrape_historical_dispatch_prices
-    loop = asyncio.get_running_loop()
-    try:
-        data = await asyncio.wait_for(
-            loop.run_in_executor(None, scrape_historical_dispatch_prices, date),
-            timeout=60.0
-        )
-        return JSONResponse(content=data)
-    except asyncio.TimeoutError:
-        return JSONResponse(status_code=504, content={"error": "timeout fetching dispatch prices"})
-    except Exception as e:
-        logger.error(f"historical_dispatch_prices error: {e}")
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
 
 @app.get("/api/origin_d1")
 async def origin_d1_history():

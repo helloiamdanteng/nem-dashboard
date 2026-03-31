@@ -5249,37 +5249,87 @@ async function dMinusLoadPrices(dateStr) {
 }
 
 // ── D-1 toggle handlers ───────────────────────────────────────────────────────
+function _dm1UpdatePriceButtons() {
+  const s = window._dm1PriceRegions;
+  const allOn = REGIONS.every(r => s.has(r));
+  const nem = document.getElementById('dm1pr-NEM');
+  if (nem) nem.style.background = allOn ? '#94a3b833' : 'transparent';
+  for (const r of REGIONS) {
+    const btn = document.getElementById('dm1pr-' + r);
+    if (!btn) continue;
+    const col = REGION_COLORS[r]; const on = s.has(r);
+    btn.style.background = on ? col+'33' : 'transparent';
+    btn.style.color = on ? col : col+'66';
+  }
+}
+function _dm1UpdateDemandButtons() {
+  const s = window._dm1DemandRegions;
+  const allOn = REGIONS.every(r => s.has(r));
+  const nem = document.getElementById('dm1dr-NEM');
+  if (nem) nem.style.background = allOn ? '#94a3b833' : 'transparent';
+  for (const r of REGIONS) {
+    const btn = document.getElementById('dm1dr-' + r);
+    if (!btn) continue;
+    const col = REGION_COLORS[r]; const on = s.has(r);
+    btn.style.background = on ? col+'33' : 'transparent';
+    btn.style.color = on ? col : col+'66';
+  }
+}
+function _dm1UpdateRenewButtons() {
+  const s = window._dm1RenewRegions;
+  const allOn = REGIONS.every(r => s.has(r));
+  const nem = document.getElementById('dm1rr-NEM');
+  if (nem) nem.style.background = allOn ? '#94a3b833' : 'transparent';
+  for (const r of REGIONS) {
+    const btn = document.getElementById('dm1rr-' + r);
+    if (!btn) continue;
+    const col = REGION_COLORS[r]; const on = s.has(r);
+    btn.style.background = on ? col+'33' : 'transparent';
+    btn.style.color = on ? col : col+'66';
+  }
+  const solar = document.getElementById('dm1rr-solar');
+  const wind  = document.getElementById('dm1rr-wind');
+  if (solar) { solar.style.background = window._dm1RenewSolar ? '#f59e0b33':'transparent'; solar.style.opacity = window._dm1RenewSolar?'1':'0.35'; }
+  if (wind)  { wind.style.background  = window._dm1RenewWind  ? '#34d39933':'transparent'; wind.style.opacity  = window._dm1RenewWind ?'1':'0.35'; }
+}
 function toggleDm1PriceRegion(r) {
   const s = window._dm1PriceRegions;
   if (r === 'NEM') { REGIONS.every(x => s.has(x)) ? s.clear() : REGIONS.forEach(x => s.add(x)); }
   else { s.has(r) ? s.delete(r) : s.add(r); }
+  _dm1UpdatePriceButtons();
   if (window._dMinus1Data) drawDMinus1PriceChart(window._dMinus1Data);
-  if (latestData) renderPanel('dminus1', latestData);
 }
 function toggleDm1DemandRegion(r) {
   const s = window._dm1DemandRegions;
   if (r === 'NEM') { REGIONS.every(x => s.has(x)) ? s.clear() : REGIONS.forEach(x => s.add(x)); }
   else { s.has(r) ? s.delete(r) : s.add(r); }
+  _dm1UpdateDemandButtons();
   if (window._dMinus1Data) drawDMinus1DemandChart(window._dMinus1Data);
-  if (latestData) renderPanel('dminus1', latestData);
 }
 function toggleDm1RenewRegion(r) {
   const s = window._dm1RenewRegions;
   if (r === 'NEM') { REGIONS.every(x => s.has(x)) ? s.clear() : REGIONS.forEach(x => s.add(x)); }
   else { s.has(r) ? s.delete(r) : s.add(r); }
+  _dm1UpdateRenewButtons();
   if (window._dMinus1Data) drawDMinus1RenewChart(window._dMinus1Data);
-  if (latestData) renderPanel('dminus1', latestData);
 }
 function toggleDm1RenewFuel(f) {
   if (f === 'solar') window._dm1RenewSolar = !window._dm1RenewSolar;
   if (f === 'wind')  window._dm1RenewWind  = !window._dm1RenewWind;
+  _dm1UpdateRenewButtons();
   if (window._dMinus1Data) drawDMinus1RenewChart(window._dMinus1Data);
-  if (latestData) renderPanel('dminus1', latestData);
 }
 function toggleDm1LogScale() {
   window._dm1LogScale = !window._dm1LogScale;
+  const btn = document.querySelector('[onclick="toggleDm1LogScale()"]');
+  if (btn) {
+    const on = window._dm1LogScale;
+    btn.style.borderColor = on ? '#94a3b8' : '#334155';
+    btn.style.background  = on ? '#94a3b822' : 'transparent';
+    btn.style.color       = on ? '#94a3b8' : '#475569';
+    btn.textContent       = (on ? '✓ ' : '') + 'Log';
+  }
   if (window._dMinus1Data) drawDMinus1PriceChart(window._dMinus1Data);
-  if (latestData) renderPanel('dminus1', latestData);
 }
 
 function drawDMinus1PriceChart(data) {
@@ -5539,15 +5589,7 @@ function drawDMinus1FuelChart(data) {
 }
 
 function drawDMinus1Charts(data) {
-  if (window._dMinus1Data) {
-    setTimeout(() => {
-      drawDMinus1PriceChart(window._dMinus1Data);
-      drawDMinus1DemandChart(window._dMinus1Data);
-      drawDMinus1RenewChart(window._dMinus1Data);
-      drawDMinus1FuelChart(window._dMinus1Data);
-    }, 0);
-    return;
-  }
+  // Always reload — canvas is freshly created by renderDMinus1
   const sel = window._dMinusSel;
   if (sel) setTimeout(() => dMinusLoadPrices(_dSelToStr(sel)), 0);
 }

@@ -1887,11 +1887,18 @@ async def historical_price_averages(refresh: bool = False):
     from datetime import datetime, timezone, timedelta
     from scraper import scrape_historical_price_averages
 
-    # Serve cache if fresh (< 24h old) and not forced refresh
+    # Serve cache if fresh (< 6h old) and not forced refresh
+    # Also invalidate if cached data is missing 'tod' field (old format)
     if not refresh and _price_avg_cache["data"] and _price_avg_cache["last_updated"]:
         age = datetime.now(timezone.utc) - _price_avg_cache["last_updated"]
         if age < timedelta(hours=6):
-            return JSONResponse(content=_price_avg_cache["data"])
+            # Check if tod field is present in cached data
+            sample_region = next(iter(_price_avg_cache["data"]), None)
+            if sample_region:
+                sample_days = _price_avg_cache["data"][sample_region]
+                sample_day = next(iter(sample_days.values()), {})
+                if "tod" in sample_day:
+                    return JSONResponse(content=_price_avg_cache["data"])
 
     loop = asyncio.get_running_loop()
     try:

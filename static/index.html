@@ -7086,29 +7086,39 @@ function renderAbout(data) {
     <div style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-bottom:12px">
       Built for NEM geeks to monitor the electricity and gas markets in real time. All data is sourced directly from AEMO's public files — no third-party data providers.
     </div>
+
     <div style="font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--text);margin-bottom:8px">ELECTRICITY DATA SOURCES</div>
     <table style="width:100%;font-family:var(--font-mono);font-size:10px;border-collapse:collapse;margin-bottom:12px">
       <tr style="border-bottom:1px solid var(--border)">
         <td style="padding:6px 0;color:var(--text)">Spot prices &amp; predispatch</td>
-        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · TRADINGIS / PREDISPATCH</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · DispatchIS / TradingIS / Predispatch</td>
       </tr>
       <tr style="border-bottom:1px solid var(--border)">
         <td style="padding:6px 0;color:var(--text)">Generation &amp; fuel mix</td>
         <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · DISPATCH_UNIT_SCADA</td>
       </tr>
       <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:6px 0;color:var(--text)">Interconnector flows</td>
-        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · DISPATCHIS</td>
+        <td style="padding:6px 0;color:var(--text)">Demand &amp; rooftop solar</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · DISPATCH_REGIONSUM</td>
       </tr>
       <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:6px 0;color:var(--text)">Rooftop solar</td>
-        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · ROOFTOP_PV_ACTUAL</td>
+        <td style="padding:6px 0;color:var(--text)">Interconnector flows</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · DISPATCH_INTERCONNECTORRES</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 0;color:var(--text)">Historical average prices (Avg)</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · TradingIS Archive / MMSDM</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 0;color:var(--text)">D-1 historical day</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · DispatchIS CURRENT</td>
       </tr>
       <tr>
-        <td style="padding:6px 0;color:var(--text)">Capacity outlook (PASA)</td>
+        <td style="padding:6px 0;color:var(--text)">Capacity outlook (Outages)</td>
         <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · MT_PASA / ST_PASA</td>
       </tr>
     </table>
+
     <div style="font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--text);margin-bottom:8px">GAS DATA SOURCES</div>
     <table style="width:100%;font-family:var(--font-mono);font-size:10px;border-collapse:collapse;margin-bottom:12px">
       <tr style="border-bottom:1px solid var(--border)">
@@ -7132,33 +7142,36 @@ function renderAbout(data) {
         <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · GBB ActualFlowStorageLast31</td>
       </tr>
     </table>
-    <div style="font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--text);margin-bottom:8px">REFRESH RATES</div>
-    <table style="width:100%;font-family:var(--font-mono);font-size:10px;border-collapse:collapse">
+
+    <div style="font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--text);margin-bottom:8px">DATA REFRESH</div>
+    <table style="width:100%;font-family:var(--font-mono);font-size:10px;border-collapse:collapse;margin-bottom:12px">
       <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:6px 0;color:var(--text)">Spot prices &amp; predispatch</td>
-        <td style="padding:6px 0;color:var(--accent);text-align:right">Every 5 min</td>
+        <td style="padding:6px 0;color:var(--text)">P&amp;D · Gen · Origin · Batteries</td>
+        <td style="padding:6px 0;color:var(--accent);text-align:right">Server polling — every 5–15 min</td>
       </tr>
       <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:6px 0;color:var(--text)">Generation &amp; fuel mix</td>
-        <td style="padding:6px 0;color:var(--accent);text-align:right">Every 15 min</td>
+        <td style="padding:6px 0;color:var(--text)">Outages (MTPASA)</td>
+        <td style="padding:6px 0;color:var(--accent);text-align:right">Server polling — every 30 min</td>
       </tr>
       <tr style="border-bottom:1px solid var(--border)">
         <td style="padding:6px 0;color:var(--text)">Gas prices (STTM &amp; DWGM)</td>
-        <td style="padding:6px 0;color:var(--accent);text-align:right">Every 6 hours</td>
+        <td style="padding:6px 0;color:var(--accent);text-align:right">Server polling — every 6 hours</td>
       </tr>
       <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:6px 0;color:var(--text)">Gas production, storage &amp; pipeline flows</td>
-        <td style="padding:6px 0;color:var(--accent);text-align:right">Every 1 hour</td>
+        <td style="padding:6px 0;color:var(--text)">D-1 · Gas · Avg</td>
+        <td style="padding:6px 0;color:#f39c12;text-align:right">Fetched on demand when page opened</td>
       </tr>
       <tr>
-        <td style="padding:6px 0;color:var(--text)">Capacity outlook (PASA)</td>
-        <td style="padding:6px 0;color:var(--accent);text-align:right">Every 30 min</td>
+        <td style="padding:6px 0;color:var(--text)">D-1 load time</td>
+        <td style="padding:6px 0;color:#f39c12;text-align:right">~30s prices · ~60s fuel mix</td>
       </tr>
     </table>
+
     <div style="font-size:12px;color:var(--text-muted);line-height:1.6;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
       If you have any feedback on this dashboard, you can contact Daniel Teng at Origin Energy.
     </div>
   </div>
+
 
   <div id="viewStatsBlock" style="margin-top:10px;padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:10px">
     <div style="font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:0.12em;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px">Dashboard Usage</div>

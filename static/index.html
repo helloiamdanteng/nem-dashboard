@@ -5711,17 +5711,41 @@ function _drawDm1PortfolioChart(histData, priceData) {
   if (legendEl) {
     legendEl.innerHTML = '';
     const fc2 = (latestData && latestData.fuel_colors) || {};
+
+    // ALL OFF button
+    const allOffBtn = document.createElement('button');
+    allOffBtn.style.cssText = `font-family:var(--font-mono);font-size:9px;padding:3px 8px;border-radius:20px;cursor:pointer;border:1px solid #475569;background:transparent;color:#475569;transition:all 0.15s;white-space:nowrap`;
+    allOffBtn.textContent = 'ALL OFF';
+    allOffBtn.onclick = () => {
+      const c = window._dm1PortfolioChart; if (!c) return;
+      const allHidden = legendEl.querySelectorAll('[data-hidden="1"]').length === legendEl.querySelectorAll('[data-hidden]').length;
+      const hide = !allHidden;
+      c.data.datasets.forEach((d2, j) => { c.getDatasetMeta(j).hidden = hide; });
+      legendEl.querySelectorAll('[data-hidden]').forEach(b => {
+        const col = b.dataset.col;
+        b.dataset.hidden = hide ? '1' : '0';
+        b.style.background  = hide ? 'transparent' : col+'22';
+        b.style.borderColor = hide ? col+'44' : col;
+        b.style.color       = hide ? col+'44' : col;
+      });
+      allOffBtn.style.background  = hide ? '#47556933' : 'transparent';
+      allOffBtn.style.borderColor = hide ? '#94a3b8' : '#475569';
+      allOffBtn.style.color       = hide ? '#94a3b8' : '#475569';
+      c.update('none');
+    };
+    legendEl.appendChild(allOffBtn);
+
     genDatasets.forEach((ds, i) => {
-      if (ds.label.endsWith(' (chg)')) return; // skip charging duplicate
+      if (ds.label.endsWith(' (chg)')) return;
       const col = ds.borderColor.replace('cc','');
       const btn = document.createElement('button');
       btn.dataset.hidden = '0';
+      btn.dataset.col = col;
       btn.style.cssText = `font-family:var(--font-mono);font-size:9px;padding:3px 8px;border-radius:20px;cursor:pointer;border:1px solid ${col};background:${col}22;color:${col};transition:all 0.15s;white-space:nowrap`;
       btn.textContent = ds.label;
       btn.onclick = () => {
         const c = window._dm1PortfolioChart; if (!c) return;
         const hidden = btn.dataset.hidden === '1';
-        // Hide/show this dataset and its charging pair if battery
         c.data.datasets.forEach((d2, j) => {
           if (d2.label === ds.label || d2.label === ds.label + ' (chg)') {
             c.getDatasetMeta(j).hidden = !hidden;

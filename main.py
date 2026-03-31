@@ -864,6 +864,72 @@ async def station_batch(duids: str):
     return JSONResponse(content=result)
 
 
+@app.get("/api/stations/batch_d1")
+async def station_batch_d1(duids: str, date: str = ""):
+    """Return SCADA history for specific DUIDs for a historical date (YYYYMMDD)."""
+    import re as _re
+    from scraper import NEM_UNITS, SCADA_URL, _list_hrefs, _read_zip, _parse_aemo, AEST
+    from datetime import datetime as _dt, timedelta as _td
+    from concurrent.futures import ThreadPoolExecutor
+
+    # Default to yesterday
+    if not date or not _re.match(r'^\d{8}$', date):
+        date = (_dt.now(AEST) - _td(days=1)).strftime("%Y%m%d")
+
+    try:
+        req_date = _dt.strptime(date, "%Y%m%d").date()
+    except ValueError:
+        return JSONResponse(status_code=400, content={"error": "invalid date"})
+
+    duid_list = [d.strip().upper() for d in duids.split(",") if d.strip()]
+    duid_set  = set(duid_list)
+    loop = asyncio.get_running_loop()
+
+    def _scrape():
+        duid_hist = {d: {} for d in duid_list}
+        try:
+            all_files  = _list_hrefs(SCADA_URL)
+            scada_urls = sorted([f for f in all_files if date in f and "PUBLIC_DISPATCHSCADA" in f.upper()])
+            def _fetch(url):
+                try:
+                    text = _read_zip(url)
+                    if not text: return None
+                    label, snap = None, {}
+                    for row in _parse_aemo(text, "DISPATCH_UNIT_SCADA"):
+                        duid = row.get("DUID","").strip().upper()
+                        if duid not in duid_set: continue
+                        dt_str2 = row.get("SETTLEMENTDATE",""); v = row.get("SCADAVALUE","")
+                        if not dt_str2 or not v: continue
+                        try:
+                            dt = _dt.fromisoformat(dt_str2.replace("/","-")) - _td(minutes=5)
+                            if dt.date() != req_date: continue
+                            label = dt.strftime("%H:%M")
+                            snap[duid] = round(float(v), 1)
+                        except (ValueError, TypeError): continue
+                    return (label, snap) if label else None
+                except Exception: return None
+            with ThreadPoolExecutor(max_workers=20) as ex:
+                for result in ex.map(_fetch, scada_urls):
+                    if not result: continue
+                    label, snap = result
+                    for duid, mw in snap.items():
+                        duid_hist[duid][label] = mw
+        except Exception as e:
+            logger.warning(f"station_batch_d1: {e}")
+        return [{"duid": d, "station": NEM_UNITS.get(d,{}).get("station",d),
+                 "fuel": NEM_UNITS.get(d,{}).get("fuel","Other"),
+                 "region": NEM_UNITS.get(d,{}).get("region",""),
+                 "capacity": NEM_UNITS.get(d,{}).get("capacity"),
+                 "history": [{"interval":k,"mw":v} for k,v in sorted(duid_hist[d].items())],
+                 "predispatch": []} for d in duid_list]
+
+    try:
+        data = await asyncio.wait_for(loop.run_in_executor(None, _scrape), timeout=120.0)
+        return JSONResponse(content=data)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @app.get("/api/historical_prices")
 async def historical_prices(date: str):
     """Fetch 30-min trading prices for a given date (YYYYMMDD)."""

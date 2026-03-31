@@ -2882,7 +2882,8 @@ def scrape_historical_day_fast(date_str: str) -> dict:
     demand:    dict = {r: {} for r in NEM_REGIONS}
     op_demand: dict = {r: {} for r in NEM_REGIONS}
     ic_flows:  dict = {}
-    bdu:       dict = {r: {} for r in NEM_REGIONS}  # { region: { HH:MM: {net_mw, gen, load, storage} } }
+    bdu:       dict = {r: {} for r in NEM_REGIONS}
+    rooftop:   dict = {r: {} for r in NEM_REGIONS}  # SS_SOLAR_CLEAREDMW per region
 
     def _fetch(url):
         try: return _read_zip(url)
@@ -2919,6 +2920,11 @@ def scrape_historical_day_fast(date_str: str) -> dict:
                         label = dt.strftime("%H:%M")
                         if dem_str: demand[region][label]    = round(float(dem_str), 1)
                         if op_str:  op_demand[region][label] = round(float(op_str),  1)
+                        # Rooftop solar (semi-scheduled, not in SCADA)
+                        rt_str = row.get("SS_SOLAR_CLEAREDMW","")
+                        if rt_str:
+                            try: rooftop[region][label] = round(float(rt_str), 1)
+                            except (ValueError, TypeError): pass
                         # BDU (battery) fields
                         bdu_gen  = row.get("BDU_CLEAREDMW_GEN","")
                         bdu_load = row.get("BDU_CLEAREDMW_LOAD","")
@@ -2959,6 +2965,7 @@ def scrape_historical_day_fast(date_str: str) -> dict:
         "fuel_history":         {},
         "ic_history":           {ic:[{"interval":k,"flow":v} for k,v in sorted(h.items())] for ic,h in ic_flows.items() if h},
         "bdu_history":          {r:[{"interval":k,**v} for k,v in sorted(h.items())] for r,h in bdu.items() if h},
+        "rooftop_history":      {r:[{"interval":k,"mw":v} for k,v in sorted(h.items())] for r,h in rooftop.items() if h},
     }
 
 def scrape_historical_day_fuel(date_str: str) -> dict:

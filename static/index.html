@@ -1970,12 +1970,13 @@ function toggleIcHighlight(id) {
 const ORIGIN_FUEL_OVERRIDE = {
   'Eraring Battery': 'Battery',
   'Supernode Battery': 'Battery',
+  'Supernode 2': 'Battery',
   'Eraring': 'Black Coal',
   'Eraring Liquid': 'Liquid',
 };
 
 const ORIGIN_STATION_ORDER = {
-  QLD1: ['Darling Downs','Supernode Battery','Mt Stuart','Roma Gas','Clare Solar Farm','Darling Downs Solar','Daydream Solar'],
+  QLD1: ['Darling Downs','Supernode Battery','Supernode 2','Mt Stuart','Roma Gas','Clare Solar Farm','Darling Downs Solar','Daydream Solar'],
   NSW1: ['Eraring','Eraring Battery','Uranquinty','Shoalhaven','Shoalhaven Pump','Moree Solar Farm','Gunning Wind Farm','Eraring Liquid'],
   VIC1: ['Mortlake','Stockyard Hill'],
   SA1:  ['Osborne Cogen','Quarantine','Ladbroke Grove','Snowtown 1','Snowtown 2','Bungala Solar 1','Bungala Solar 2'],
@@ -2180,6 +2181,11 @@ function renderOrigin(data) {
 async function _fetchOriginHistory(data) {
   try {
     const hist = await fetch('/api/origin').then(r => r.json());
+    // If empty, backfill may still be running — retry in 10s
+    if (Object.keys(hist).length === 0) {
+      setTimeout(() => _fetchOriginHistory(data), 10000);
+      return;
+    }
     window._originHistory = hist;
     window._originHistoryFetchedAt = Date.now();
     if (currentPanel === 'origin' && latestData) {
@@ -6386,7 +6392,7 @@ let _coalCalOriginOnly = false;
 
 const ORIGIN_DUIDS_CAL = new Set([
   "DDPS1","MSTUART1","MSTUART2","MSTUART3","ROMA_7",
-  "CLARESF1","DDSF1","DAYDSF1","SNB01",
+  "CLARESF1","DDSF1","DAYDSF1","SNB01","SN02",
   "ER01","ER02","ER03","ER04",
   "URANQ1","URANQ2","URANQ3","URANQ4",
   "URANQ11","URANQ12","URANQ13","URANQ14",

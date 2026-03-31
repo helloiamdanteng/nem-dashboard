@@ -2647,6 +2647,8 @@ async function openOriginStationModal(stnName) {
 // ── Stations page state ───────────────────────────────────────────────────────
 let stationsHideOffline  = true;
 let stationsHideSmall    = false;
+const STATIONS_FUEL_ORDER = ['Brown Coal','Black Coal','Gas','Hydro','Battery','Wind','Solar','Rooftop Solar','Liquid','Other'];
+let stationsFuelFilter   = new Set(STATIONS_FUEL_ORDER);
 
 function toggleAllStationRegions() {
   stationsRegionFilter = new Set(['QLD1','NSW1','VIC1','SA1','TAS1']);
@@ -2670,6 +2672,16 @@ function toggleStationsHideOffline() {
 
 function toggleStationsHideSmall() {
   stationsHideSmall = !stationsHideSmall;
+  if (genData) renderPanel('generation', latestData);
+}
+
+function toggleStationFuel(fuel) {
+  if (fuel === 'ALL') {
+    const allOn = STATIONS_FUEL_ORDER.every(f => stationsFuelFilter.has(f));
+    allOn ? stationsFuelFilter.clear() : STATIONS_FUEL_ORDER.forEach(f => stationsFuelFilter.add(f));
+  } else {
+    stationsFuelFilter.has(fuel) ? stationsFuelFilter.delete(fuel) : stationsFuelFilter.add(fuel);
+  }
   if (genData) renderPanel('generation', latestData);
 }
 
@@ -2967,6 +2979,22 @@ function renderStations(fastData) {
   }
   html += '</div>';
 
+  // Fuel filter pills
+  const FUEL_COLORS_PILLS = {
+    'Brown Coal':'#78350f','Black Coal':'#334155','Gas':'#f97316','Hydro':'#38bdf8',
+    'Battery':'#a78bfa','Wind':'#34d399','Solar':'#fbbf24','Rooftop Solar':'#fde68a',
+    'Liquid':'#94a3b8','Other':'#475569'
+  };
+  const allFuelsOn = STATIONS_FUEL_ORDER.every(f => stationsFuelFilter.has(f));
+  html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 10px">';
+  html += `<button onclick="toggleStationFuel('ALL')" style="font-family:var(--font-mono);font-size:9px;padding:3px 8px;border-radius:20px;cursor:pointer;border:1px solid #94a3b8;background:${allFuelsOn?'#94a3b822':'transparent'};color:${allFuelsOn?'#94a3b8':'#475569'}">ALL</button>`;
+  for (const fuel of STATIONS_FUEL_ORDER) {
+    const on  = stationsFuelFilter.has(fuel);
+    const col = FUEL_COLORS_PILLS[fuel] || '#94a3b8';
+    html += `<button onclick="toggleStationFuel('${fuel}')" style="font-family:var(--font-mono);font-size:9px;padding:3px 8px;border-radius:20px;cursor:pointer;border:1px solid ${on?col:col+'44'};background:${on?col+'22':'transparent'};color:${on?col:col+'44'}">${fuel}</button>`;
+  }
+  html += '</div>';
+
   // Filters
   html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px">';
   html += `<button onclick="toggleStationsHideOffline()" style="
@@ -2994,6 +3022,7 @@ function renderStations(fastData) {
     if (REGIONS.includes(region) && !stationsRegionFilter.has(region)) continue;
     const regionFuels = grouped[region] || {};
     for (const fuel of FUEL_ORDER) {
+      if (!stationsFuelFilter.has(fuel)) continue;
       for (const u of (regionFuels[fuel] || [])) {
         const key = (u.station && u.station !== u.duid) ? u.station : u.duid;
         if (!stationMap[key]) {

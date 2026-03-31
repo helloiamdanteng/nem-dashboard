@@ -2040,31 +2040,77 @@ async def historical_day_fuel(date: str):
 
 @app.get("/api/historical_day_debug")
 async def historical_day_debug(date: str):
-    """Quick debug: just check what files exist for a date, don't fetch them all."""
+    """Check what data sources are available for a given date."""
     import re
     if not re.match(r'^\d{8}$', date):
         return JSONResponse(status_code=400, content={"error": "date must be YYYYMMDD"})
-    from scraper import DISPATCH_IS_URL, TRADING_IS_URL, SCADA_URL, _list_hrefs
+    from scraper import DISPATCH_IS_URL, TRADING_IS_URL, SCADA_URL, TRADING_ARCHIVE, _list_hrefs
     loop = asyncio.get_running_loop()
     def _check():
         result = {}
+        # Check TradingIS ARCHIVE — weekly ZIPs
         try:
-            dispatch_files = _list_hrefs(DISPATCH_IS_URL)
-            result["dispatch_files"] = len([f for f in dispatch_files if date in f])
-            result["dispatch_sample"] = [f.split('/')[-1] for f in dispatch_files if date in f][:3]
+            hrefs = _list_hrefs(TRADING_ARCHIVE)
+            from datetime import datetime as _dt
+            req = _dt.strptime(date, "%Y%m%d").date()
+            archive_matches = []
+            all_zips = []
+            for href in hrefs:
+                fname = href.split('/')[-1]
+                parts = fname.replace('.zip','').split('_')
+                if len(parts) >= 4:
+                    try:
+                        s = _dt.strptime(parts[-2], "%Y%m%d").date()
+                        e = _dt.strptime(parts[-1], "%Y%m%d").date()
+                        all_zips.append(f"{s} → {e}: {fname}")
+                        if s <= req <= e:
+                            archive_matches.append(fname)
+                    except ValueError: continue
+            result["archive_zips_total"] = len(all_zips)
+            result["archive_recent"] = all_zips[-5:]
+            result["archive_matches_for_date"] = archive_matches
         except Exception as e:
-            result["dispatch_error"] = str(e)
+            result["archive_error"] = str(e)
+        # Check CURRENT files
         try:
-            trading_files = _list_hrefs(TRADING_IS_URL)
-            result["trading_files"] = len([f for f in trading_files if date in f])
-            result["trading_sample"] = [f.split('/')[-1] for f in trading_files if date in f][:3]
+            dispatch = _list_hrefs(DISPATCH_IS_URL)
+            d_for_date = [f.split('/')[-1] for f in dispatch if date in f]
+            result["dispatch_current_count"] = len(d_for_date)
+            result["dispatch_current_sample"] = d_for_date[:3]
         except Exception as e:
-            result["trading_error"] = str(e)
+            result["dispatch_current_error"] = str(e)
         try:
-            scada_files = _list_hrefs(SCADA_URL)
-            result["scada_files"] = len([f for f in scada_files if date in f])
+            trading = _list_hrefs(TRADING_IS_URL)
+            t_for_date = [f.split('/')[-1] for f in trading if date in f]
+            result["trading_current_count"] = len(t_for_date)
+            result["trading_current_sample"] = t_for_date[:3]
+            # Show oldest and newest dates in CURRENT
+            dates_seen = set()
+            for f in trading:
+                fname = f.split('/')[-1]
+                parts = fname.split('_')
+                if len(parts) >= 3 and len(parts[2]) >= 8:
+                    dates_seen.add(parts[2][:8])
+            result["trading_current_dates"] = sorted(dates_seen)
+            # Sample one file to see what tables/data it contains
+            if t_for_date:
+                from scraper import _read_zip, _parse_aemo
+                text = _read_zip(t_for_date[-1])
+                if text:
+                    tables = set()
+                    for line in text.splitlines():
+                        if line.startswith('D,'):
+                            p = line.split(',')
+                            if len(p) > 2: tables.add(p[1].strip())
+                    result["trading_current_tables"] = sorted(tables)
+                    price_rows = _parse_aemo(text, "TRADING_PRICE")
+                    dem_rows   = _parse_aemo(text, "TRADING_REGIONSUM")
+                    result["trading_price_rows"]   = len(price_rows)
+                    result["trading_demand_rows"]  = len(dem_rows)
+                    result["trading_price_sample"] = price_rows[:1]
+                    result["trading_demand_sample"] = dem_rows[:1]
         except Exception as e:
-            result["scada_error"] = str(e)
+            result["trading_current_error"] = str(e)
         return result
     data = await loop.run_in_executor(None, _check)
     return JSONResponse(content=data)

@@ -4359,34 +4359,65 @@ function _renderPriceHistCharts(data, liveData) {
   t += '</div>';
 
   // Daily breakdown table
+  // Daily time-of-day breakdown table
+  if (!window._priceHistRegion) window._priceHistRegion = 'NSW1';
+  const TOD_COLS = [
+    {key:'avg',         label:'All Day',       sub:''},
+    {key:'overnight',   label:'Overnight',     sub:'12am–6am'},
+    {key:'morning',     label:'Morn Peak',     sub:'6am–10am'},
+    {key:'midday',      label:'Midday',        sub:'10am–4pm'},
+    {key:'evening',     label:'Eve Peak',      sub:'4pm–8pm'},
+    {key:'late_evening',label:'Late Eve',      sub:'8pm–12am'},
+  ];
+
+  // State selector buttons
   t += '<div class="chart-card" style="padding:12px 14px;margin-top:8px;overflow-x:auto">';
-  t += '<div class="chart-title" style="margin-bottom:8px">Daily Average ($/MWh)</div>';
+  t += '<div class="chart-title" style="margin-bottom:8px">Daily Average by Time of Day ($/MWh)</div>';
+  t += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">';
+  for (const r of allRegions) {
+    const col = REGION_COLORS[r];
+    const active = window._priceHistRegion === r;
+    t += `<button onclick="window._priceHistRegion='${r}';_renderPriceHistCharts(window._priceHistData,window._liveDataRef)"
+      style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;cursor:pointer;
+      border:1px solid ${col};background:${active?col+'33':'transparent'};color:${active?col:col+'88'};
+      font-weight:${active?'700':'400'}">${REGION_SHORT[r]}</button>`;
+  }
+  t += '</div>';
+
+  const selRegion = window._priceHistRegion;
+  const selCol    = REGION_COLORS[selRegion] || '#94a3b8';
+
   t += '<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px">';
   t += '<tr>';
   t += '<th style="text-align:left;padding:5px 8px;color:#64748b;border-bottom:1px solid #1e2d45;white-space:nowrap">Date</th>';
-  for (const r of allRegions) {
-    const col = REGION_COLORS[r];
-    t += `<th style="text-align:right;padding:5px 8px;color:${col};border-bottom:1px solid #1e2d45">${REGION_SHORT[r]}</th>`;
+  for (const col of TOD_COLS) {
+    t += `<th style="text-align:right;padding:5px 4px;color:#64748b;border-bottom:1px solid #1e2d45;white-space:nowrap;font-size:9px">
+      ${col.label}${col.sub?`<br><span style="color:#334155;font-weight:400">${col.sub}</span>`:''}
+    </th>`;
   }
   t += '</tr>';
+
   for (const d of daysDesc) {
-    const ddt = new Date(d + 'T00:00:00');
+    const ddt   = new Date(d + 'T00:00:00');
     const label = ddt.toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short'});
     const isToday = d === todayStr;
+    const dp    = data[selRegion]?.[d];
     t += '<tr>';
     t += `<td style="padding:5px 8px;color:#94a3b8;border-bottom:1px solid #1e2d4533;white-space:nowrap">${label}${isToday?' <span style="color:#64748b;font-size:8px">partial</span>':''}</td>`;
-    for (const r of allRegions) {
-      const val = data[r]?.[d]?.avg;
-      const col = val !== undefined ? priceClass(val) : '';
+    for (const col of TOD_COLS) {
+      const val = col.key === 'avg' ? dp?.avg : dp?.tod?.[col.key];
+      const pc  = val !== undefined && val !== null ? priceClass(val) : '';
       const colMap = {negative:'#2ed573', low:'#e2e8f0', medium:'#ffd32a', high:'#ff6b35', vhigh:'#ff4757'};
-      const textCol = colMap[col] || '#e2e8f0';
-      t += `<td style="text-align:right;padding:5px 8px;color:${textCol};border-bottom:1px solid #1e2d4533;font-weight:${col==='negative'||col==='vhigh'?'700':'400'}">${val !== undefined ? '$'+val.toFixed(2) : '—'}</td>`;
+      const textCol = colMap[pc] || '#e2e8f0';
+      t += `<td style="text-align:right;padding:5px 4px;color:${textCol};border-bottom:1px solid #1e2d4533;font-weight:${pc==='negative'||pc==='vhigh'?'700':'400'}">${val !== undefined && val !== null ? '$'+val.toFixed(2) : '—'}</td>`;
     }
     t += '</tr>';
   }
   t += '</table></div>';
 
   tableDiv.innerHTML = t;
+  // Store liveData ref for re-render on region switch
+  window._liveDataRef = liveData;
 }
 
 // ── Gas Page ──────────────────────────────────────────────────────────────────

@@ -976,10 +976,16 @@ function toggleGenPriceOff() {
   if (latestData) renderPanel('generation', latestData);
 }
 
+function _dm1RedrawPortfolio() {
+  if (window._dm1StationMap && window._dMinus1Data) {
+    _drawDm1PortfolioChart(window._dm1StationMap, window._dMinus1Data.dispatch_prices_5min || {});
+  }
+}
+
 function toggleOriginPrice(r) {
   if (originPriceFilter.has(r)) { originPriceFilter.delete(r); }
   else { originPriceFilter.add(r); }
-  if (currentPanel === 'dminus1') { if (latestData) renderPanel('dminus1', latestData); setTimeout(() => { if (window._dm1StationMap) _drawDm1PortfolioChart(window._dm1StationMap, window._dMinus1Data?.dispatch_prices_5min||{}); }, 50); }
+  if (currentPanel === 'dminus1') _dm1RedrawPortfolio();
   else if (latestData) renderPanel('origin', latestData);
 }
 
@@ -990,13 +996,13 @@ function toggleOriginHideOffline() {
 
 function toggleOriginPriceOff() {
   originPriceFilter.clear();
-  if (currentPanel === 'dminus1') { if (latestData) renderPanel('dminus1', latestData); setTimeout(() => { if (window._dm1StationMap) _drawDm1PortfolioChart(window._dm1StationMap, window._dMinus1Data?.dispatch_prices_5min||{}); }, 50); }
+  if (currentPanel === 'dminus1') _dm1RedrawPortfolio();
   else if (latestData) renderPanel('origin', latestData);
 }
 
 function toggleOriginPriceWhite() {
   originPriceWhite = !originPriceWhite;
-  if (currentPanel === 'dminus1') { if (latestData) renderPanel('dminus1', latestData); setTimeout(() => { if (window._dm1StationMap) _drawDm1PortfolioChart(window._dm1StationMap, window._dMinus1Data?.dispatch_prices_5min||{}); }, 50); }
+  if (currentPanel === 'dminus1') _dm1RedrawPortfolio();
   else if (latestData) renderPanel('origin', latestData);
 }
 
@@ -2234,10 +2240,8 @@ function toggleOriginState(r) {
       originPriceFilter = new Set([r]); // auto-enable price for this region
     }
   }
-  if (currentPanel === 'dminus1') {
-    if (latestData) renderPanel('dminus1', latestData);
-    setTimeout(() => { if (window._dm1StationMap) _drawDm1PortfolioChart(window._dm1StationMap, window._dMinus1Data?.dispatch_prices_5min||{}); }, 50);
-  } else if (latestData) showPanel('origin');
+  if (currentPanel === 'dminus1') _dm1RedrawPortfolio();
+  else if (latestData) showPanel('origin');
 }
 
 function toggleOriginMultiSelect() {
@@ -2250,10 +2254,8 @@ function toggleOriginMultiSelect() {
       originPriceFilter.clear();
     }
   }
-  if (currentPanel === 'dminus1') {
-    if (latestData) renderPanel('dminus1', latestData);
-    setTimeout(() => { if (window._dm1StationMap) _drawDm1PortfolioChart(window._dm1StationMap, window._dMinus1Data?.dispatch_prices_5min||{}); }, 50);
-  } else if (latestData) showPanel('origin');
+  if (currentPanel === 'dminus1') _dm1RedrawPortfolio();
+  else if (latestData) showPanel('origin');
 }
 
 function _drawOriginPortfolioChart(stationMap, fc) {

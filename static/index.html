@@ -4106,7 +4106,6 @@ function setDMinus1Region(r) {
   if (window._dMinus1Data) {
     drawDMinus1PriceChart(window._dMinus1Data);
     drawDMinus1DemandChart(window._dMinus1Data);
-    drawDMinus1FuelChart(window._dMinus1Data);
   } else if (window._dMinusSel) {
     dMinusLoadPrices(_dSelToStr(window._dMinusSel));
   }
@@ -5065,7 +5064,8 @@ function renderDMinus1(data) {
   </div>`;
   html += `<div class="chart-card" style="margin-bottom:4px">
     <div style="position:relative;height:280px"><canvas id="dm1-portfolio-chart"></canvas></div>
-  </div>`;
+  </div>
+  <div id="dm1-portfolio-legend" style="display:flex;flex-wrap:wrap;gap:4px;margin:-4px 0 8px"></div>`;
   // Price toggles
   const _dm1AllOff = originPriceFilter.size === 0;
   html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin:-6px 0 10px">';
@@ -5108,12 +5108,6 @@ function renderDMinus1(data) {
   html += `<button onclick="toggleDm1RenewFuel('solar')" id="dm1rr-solar" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;border:1px solid #f59e0b;background:${window._dm1RenewSolar?'#f59e0b33':'transparent'};color:#f59e0b;cursor:pointer;opacity:${window._dm1RenewSolar?'1':'0.35'}">☀ Solar</button>`;
   html += `<button onclick="toggleDm1RenewFuel('wind')" id="dm1rr-wind" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;border:1px solid #34d399;background:${window._dm1RenewWind?'#34d39933':'transparent'};color:#34d399;cursor:pointer;opacity:${window._dm1RenewWind?'1':'0.35'}">💨 Wind</button>`;
   html += '</div></div>';
-
-  // ── Fuel mix chart ───────────────────────────────────────────────────────────
-  html += '<div class="chart-card" style="margin-top:8px"><div class="chart-title">Fuel Mix</div>';
-  html += '<div class="chart-container" style="height:220px"><canvas id="dm1FuelChart"></canvas></div>';
-  html += '<div id="dm1FuelLegend" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px"></div>';
-  html += '</div>';
 
   // Store yesterday's date string for the chart loader
   window._dm1YestStr = yestStr;
@@ -5249,8 +5243,6 @@ async function dMinusLoadPrices(dateStr) {
   destroyChart('dm1Demand');
   destroyChart('dm1Renew');
   destroyChart('dm1Fuel');
-  const fuelLegend = document.getElementById('dm1FuelLegend');
-  if (fuelLegend) fuelLegend.innerHTML = '';
 
   try {
     const fast = await fetch(`/api/historical_day_fast?date=${dateStr}`).then(r => r.json());
@@ -5270,8 +5262,7 @@ async function dMinusLoadPrices(dateStr) {
     if (fuel && !fuel.error && fuel.fuel_history) {
       window._dMinus1Data = { ...fast, fuel_history: fuel.fuel_history };
       drawDMinus1RenewChart(window._dMinus1Data);
-      drawDMinus1FuelChart(window._dMinus1Data);
-    }
+      }
     if (status) status.textContent = '';
   } catch(e) {
     if (status) status.textContent = `Error: ${e.message}`;
@@ -5718,6 +5709,37 @@ function _drawDm1PortfolioChart(histData, priceData) {
       }
     }
   });
+
+  // Build button legend — one button per visible station
+  const legendEl = document.getElementById('dm1-portfolio-legend');
+  if (legendEl) {
+    legendEl.innerHTML = '';
+    const fc2 = (latestData && latestData.fuel_colors) || {};
+    genDatasets.forEach((ds, i) => {
+      if (ds.label.endsWith(' (chg)')) return; // skip charging duplicate
+      const col = ds.borderColor.replace('cc','');
+      const btn = document.createElement('button');
+      btn.dataset.hidden = '0';
+      btn.style.cssText = `font-family:var(--font-mono);font-size:9px;padding:3px 8px;border-radius:20px;cursor:pointer;border:1px solid ${col};background:${col}22;color:${col};transition:all 0.15s;white-space:nowrap`;
+      btn.textContent = ds.label;
+      btn.onclick = () => {
+        const c = window._dm1PortfolioChart; if (!c) return;
+        const hidden = btn.dataset.hidden === '1';
+        // Hide/show this dataset and its charging pair if battery
+        c.data.datasets.forEach((d2, j) => {
+          if (d2.label === ds.label || d2.label === ds.label + ' (chg)') {
+            c.getDatasetMeta(j).hidden = !hidden;
+          }
+        });
+        btn.dataset.hidden = hidden ? '0' : '1';
+        btn.style.background  = hidden ? col+'22' : 'transparent';
+        btn.style.borderColor = hidden ? col : col+'44';
+        btn.style.color       = hidden ? col : col+'44';
+        c.update('none');
+      };
+      legendEl.appendChild(btn);
+    });
+  }
 }
 
 async function _loadDm1Portfolio() {

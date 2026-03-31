@@ -5409,9 +5409,10 @@ function drawDMinus1DemandChart(data) {
   const opDem = data.op_demand_history || {};
   const dem   = data.demand_history    || {};
 
+  const step = data.resolution_minutes || 5;
   const slots = [];
   for (let h = 0; h < 24; h++)
-    for (let m = 0; m < 60; m += 5)
+    for (let m = 0; m < 60; m += step)
       slots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
 
   const activeRegions = [...(window._dm1DemandRegions || new Set(REGIONS))].filter(r => REGIONS.includes(r));
@@ -5458,9 +5459,10 @@ function drawDMinus1RenewChart(data) {
   data = data || window._dMinus1Data || {};
   const fuelHist = data.fuel_history || {};
 
+  const step = data.resolution_minutes || 5;
   const slots = [];
   for (let h = 0; h < 24; h++)
-    for (let m = 0; m < 60; m += 5)
+    for (let m = 0; m < 60; m += step)
       slots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
 
   const activeRegions = [...(window._dm1RenewRegions || new Set(REGIONS.filter(r=>r!=='TAS1')))].filter(r => REGIONS.includes(r));
@@ -5516,9 +5518,10 @@ function drawDMinus1FuelChart(data) {
   data = data || window._dMinus1Data || {};
   const fuelHist = data.fuel_history || {};
 
+  const step = data.resolution_minutes || 5;
   const slots = [];
   for (let h = 0; h < 24; h++)
-    for (let m = 0; m < 60; m += 5)
+    for (let m = 0; m < 60; m += step)
       slots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
 
   // Aggregate across all regions (fuel chart always NEM-wide)

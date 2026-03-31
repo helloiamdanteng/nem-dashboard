@@ -6104,6 +6104,50 @@ function drawDm1FuelMixChart(data) {
     tension: 0.2, stack: 'actual', spanGaps: true, yAxisID: 'y', order: 1,
   } : null;
 
+  const battColor = fc['Battery'] || '#9b59b6';
+  const battDataset = {
+    label: 'Battery',
+    data: allSlots.map(l => {
+      const hasData = activeRegions.some(r => histLookup[r]?.[l]);
+      if (!hasData) return null;
+      return Math.round(activeRegions.reduce((s,r) => s + (histLookup[r]?.[l]?.['Battery']||0), 0));
+    }),
+    backgroundColor: battColor+'cc', borderColor: battColor,
+    borderWidth: 0.5, fill: true, pointRadius: 0,
+    tension: 0.2, stack: 'actual', spanGaps: true, yAxisID: 'y', order: 1,
+  };
+
+  const demValMap = {};
+  for (const slot of allSlots) {
+    const hasData = activeRegions.some(r => demLookup[r]?.[slot] !== undefined);
+    if (!hasData) continue;
+    demValMap[slot] = Math.round(activeRegions.reduce((s,r) => s + (demLookup[r]?.[slot]??0), 0));
+  }
+  const demDataset = {
+    label: 'Demand + NonSched',
+    data: allSlots.map(l => demValMap[l] ?? null),
+    borderColor: '#ffffff', backgroundColor: 'transparent',
+    borderWidth: 2, pointRadius: 0, tension: 0.2,
+    spanGaps: true, fill: false, yAxisID: 'y', order: -1,
+  };
+
+  const priceDatasets = [];
+  if (dm1PriceFilter.size > 0) {
+    const priceData = data.dispatch_prices_5min || {};
+    for (const r of REGIONS) {
+      if (!dm1PriceFilter.has(r)) continue;
+      const color = dm1PriceWhite ? '#ffffff' : REGION_COLORS[r];
+      const pm = {};
+      (priceData[r] || []).forEach(p => { pm[p.interval] = p.rrp; });
+      priceDatasets.push({
+        label: `${REGION_SHORT[r]} Price`,
+        data: allSlots.map(t => pm[t] ?? null),
+        borderColor: color, backgroundColor: 'transparent',
+        borderWidth: 1, pointRadius: 0, tension: 0.2,
+        spanGaps: true, fill: false, yAxisID: 'yPrice', order: 0,
+      });
+    }
+  }
 
   const allDatasets = [...actualDatasets, battDataset, ...(rooftopDataset ? [rooftopDataset] : []), demDataset, ...priceDatasets];
   if (card) card.querySelector('.chart-title').textContent = `${regionLabel} — fuel mix actuals`;

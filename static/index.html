@@ -285,6 +285,11 @@ let dm1PriceFilter   = new Set();
 let dm1PriceWhite    = false;
 let dm1ShowRooftop   = false;
 
+// D-1 battery chart state (independent of battery page)
+let dm1BattRegion      = 'NEM';
+let dm1BattShowPrices  = false;
+let dm1BattWhitePrices = true;
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function priceClass(v) {
@@ -5185,6 +5190,29 @@ function renderDMinus1(data) {
   html += '<div id="dm1IcLegend" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px"></div>';
   html += '</div>';
 
+  // ── Battery charts ────────────────────────────────────────────────────────────
+  const dm1BattIsNEM = dm1BattRegion === 'NEM';
+  html += '<div class="section-title" style="margin-top:16px">NEM Batteries</div>';
+  html += '<div class="region-pills">';
+  html += `<button class="region-pill ${dm1BattIsNEM?'active':''}" style="color:#94a3b8;border-color:#94a3b8" onclick="setDm1BattRegion('NEM')">NEM</button>`;
+  for (const r of REGIONS) {
+    const col = REGION_COLORS[r]; const active = dm1BattRegion === r ? 'active' : '';
+    html += `<button class="region-pill ${active}" style="color:${col};border-color:${col}" onclick="setDm1BattRegion('${r}')">${REGION_SHORT[r]}</button>`;
+  }
+  html += '</div>';
+  html += '<div style="display:flex;justify-content:space-between;margin:4px 0 8px">';
+  html += `<button onclick="toggleDm1BattPrices()" style="font-family:var(--font-mono);font-size:10px;padding:5px 10px;border-radius:20px;cursor:pointer;border:1px solid ${dm1BattShowPrices?'#94a3b8':'#475569'};background:${dm1BattShowPrices?'#94a3b833':'transparent'};color:${dm1BattShowPrices?'#94a3b8':'#475569'}">PRICES</button>`;
+  html += `<button onclick="toggleDm1BattWhite()" style="font-family:var(--font-mono);font-size:10px;padding:5px 10px;border-radius:20px;cursor:pointer;border:1px solid ${dm1BattWhitePrices?'#ffffff':'#475569'};background:${dm1BattWhitePrices?'#ffffff22':'transparent'};color:${dm1BattWhitePrices?'#ffffff':'#475569'}">WHITE</button>`;
+  html += '</div>';
+  html += '<div class="chart-card">';
+  html += `<div class="chart-title">Battery Output — ${dm1BattIsNEM?'NEM stacked by region':REGION_SHORT[dm1BattRegion]+' stacked by station'} (positive=discharge, negative=charge)</div>`;
+  html += '<div class="chart-container" style="height:260px"><canvas id="dm1BattMwChart"></canvas></div>';
+  html += '</div>';
+  html += '<div class="chart-card" style="margin-top:12px">';
+  html += `<div class="chart-title">State of Charge (MWh) — ${dm1BattIsNEM?'All Regions Stacked':REGION_SHORT[dm1BattRegion]+' only'}</div>`;
+  html += '<div class="chart-container" style="height:180px"><canvas id="dm1BattSocChart"></canvas></div>';
+  html += '</div>';
+
   // Store yesterday's date string for the chart loader
   window._dm1YestStr = yestStr;
   return html;
@@ -5320,6 +5348,8 @@ async function dMinusLoadPrices(dateStr) {
   destroyChart('dm1Fuel');
   destroyChart('dm1FuelMix');
   destroyChart('dm1Ic');
+  destroyChart('dm1BattMw');
+  destroyChart('dm1BattSoc');
 
   try {
     const fast = await fetch(`/api/historical_day_fast?date=${dateStr}`).then(r => r.json());
@@ -5333,6 +5363,7 @@ async function dMinusLoadPrices(dateStr) {
     drawDMinus1DemandChart(fast);
     drawDMinus1RenewChart(fast);
     drawDm1IcChart(fast);
+    drawDm1BatteryCharts(fast);
     // Load Origin portfolio in parallel
     _loadDm1Portfolio();
 
@@ -6174,6 +6205,166 @@ function toggleDm1IcHighlight(id) {
     });
   }
   chart.update('none');
+}
+
+// ── D-1 battery toggle functions ──────────────────────────────────────────────
+function setDm1BattRegion(r) {
+  dm1BattRegion = r;
+  // Update pill buttons in-place
+  const isNEM = r === 'NEM';
+  document.querySelectorAll('[onclick^="setDm1BattRegion"]').forEach(btn => {
+    const btnR = btn.getAttribute('onclick').match(/'([^']+)'/)?.[1];
+    btn.classList.toggle('active', btnR === r);
+  });
+  if (window._dMinus1Data) drawDm1BatteryCharts(window._dMinus1Data);
+}
+function toggleDm1BattPrices() {
+  dm1BattShowPrices = !dm1BattShowPrices;
+  const btn = document.querySelector('[onclick="toggleDm1BattPrices()"]');
+  if (btn) { btn.style.borderColor = dm1BattShowPrices?'#94a3b8':'#475569'; btn.style.background = dm1BattShowPrices?'#94a3b833':'transparent'; btn.style.color = dm1BattShowPrices?'#94a3b8':'#475569'; }
+  if (window._dMinus1Data) drawDm1BatteryCharts(window._dMinus1Data);
+}
+function toggleDm1BattWhite() {
+  dm1BattWhitePrices = !dm1BattWhitePrices;
+  const btn = document.querySelector('[onclick="toggleDm1BattWhite()"]');
+  if (btn) { btn.style.borderColor = dm1BattWhitePrices?'#ffffff':'#475569'; btn.style.background = dm1BattWhitePrices?'#ffffff22':'transparent'; btn.style.color = dm1BattWhitePrices?'#ffffff':'#475569'; }
+  if (window._dMinus1Data) drawDm1BatteryCharts(window._dMinus1Data);
+}
+
+function drawDm1BatteryCharts(data) {
+  data = data || window._dMinus1Data || {};
+  const bduHist  = data.bdu_history || {};
+  const prices   = data.dispatch_prices_5min || {};
+  const isNEM    = dm1BattRegion === 'NEM';
+
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  // ── MW chart ─────────────────────────────────────────────────────────────────
+  destroyChart('dm1BattMw');
+  const ctx1 = document.getElementById('dm1BattMwChart');
+  if (ctx1) {
+    const datasets = [];
+
+    if (isNEM) {
+      for (const r of REGIONS) {
+        const color = REGION_COLORS[r];
+        const hm = {};
+        (bduHist[r] || []).forEach(p => { if (p.net_mw !== undefined) hm[p.interval] = p.net_mw; });
+        datasets.push({
+          label: REGION_SHORT[r], regionId: r,
+          data: allSlots.map(l => hm[l] ?? null),
+          borderColor: color, backgroundColor: color+'cc',
+          borderWidth: 1, pointRadius: 0, tension: 0.2,
+          fill: 'origin', spanGaps: true, stack: 'batt', yAxisID: 'y', order: 2,
+        });
+      }
+      if (dm1BattShowPrices) {
+        for (const r of REGIONS) {
+          const color = dm1BattWhitePrices ? '#ffffff' : REGION_COLORS[r];
+          const pm = {}; (prices[r] || []).forEach(p => { pm[p.interval] = p.rrp; });
+          datasets.push({
+            label: REGION_SHORT[r]+' Price', yAxisID: 'yPrice',
+            data: allSlots.map(l => pm[l] ?? null),
+            borderColor: color, backgroundColor: 'transparent',
+            borderWidth: 1, pointRadius: 0, tension: 0.2, spanGaps: true, fill: false, order: -1,
+          });
+        }
+      }
+    } else {
+      const r = dm1BattRegion;
+      const color = REGION_COLORS[r];
+      const hm = {};
+      (bduHist[r] || []).forEach(p => { if (p.net_mw !== undefined) hm[p.interval] = p.net_mw; });
+      datasets.push({
+        label: REGION_SHORT[r],
+        data: allSlots.map(l => hm[l] ?? null),
+        borderColor: color, backgroundColor: color+'88',
+        borderWidth: 1, pointRadius: 0, tension: 0.2,
+        fill: 'origin', spanGaps: true, stack: 'batt', yAxisID: 'y', order: 2,
+      });
+      if (dm1BattShowPrices) {
+        const pcolor = dm1BattWhitePrices ? '#ffffff' : color;
+        const pm = {}; (prices[r] || []).forEach(p => { pm[p.interval] = p.rrp; });
+        datasets.push({
+          label: 'Price (actual)', yAxisID: 'yPrice',
+          data: allSlots.map(l => pm[l] ?? null),
+          borderColor: pcolor, backgroundColor: 'transparent',
+          borderWidth: 0.75, pointRadius: 0, tension: 0.2, spanGaps: true, fill: false, order: -1,
+        });
+      }
+    }
+
+    const scales = {
+      x: { stacked: true, ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:0,
+             callback:(v,i) => allSlots[i]?.endsWith(':00') ? allSlots[i] : null}, grid:{color:'#1e2d4544'} },
+      y: { stacked: true, ticks:{color:'#64748b',font:{family:'Space Mono',size:9}}, grid:{color:'#1e293b'},
+           title:{display:true,text:'MW',color:'#64748b',font:{family:'Space Mono',size:9}} },
+    };
+    if (dm1BattShowPrices) scales.yPrice = {
+      type:'linear', position:'right', stacked: false,
+      ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>'$'+v.toFixed(0)},
+      grid:{drawOnChartArea:false},
+    };
+
+    charts.dm1BattMw = new Chart(ctx1, {
+      type: 'line', data: { labels: allSlots, datasets },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins,
+          legend: { display: isNEM, labels:{color:'#94a3b8',font:{family:'Space Mono',size:9},boxWidth:10,padding:6,
+            filter: item => !String(item.label||'').startsWith('Price') } },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw !== null,
+            callbacks: { label: c => {
+              if (c.raw === null) return null;
+              const lbl = c.dataset.label || '';
+              if (lbl.startsWith('Price')) return ` ${lbl}: $${Number(c.raw).toFixed(2)}/MWh`;
+              return ` ${lbl}: ${c.raw>0?'+':''}${fmt(c.raw,0)} MW`;
+            }}
+          }
+        }, scales
+      }
+    });
+  }
+
+  // ── SOC chart ─────────────────────────────────────────────────────────────────
+  destroyChart('dm1BattSoc');
+  const ctx2 = document.getElementById('dm1BattSocChart');
+  if (ctx2) {
+    const socRegions = isNEM ? REGIONS : [dm1BattRegion];
+    const socDatasets = [];
+    for (const r of socRegions) {
+      const color = REGION_COLORS[r];
+      const hm = {};
+      (bduHist[r] || []).forEach(p => { if (p.storage != null) hm[p.interval] = p.storage; });
+      if (!Object.keys(hm).length) continue;
+      socDatasets.push({
+        label: REGION_SHORT[r],
+        data: allSlots.map(l => hm[l] ?? null),
+        borderColor: color, backgroundColor: color+'cc',
+        borderWidth: 1, pointRadius: 0, tension: 0.2,
+        fill: true, spanGaps: true, stack: 'soc',
+      });
+    }
+    charts.dm1BattSoc = new Chart(ctx2, {
+      type: 'line', data: { labels: allSlots, datasets: socDatasets },
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins,
+          legend: { display: isNEM, labels:{color:'#94a3b8',font:{family:'Space Mono',size:9},boxWidth:10,padding:6} },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw !== null,
+            callbacks: { label: c => c.raw != null ? ` ${c.dataset.label}: ${fmt(c.raw,0)} MWh` : null }
+          }
+        },
+        scales: {
+          x: { stacked: true, ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:0,
+                 callback:(v,i) => allSlots[i]?.endsWith(':00') ? allSlots[i] : null}, grid:{color:'#1e2d4544'} },
+          y: { stacked: true, ticks:{color:'#64748b',font:{family:'Space Mono',size:9}}, grid:{color:'#1e293b'},
+               title:{display:true,text:'MWh',color:'#64748b',font:{family:'Space Mono',size:9}} }
+        }
+      }
+    });
+  }
 }
 
 function drawDMinus1Charts(data) {

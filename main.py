@@ -2237,6 +2237,8 @@ async def origin_d1_history():
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+@app.get("/api/origin")
+async def origin_history():
     """Return Origin asset history — separate from fast cache to keep /api/data lean."""
     from scraper import _duid_history, ORIGIN_DUIDS
     from datetime import datetime

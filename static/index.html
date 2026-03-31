@@ -4406,7 +4406,12 @@ function _renderPriceHistCharts(data, liveData) {
     t += `<td style="padding:5px 8px;color:#94a3b8;border-bottom:1px solid #1e2d4533;white-space:nowrap">${label}${isToday?' <span style="color:#64748b;font-size:8px">partial</span>':''}</td>`;
     for (const col of TOD_COLS) {
       const val = col.key === 'avg' ? dp?.avg : dp?.tod?.[col.key];
-      const hasVal = val !== undefined && val !== null;
+      const cnt = col.key === 'avg' ? dp?.count : dp?.tod_count?.[col.key];
+      // Expected minimum counts (5-min: overnight=72,morning=48,midday=72,evening=48,late=48; 30-min: 12,8,12,8,8)
+      // Use 30% of 5-min full-band count as threshold
+      const minCounts = {avg:0, overnight:20, morning:14, midday:20, evening:14, late_evening:14};
+      const enoughData = !isToday || col.key === 'avg' || (cnt !== undefined && cnt >= minCounts[col.key]);
+      const hasVal = enoughData && val !== undefined && val !== null;
       const pc  = hasVal ? priceClass(val) : '';
       const colMap = {negative:'#2ed573', low:'#e2e8f0', medium:'#ffd32a', high:'#ff6b35', vhigh:'#ff4757'};
       const textCol = colMap[pc] || '#e2e8f0';

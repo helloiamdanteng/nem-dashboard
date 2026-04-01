@@ -3341,6 +3341,9 @@ let battWhitePrices      = true;
 
 function setBatteryRegion(r) {
   batteryRegionFilter = r;
+  // Auto-enable prices when a specific state is selected, off for NEM
+  if (r !== 'NEM') battShowPrices = true;
+  else battShowPrices = false;
   window._battRenderGen = (window._battRenderGen || 0) + 1;
   try {
     if (latestData) renderPanel('batteries', latestData);
@@ -6480,12 +6483,17 @@ function toggleDm1IcHighlight(id) {
 // ── D-1 battery toggle functions ──────────────────────────────────────────────
 function setDm1BattRegion(r) {
   dm1BattRegion = r;
+  // Auto-enable prices when a specific state is selected, off for NEM
+  if (r !== 'NEM') dm1BattShowPrices = true;
+  else dm1BattShowPrices = false;
   // Update pill buttons in-place
-  const isNEM = r === 'NEM';
   document.querySelectorAll('[onclick^="setDm1BattRegion"]').forEach(btn => {
     const btnR = btn.getAttribute('onclick').match(/'([^']+)'/)?.[1];
     btn.classList.toggle('active', btnR === r);
   });
+  // Update PRICES button visual
+  const pricesBtn = document.querySelector('[onclick="toggleDm1BattPrices()"]');
+  if (pricesBtn) { pricesBtn.style.borderColor = dm1BattShowPrices?'#94a3b8':'#475569'; pricesBtn.style.background = dm1BattShowPrices?'#94a3b833':'transparent'; pricesBtn.style.color = dm1BattShowPrices?'#94a3b8':'#475569'; }
   if (window._dMinus1Data) drawDm1BatteryCharts(window._dMinus1Data);
 }
 function toggleDm1BattPrices() {

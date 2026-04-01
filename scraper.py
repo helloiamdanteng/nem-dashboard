@@ -1129,11 +1129,13 @@ def scrape_predispatch_demand(text: str) -> dict:
 
 def scrape_predispatch_generation(text: str) -> dict:
     """
-    Extract today's future generation forecast from PREDISPATCH files.
-    Returns { region: [{interval, Scheduled, SemiScheduled}] } for today's future intervals.
+    Extract today's future + tomorrow's generation forecast from PREDISPATCH files.
+    Returns { region: [{interval, Scheduled, SemiScheduled, solar, wind}] }
+    Intervals use "YYYY-MM-DD HH:MM" format for tomorrow, "HH:MM" for today.
     """
     now_aest = datetime.now(AEST).replace(tzinfo=None)
     today    = now_aest.date()
+    tomorrow = (now_aest + timedelta(days=1)).date()
     region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
     for tk in ["PREDISPATCH_REGION_SOLUTION", "PREDISPATCH_REGIONSOLUTION"]:
         rows = _parse_aemo(text, tk)
@@ -1150,18 +1152,24 @@ def scrape_predispatch_generation(text: str) -> dict:
                 continue
             try:
                 dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                if dt.date() == today and dt >= now_aest:
+                if dt < now_aest:
+                    continue
+                if dt.date() == today:
                     label = dt.strftime("%H:%M")
-                    sched = float(row.get("DISPATCHABLEGENERATION", 0) or 0)
-                    semi  = float(row.get("SEMISCHEDULE_CLEAREDMW", 0) or 0)
-                    sol   = float(row.get("SS_SOLAR_UIGF", row.get("SS_SOLAR_CLEAREDMW", 0)) or 0)
-                    win   = float(row.get("SS_WIND_UIGF",  row.get("SS_WIND_CLEAREDMW",  0)) or 0)
-                    region_series[region][label] = {
-                        "Scheduled":     round(sched, 1),
-                        "SemiScheduled": round(semi, 1),
-                        "solar":         round(sol, 1),
-                        "wind":          round(win, 1),
-                    }
+                elif dt.date() == tomorrow:
+                    label = dt.strftime("%Y-%m-%d %H:%M")
+                else:
+                    continue
+                sched = float(row.get("DISPATCHABLEGENERATION", 0) or 0)
+                semi  = float(row.get("SEMISCHEDULE_CLEAREDMW", 0) or 0)
+                sol   = float(row.get("SS_SOLAR_UIGF", row.get("SS_SOLAR_CLEAREDMW", 0)) or 0)
+                win   = float(row.get("SS_WIND_UIGF",  row.get("SS_WIND_CLEAREDMW",  0)) or 0)
+                region_series[region][label] = {
+                    "Scheduled":     round(sched, 1),
+                    "SemiScheduled": round(semi, 1),
+                    "solar":         round(sol, 1),
+                    "wind":          round(win, 1),
+                }
             except (ValueError, TypeError):
                 pass
         break

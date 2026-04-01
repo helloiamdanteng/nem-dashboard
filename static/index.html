@@ -2219,7 +2219,8 @@ function renderOrigin(data) {
       const isCharging = s.fuel === 'Battery' ? mw < 0 : mw < -5;
       const isOn = mw > 5;
       const isUnknown = !mwKnown;
-      const displayCol = isCharging ? '#38bdf8' : fuelCol;
+      const chargingCol = s.fuel === 'Battery' ? '#a78bfa' : '#38bdf8';
+      const displayCol = isCharging ? chargingCol : fuelCol;
       const safeName = stnName.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
 
       // Hide offline stations if toggle is on
@@ -2228,7 +2229,7 @@ function renderOrigin(data) {
       html += `<div onclick="openOriginStationModal('${safeName}')" style="
         background:var(--surface);
         border:1px solid var(--border);
-        border-top:2px solid ${isCharging ? '#38bdf8' : fuelCol};
+        border-top:2px solid ${isCharging ? chargingCol : fuelCol};
         border-radius:8px;padding:8px 7px 6px;cursor:pointer;
         opacity:${isUnknown ? '0.6' : '1'};
         transition:border-color 0.15s;active:border-color:${fuelCol}">
@@ -2240,10 +2241,10 @@ function renderOrigin(data) {
         <div style="font-family:var(--font-mono);font-size:13px;font-weight:700;
           color:${displayCol}">
           ${isUnknown ? '?' : mwKnown ? fmt(mw) : '—'}<span style="font-size:8px;color:var(--text-muted)"> MW</span>
-          ${isCharging ? '<span style="font-size:8px;color:#38bdf8"> ↓chg</span>' : ''}
+          ${isCharging ? `<span style="font-size:8px;color:${chargingCol}"> ↓chg</span>` : ''}
         </div>
         <div style="height:2px;background:var(--bg);border-radius:1px;overflow:hidden;margin-top:5px">
-          <div style="height:100%;width:${pct.toFixed(1)}%;background:${isCharging ? '#38bdf888' : fuelCol};border-radius:1px"></div>
+          <div style="height:100%;width:${pct.toFixed(1)}%;background:${isCharging ? chargingCol+'88' : fuelCol};border-radius:1px"></div>
         </div>
         <div style="font-family:var(--font-mono);font-size:8px;color:var(--text-muted);margin-top:3px">${FUEL_ICONS[s.fuel]||'⚡'} ${s.fuel}</div>
       </div>`;
@@ -5120,6 +5121,8 @@ function _renderGBB(gbb) {
     const forecastDates = new Set(gbb.forecast_dates || []);
     const _dashStyle    = d => forecastDates.has(d) ? [4,3] : undefined;
     const _yTJ = v => v >= 1000 || v <= -1000 ? (v/1000).toFixed(1)+'k TJ' : v.toFixed(0)+' TJ';
+    const todayAestMs = Date.now() + 10 * 3600 * 1000;
+    const todayStr = new Date(todayAestMs).toISOString().slice(0,10);
 
     // ── Production chart ──
     const prodHist = gbb.production_history || {};
@@ -5127,8 +5130,6 @@ function _renderGBB(gbb) {
     const PROD_ORDER = ["QLD (CSG+LNG)","SA: Moomba","VIC: Longford","VIC: Otway","VIC: Orbost","VIC: ATHENA","VIC: Lang Lang","NT","Storage (net)"];
     if (Object.keys(prodHist).length && chartDates.length) {
       // Find today's index for the NOW line
-      const todayAestMs = Date.now() + 10 * 3600 * 1000;
-      const todayStr = new Date(todayAestMs).toISOString().slice(0,10);
       const nowIdx = chartDates.indexOf(todayStr);
 
       const prodDatasets = PROD_ORDER.filter(k=>prodHist[k]).map(k=>({

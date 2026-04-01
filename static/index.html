@@ -4210,6 +4210,8 @@ function drawDayAheadCharts(data) {
     const da1LabelSet = new Set();
     for (const r of REGIONS) (pdGen[r]||[]).forEach(p => { if (p.interval.startsWith(tStr)) da1LabelSet.add(p.interval); });
     const da1Labels = Array.from(da1LabelSet).sort();
+    // Plain HH:MM labels for clean x-axis display
+    const da1DisplayLabels = da1Labels.map(l => l.split(' ')[1] || l);
     console.log('[DA1 Renew] tStr:', tStr, 'tomorrow labels:', da1Labels.length);
     if (da1Labels.length) {
       const da1Datasets = [];
@@ -4240,17 +4242,8 @@ function drawDayAheadCharts(data) {
       destroyChart('da1Renew');
       const da1Ctx = document.getElementById('da1RenewChart');
       if (da1Ctx && da1Datasets.length) {
-        const xTickCb1 = function(v,i) {
-          const l = this.getLabelForValue(v);
-          try {
-            const t = l.split(' ')[1] || '';
-            if (!t.endsWith(':00')) return null;
-            const hh = t.slice(0,2);
-            return hh + ':00';
-          } catch { return null; }
-        };
         charts.da1Renew = new Chart(da1Ctx, {
-          type: 'line', data: { labels: da1Labels, datasets: da1Datasets },
+          type: 'line', data: { labels: da1DisplayLabels, datasets: da1Datasets },
           options: { ...CHART_DEFAULTS,
             plugins: { ...CHART_DEFAULTS.plugins,
               legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6,
@@ -4261,7 +4254,10 @@ function drawDayAheadCharts(data) {
               }
             },
             scales: {
-              x: { stacked: true, ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:0,maxTicksLimit:25,callback:xTickCb1}, grid:{color:'#1e2d4544'} },
+              x: { stacked: true, ticks:{color:'#64748b',font:{family:'Space Mono',size:9},maxRotation:0,
+                autoSkip:true, maxTicksLimit:13,
+                callback(v,i){ const l=this.getLabelForValue(i); return l&&l.endsWith(':00')?l:null; }
+              }, grid:{color:'#1e2d4544'} },
               y: { stacked: true, ticks:{color:'#64748b',font:{family:'Space Mono',size:9}}, title:{display:true,text:'MW',color:'#64748b',font:{family:'Space Mono',size:9}}, grid:{color:'#1e293b'} }
             }
           }

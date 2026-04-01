@@ -479,7 +479,15 @@ def _get(url: str, timeout: int = 15, retries: int = 2) -> Optional[requests.Res
     return None
 
 
+_list_hrefs_cache: dict[str, tuple[float, list]] = {}  # url → (timestamp, result)
+_LIST_HREFS_TTL = 60  # seconds
+
 def _list_hrefs(url: str) -> list[str]:
+    import time as _time
+    now = _time.monotonic()
+    cached = _list_hrefs_cache.get(url)
+    if cached and (now - cached[0]) < _LIST_HREFS_TTL:
+        return cached[1]
     r = _get(url, timeout=10)
     if not r:
         return []
@@ -487,19 +495,19 @@ def _list_hrefs(url: str) -> list[str]:
     for m in re.finditer(r'href="([^"]+\.zip)"', r.text, re.IGNORECASE):
         href = m.group(1)
         if href.startswith("http"):
-            # Normalise any absolute URL to use www. and uppercase /REPORTS/
             href = re.sub(r'https?://(?:www\.)?nemweb\.com\.au', NEMWEB_BASE, href, flags=re.I)
             href = re.sub(r'/[Rr]eports/[Cc]urrent/', '/REPORTS/CURRENT/', href)
             href = re.sub(r'/[Rr]eports/[Aa]rchive/', '/REPORTS/ARCHIVE/', href)
             found.append(href)
         elif href.startswith("/"):
-            # Normalise path casing
             href = re.sub(r'/[Rr]eports/[Cc]urrent/', '/REPORTS/CURRENT/', href)
             href = re.sub(r'/[Rr]eports/[Aa]rchive/', '/REPORTS/ARCHIVE/', href)
             found.append(f"{NEMWEB_BASE}{href}")
         else:
             found.append(url.rstrip("/") + "/" + href)
-    return sorted(set(found))
+    result = sorted(set(found))
+    _list_hrefs_cache[url] = (now, result)
+    return result
 
 
 def _read_zip(url: str) -> str:
@@ -1034,104 +1042,6 @@ def scrape_dispatch_history() -> dict:
 
 
 # Keep old name as alias for compatibility
-def scrape_dispatch_demand_history() -> dict:
-    return scrape_dispatch_history()["demand"]
-
-
-# ---------------------------------------------------------------------------
-# Predispatch
-# ---------------------------------------------------------------------------
-
-def scrape_historical_dispatch_prices(date_str: str) -> dict:
-    """
-    Fetch 5-min dispatch prices for a given date (YYYYMMDD).
-    Returns { region: [ {interval: "HH:MM", rrp: float} ] }
-
-    Sources (in priority order):
-    1. DispatchIS CURRENT — last ~3 days, table PRICE, filter INTERVENTION=0
-    2. TradingIS CURRENT  — last ~15 days, table PRICE, uses PERIODID for time
-    """
-    from datetime import datetime as _dt, timedelta as _td
-    now_aest = datetime.now(AEST)
-    today    = now_aest.date()
-
-    try:
-        req_date = _dt.strptime(date_str, "%Y%m%d").date()
-    except ValueError:
-        return {}
-
-    prices: dict = {r: {} for r in NEM_REGIONS}
-
-    # ── Source 1: DispatchIS CURRENT (last ~3 days, 5-min, INTERVENTION filter) ──
-    try:
-        dispatch_files = _list_hrefs(DISPATCH_IS_URL)
-        date_files = sorted([f for f in dispatch_files if date_str in f and "PUBLIC_DISPATCHIS" in f.upper()])
-        logger.info(f"scrape_historical_dispatch_prices: {len(date_files)} DispatchIS files for {date_str}")
-        for url in date_files:
-            try:
-                text = _read_zip(url)
-                if not text: continue
-                for row in _parse_aemo(text, "PRICE"):
-                    if row.get("INTERVENTION", "0").strip() != "0":
-                        continue
-                    region = row.get("REGIONID", "").strip()
-                    if region not in NEM_REGIONS: continue
-                    dt_str2 = row.get("SETTLEMENTDATE", "")
-                    rrp_str = row.get("RRP", "")
-                    if not dt_str2 or not rrp_str: continue
-                    try:
-                        dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - _td(minutes=5)
-                        if dt.date() != req_date: continue
-                        label = dt.strftime("%H:%M")
-                        prices[region][label] = round(float(rrp_str), 2)
-                    except (ValueError, TypeError):
-                        continue
-            except Exception as e:
-                logger.debug(f"scrape_historical_dispatch_prices: DispatchIS file error {url}: {e}")
-    except Exception as e:
-        logger.warning(f"scrape_historical_dispatch_prices: DispatchIS listing failed: {e}")
-
-    # If we got data from DispatchIS, return it
-    if any(prices.values()):
-        return {r: [{"interval": k, "rrp": v} for k, v in sorted(pts.items())]
-                for r, pts in prices.items() if pts}
-
-    # ── Source 2: TradingIS CURRENT (last ~15 days, 5-min via PERIODID) ──
-    try:
-        trading_files = _list_hrefs(TRADING_IS_URL)
-        date_files = sorted([f for f in trading_files if date_str in f and "PUBLIC_TRADINGIS" in f.upper()])
-        logger.info(f"scrape_historical_dispatch_prices: {len(date_files)} TradingIS files for {date_str}")
-        for url in date_files:
-            try:
-                text = _read_zip(url)
-                if not text: continue
-                for row in _parse_aemo(text, "PRICE"):
-                    region = row.get("REGIONID", "").strip()
-                    if region not in NEM_REGIONS: continue
-                    period_str = row.get("PERIODID", "")
-                    rrp_str    = row.get("RRP", "")
-                    if not period_str or not rrp_str: continue
-                    try:
-                        # PERIODID 1-288, each = 5 min from midnight
-                        period = int(float(period_str))
-                        total_min = (period - 1) * 5
-                        hh, mm = divmod(total_min, 60)
-                        label = f"{hh:02d}:{mm:02d}"
-                        prices[region][label] = round(float(rrp_str), 2)
-                    except (ValueError, TypeError):
-                        continue
-            except Exception as e:
-                logger.debug(f"scrape_historical_dispatch_prices: TradingIS file error {url}: {e}")
-    except Exception as e:
-        logger.warning(f"scrape_historical_dispatch_prices: TradingIS listing failed: {e}")
-
-    if not any(prices.values()):
-        logger.warning(f"scrape_historical_dispatch_prices: no data found for {date_str}")
-
-    return {r: [{"interval": k, "rrp": v} for k, v in sorted(pts.items())]
-            for r, pts in prices.items() if pts}
-
-
 def _fetch_predispatch() -> str:
     url = get_latest_file_url(PREDISPATCH_URL, "PUBLIC_PREDISPATCHIS")
     return _read_zip(url) if url else ""
@@ -2691,178 +2601,6 @@ def scrape_pasa_duid_availability(source: str = "STPASA") -> dict:
 
     logger.info(f"scrape_pasa_duid_availability({source}): {len(result)} DUIDs")
     return {"slots": result, "max_avail": max_avail}
-
-
-def scrape_historical_day(date_str: str) -> dict:
-    """
-    Fetch a full day of historical data for the D-1 page.
-    - Prices + demand: TradingIS weekly archive (1-2 ZIPs, fast)
-    - Fuel mix: SCADA parallel fetch (288 files, ~15s)
-    date_str: YYYYMMDD
-    """
-    from datetime import datetime as _dt, timedelta as _td
-    from concurrent.futures import ThreadPoolExecutor as _TPE
-
-    try:
-        req_date = _dt.strptime(date_str, "%Y%m%d").date()
-    except ValueError:
-        return {}
-
-    prices:    dict = {r: {} for r in NEM_REGIONS}
-    demand:    dict = {r: {} for r in NEM_REGIONS}
-    op_demand: dict = {r: {} for r in NEM_REGIONS}
-    fuel_history: dict = {r: {} for r in NEM_REGIONS}
-
-    # ── Source A: TradingIS archive (weekly ZIP of ZIPs) ──────────────────────
-    # One outer ZIP per week contains all 5-min files — fast single download
-    try:
-        all_hrefs = _list_hrefs(TRADING_ARCHIVE)
-        relevant = []
-        for href in all_hrefs:
-            fname = href.split("/")[-1]
-            parts = fname.replace(".zip","").split("_")
-            if len(parts) >= 4:
-                try:
-                    start_d = _dt.strptime(parts[-2], "%Y%m%d").date()
-                    end_d   = _dt.strptime(parts[-1], "%Y%m%d").date()
-                    if start_d <= req_date <= end_d:
-                        relevant.append(href)
-                except ValueError:
-                    continue
-        logger.info(f"scrape_historical_day {date_str}: {len(relevant)} TradingIS archive ZIPs")
-
-        for href in relevant:
-            text = _read_zip_of_zips(href)
-            if not text: continue
-            for row in (_parse_aemo(text, "TRADING_PRICE") or _parse_aemo(text, "TRADINGPRICE")):
-                region = row.get("REGIONID","").strip()
-                if region not in NEM_REGIONS: continue
-                if row.get("INVALIDFLAG","0") not in ("0",""): continue
-                dt_str2 = row.get("SETTLEMENTDATE","")
-                rrp_str = row.get("RRP","")
-                if not dt_str2 or not rrp_str: continue
-                try:
-                    dt = datetime.fromisoformat(dt_str2.replace("/","-")) - _td(minutes=30)
-                    if dt.date() != req_date: continue
-                    prices[region][dt.strftime("%H:%M")] = round(float(rrp_str), 2)
-                except (ValueError, TypeError): continue
-            for row in _parse_aemo(text, "TRADING_REGIONSUM"):
-                region = row.get("REGIONID","").strip()
-                if region not in NEM_REGIONS: continue
-                dt_str2 = row.get("SETTLEMENTDATE","")
-                dem_str = row.get("TOTALDEMAND","")
-                op_str  = row.get("DEMAND_AND_NONSCHEDGEN","") or row.get("DEMANDFORECAST","")
-                if not dt_str2: continue
-                try:
-                    dt = datetime.fromisoformat(dt_str2.replace("/","-")) - _td(minutes=30)
-                    if dt.date() != req_date: continue
-                    label = dt.strftime("%H:%M")
-                    if dem_str: demand[region][label]    = round(float(dem_str), 1)
-                    if op_str:  op_demand[region][label] = round(float(op_str),  1)
-                except (ValueError, TypeError): continue
-    except Exception as e:
-        logger.warning(f"scrape_historical_day: TradingIS archive failed: {e}")
-
-    # Fallback: DispatchIS CURRENT parallel fetch (last ~3 days, 5-min)
-    if not any(prices.values()):
-        logger.info(f"scrape_historical_day {date_str}: archive miss, trying DispatchIS CURRENT")
-        try:
-            all_files     = _list_hrefs(DISPATCH_IS_URL)
-            dispatch_urls = sorted([f for f in all_files if date_str in f and "PUBLIC_DISPATCHIS" in f.upper()])
-            def _fetch_d(url):
-                try: return _read_zip(url)
-                except: return None
-            with _TPE(max_workers=20) as ex:
-                for text in ex.map(_fetch_d, dispatch_urls):
-                    if not text: continue
-                    for row in _parse_aemo(text, "PRICE"):
-                        if row.get("INTERVENTION","0").strip() != "0": continue
-                        region = row.get("REGIONID","").strip()
-                        if region not in NEM_REGIONS: continue
-                        dt_str2 = row.get("SETTLEMENTDATE","")
-                        rrp_str = row.get("RRP","")
-                        if not dt_str2 or not rrp_str: continue
-                        try:
-                            dt = datetime.fromisoformat(dt_str2.replace("/","-")) - _td(minutes=5)
-                            if dt.date() != req_date: continue
-                            prices[region][dt.strftime("%H:%M")] = round(float(rrp_str), 2)
-                        except (ValueError, TypeError): continue
-                    for row in _parse_aemo(text, "DISPATCH_REGIONSUM"):
-                        region = row.get("REGIONID","").strip()
-                        if region not in NEM_REGIONS: continue
-                        dt_str2 = row.get("SETTLEMENTDATE","")
-                        dem_str = row.get("TOTALDEMAND","")
-                        op_str  = row.get("DEMAND_AND_NONSCHEDGEN","")
-                        if not dt_str2: continue
-                        try:
-                            dt = datetime.fromisoformat(dt_str2.replace("/","-")) - _td(minutes=5)
-                            if dt.date() != req_date: continue
-                            label = dt.strftime("%H:%M")
-                            if dem_str: demand[region][label]    = round(float(dem_str), 1)
-                            if op_str:  op_demand[region][label] = round(float(op_str),  1)
-                        except (ValueError, TypeError): continue
-        except Exception as e:
-            logger.warning(f"scrape_historical_day: DispatchIS fallback failed: {e}")
-
-    # ── Source B: SCADA parallel fetch for fuel mix ───────────────────────────
-    try:
-        scada_all  = _list_hrefs(SCADA_URL)
-        scada_urls = sorted([f for f in scada_all if date_str in f and "PUBLIC_DISPATCHSCADA" in f.upper()])
-        logger.info(f"scrape_historical_day {date_str}: {len(scada_urls)} SCADA files")
-
-        def _fetch_scada(url):
-            try:
-                text = _read_zip(url)
-                if not text: return None
-                snapshot, label = {}, None
-                for row in _parse_aemo(text, "DISPATCH_UNIT_SCADA"):
-                    duid    = row.get("DUID","").strip().upper()
-                    dt_str2 = row.get("SETTLEMENTDATE","")
-                    v       = row.get("SCADAVALUE","")
-                    if not duid or not dt_str2 or not v: continue
-                    try:
-                        dt = datetime.fromisoformat(dt_str2.replace("/","-")) - _td(minutes=5)
-                        if dt.date() != req_date: continue
-                        label = dt.strftime("%H:%M")
-                        snapshot[duid] = round(float(v), 1)
-                    except (ValueError, TypeError): continue
-                return (label, snapshot) if label else None
-            except Exception: return None
-
-        with _TPE(max_workers=20) as ex:
-            for result in ex.map(_fetch_scada, scada_urls):
-                if not result: continue
-                label, snapshot = result
-                fuel_mix_snap = {r: {} for r in NEM_REGIONS}
-                for duid, mw in snapshot.items():
-                    info   = NEM_UNITS.get(duid, {})
-                    region = info.get("region","")
-                    fuel   = info.get("fuel","") or _infer_fuel_from_duid(duid)
-                    if region not in NEM_REGIONS: continue
-                    fuel_mix_snap[region][fuel] = round(fuel_mix_snap[region].get(fuel,0) + max(mw,0), 1)
-                for region in NEM_REGIONS:
-                    if fuel_mix_snap[region]:
-                        fuel_history[region][label] = fuel_mix_snap[region]
-    except Exception as e:
-        logger.warning(f"scrape_historical_day: SCADA failed: {e}")
-
-    logger.info(f"scrape_historical_day {date_str}: prices={sum(len(v) for v in prices.values())} "
-                f"demand={sum(len(v) for v in op_demand.values())} "
-                f"fuel_slots={sum(len(v) for v in fuel_history.values())}")
-
-    def _to_list(d):
-        return {r:[{"interval":k,**v} for k,v in sorted(s.items())] for r,s in d.items() if s}
-    def _to_series(d):
-        return {r:[{"interval":k,"demand":v} for k,v in sorted(s.items())] for r,s in d.items() if s}
-
-    return {
-        "date":                 date_str,
-        "dispatch_prices_5min": {r:[{"interval":k,"rrp":v} for k,v in sorted(pts.items())] for r,pts in prices.items() if pts},
-        "historical_prices":    {},
-        "demand_history":       _to_series(demand),
-        "op_demand_history":    _to_series(op_demand),
-        "fuel_history":         _to_list(fuel_history),
-    }
 
 
 def scrape_historical_day_fast(date_str: str) -> dict:

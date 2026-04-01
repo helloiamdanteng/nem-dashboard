@@ -337,7 +337,7 @@ logger.info(f"NEM_UNITS loaded: {len(NEM_UNITS)} DUIDs")
 # Add here until the next AEMO registration list update picks them up
 # Use force=True for DUIDs where nem_units.json has wrong data
 _NEW_DUIDS = {
-    "MLB01": {"station": "Mortlake Battery", "fuel": "Battery", "region": "VIC1", "capacity": 250},
+    "MLB01": {"station": "Mortlake Battery", "fuel": "Battery", "region": "VIC1", "capacity": 300},
 }
 for _duid, _info in _NEW_DUIDS.items():
     NEM_UNITS[_duid] = _info  # always override — nem_units.json may have stale data

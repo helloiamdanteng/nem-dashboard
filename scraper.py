@@ -2774,13 +2774,11 @@ def scrape_historical_day_fuel(date_str: str) -> dict:
 
 def scrape_historical_price_averages(days: int = 90) -> dict:
     """
-    Compute daily average prices for the last N days (default 90).
+    Compute daily average prices for the last N days (default 95).
 
     Sources (in priority order):
-    1. GitHub daily price files — 5-min dispatch prices, written every 5 min
-       data/prices/YYYY-MM-DD.json
-    2. MMSDM monthly DVD — single flat CSV, available ~5-6 weeks after month end
-    3. TradingIS weekly archive — ZIP of ZIPs, available next Sunday after week end
+    1. GitHub daily price files — 5-min dispatch prices, covers recent days
+    2. TradingIS weekly archive — 30-min prices, covers ~8 weeks back
 
     Returns { region: { "YYYY-MM-DD": { avg, min, max, p90, count } } }
     """
@@ -2832,7 +2830,7 @@ def scrape_historical_price_averages(days: int = 90) -> dict:
         except Exception as e:
             logger.warning(f"scrape_historical_price_averages: GitHub files failed: {e}")
 
-    # Work out which months still need MMSDM/archive coverage
+    # Work out which months still need TradingIS archive coverage
     months_needed = set()
     d = cutoff
     while d < today:
@@ -2846,11 +2844,11 @@ def scrape_historical_price_averages(days: int = 90) -> dict:
     if not months_needed:
         logger.info("scrape_historical_price_averages: all days covered by GitHub files")
     else:
-        logger.info(f"scrape_historical_price_averages: {len(months_needed)} months need MMSDM/archive")
+        logger.info(f"scrape_historical_price_averages: {len(months_needed)} months need TradingIS archive")
 
     def _parse_text(text: str):
         """Parse AEMO CSV text and accumulate into raw."""
-        # Try both TRADINGPRICE (MMSDM) and TRADING_PRICE (TradingIS) table names
+        # Try both TRADINGPRICE and TRADING_PRICE table names (vary by source)
         rows = _parse_aemo(text, "TRADINGPRICE") or _parse_aemo(text, "TRADING_PRICE")
         for row in rows:
             region = row.get("REGIONID", "").strip()
@@ -2873,27 +2871,10 @@ def scrape_historical_price_averages(days: int = 90) -> dict:
             except (ValueError, TypeError):
                 continue
 
-    # ── Step 1: try MMSDM monthly DVDs ───────────────────────────────────────
-    mmsdm_covered = set()  # months successfully fetched from MMSDM
-    for (year, month) in sorted(months_needed):
-        ym     = f"{year}{month:02d}"
-        url    = (f"{MMSDM_BASE}/{year}/MMSDM_{ym}/"
-                  f"MMSDM_Historical_Data_SQLLoader/DATA/"
-                  f"PUBLIC_DVD_TRADINGPRICE_{ym}010000.zip")
-        text = _read_zip(url)
-        if text:
-            logger.info(f"scrape_historical_price_averages: MMSDM {ym} OK ({len(text)//1024}KB)")
-            _parse_text(text)
-            mmsdm_covered.add((year, month))
-        else:
-            logger.info(f"scrape_historical_price_averages: MMSDM {ym} not available, will use TradingIS archive")
-
-    # ── Step 2: for months not in MMSDM, use TradingIS weekly archive ────────
-    months_needing_archive = months_needed - mmsdm_covered
-    if months_needing_archive:
+    # ── Step 1 (only): TradingIS weekly archive for months not in GitHub ─────
+    if months_needed:
         try:
             all_hrefs = _list_hrefs(TRADING_ARCHIVE)
-            # Find weekly ZIPs that overlap with needed months
             relevant = []
             for href in all_hrefs:
                 fname = href.split('/')[-1]
@@ -2902,8 +2883,7 @@ def scrape_historical_price_averages(days: int = 90) -> dict:
                     try:
                         start_date = datetime.strptime(parts[-2], "%Y%m%d").date()
                         end_date   = datetime.strptime(parts[-1], "%Y%m%d").date()
-                        # Include if any needed month overlaps this week
-                        for (yr, mo) in months_needing_archive:
+                        for (yr, mo) in months_needed:
                             from calendar import monthrange
                             month_start = datetime(yr, mo, 1).date()
                             last_day    = monthrange(yr, mo)[1]
@@ -2913,7 +2893,7 @@ def scrape_historical_price_averages(days: int = 90) -> dict:
                                 break
                     except ValueError:
                         continue
-            relevant = list(set(relevant))  # deduplicate
+            relevant = list(set(relevant))
             logger.info(f"scrape_historical_price_averages: {len(relevant)} TradingIS archive ZIPs to fetch")
 
             def _fetch_archive(u):
@@ -2927,7 +2907,7 @@ def scrape_historical_price_averages(days: int = 90) -> dict:
         except Exception as e:
             logger.warning(f"scrape_historical_price_averages: TradingIS archive failed: {e}")
 
-    # ── Step 3: compute daily stats ───────────────────────────────────────────
+    # ── Step 2: compute daily stats ───────────────────────────────────────────
     CAP = 300.0
     # Time-of-day bands (AEST, 30-min intervals, start inclusive, end exclusive)
     TOD_BANDS = {
@@ -2981,27 +2961,6 @@ def scrape_historical_price_averages(days: int = 90) -> dict:
     total = sum(len(v) for v in results.values())
     logger.info(f"scrape_historical_price_averages: {total} region-days computed")
     return results
-
-    # ── Step 4: compute stats ────────────────────────────────────────────────
-    results: dict = {r: {} for r in NEM_REGIONS}
-    for (region, day_str), prices in raw.items():
-        if not prices:
-            continue
-        prices_sorted = sorted(prices)
-        p90_idx = min(int(len(prices_sorted) * 0.90), len(prices_sorted) - 1)
-        results[region][day_str] = {
-            "avg":   round(statistics.mean(prices), 2),
-            "min":   round(min(prices), 2),
-            "max":   round(max(prices), 2),
-            "p90":   round(prices_sorted[p90_idx], 2),
-            "count": len(prices),
-        }
-
-    total = sum(len(v) for v in results.values())
-    logger.info(f"scrape_historical_price_averages: {total} region-days computed")
-    return results
-
-
 def scrape_mtpasa_outages() -> list:
     """
     Find units that are currently offline/derated OR have upcoming availability changes.

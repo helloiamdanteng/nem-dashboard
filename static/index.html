@@ -4610,11 +4610,11 @@ function _renderPriceHistCharts(data, liveData) {
 
   const TOD_COLS = [
     {key:'avg',         label:'All Day',   sub:'',          color:'#ffffff'},
-    {key:'overnight',   label:'Overnight', sub:'12am–6am',  color:'#475569'},
-    {key:'morning',     label:'Morn Peak', sub:'6am–10am',  color:'#7f8ea3'},
+    {key:'overnight',   label:'Overnight', sub:'12am–6am',  color:'#94a3b8'},
+    {key:'morning',     label:'Morn Peak', sub:'6am–10am',  color:'#94a3b8'},
     {key:'midday',      label:'Midday',    sub:'10am–4pm',  color:'#94a3b8'},
-    {key:'evening',     label:'Eve Peak',  sub:'4pm–8pm',   color:'#334155'},
-    {key:'late_evening',label:'Late Eve',  sub:'8pm–12am',  color:'#64748b'},
+    {key:'evening',     label:'Eve Peak',  sub:'4pm–8pm',   color:'#94a3b8'},
+    {key:'late_evening',label:'Late Eve',  sub:'8pm–12am',  color:'#94a3b8'},
   ];
 
   // Limit to 60 days
@@ -4722,10 +4722,12 @@ function _renderPriceHistCharts(data, liveData) {
     const _applyTodStyle = () => {
       const c = charts.tod;
       if (!c) return;
+      const SEL_COLOR = '#fbbf24'; // yellow when selected
       c.data.datasets.forEach((ds, i) => {
         const isSel = _selectedTod === null || ds._key === _selectedTod;
+        const isHighlighted = _selectedTod !== null && ds._key === _selectedTod;
         ds.borderWidth = isSel ? (ds._key === 'avg' ? 3 : 2.5) : 1;
-        ds.borderColor = isSel ? ds._baseColor : ds._baseColor + '33';
+        ds.borderColor = isHighlighted ? SEL_COLOR : (isSel ? ds._baseColor : ds._baseColor + '33');
       });
       // Update button styles
       const container = document.getElementById('todLegend');
@@ -4733,10 +4735,12 @@ function _renderPriceHistCharts(data, liveData) {
         const key = btn.dataset.key;
         const col = btn.dataset.color;
         const isSel = _selectedTod === null || key === _selectedTod;
-        btn.style.background    = isSel ? col+'22' : 'transparent';
-        btn.style.borderColor   = isSel ? col : col+'44';
-        btn.style.color         = isSel ? col : col+'44';
-        btn.style.fontWeight    = (isSel && _selectedTod !== null) ? '700' : '400';
+        const isHighlighted = _selectedTod !== null && key === _selectedTod;
+        const displayCol = isHighlighted ? '#fbbf24' : col;
+        btn.style.background    = isSel ? displayCol+'22' : 'transparent';
+        btn.style.borderColor   = isSel ? displayCol : col+'44';
+        btn.style.color         = isSel ? displayCol : col+'44';
+        btn.style.fontWeight    = isHighlighted ? '700' : '400';
       });
       c.update('none');
     };
@@ -7353,7 +7357,7 @@ function renderAbout(data) {
       </tr>
       <tr style="border-bottom:1px solid var(--border)">
         <td style="padding:6px 0;color:var(--text)">Historical average prices (Avg)</td>
-        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · TradingIS Archive / MMSDM</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">NEMWeb · TradingIS Archive / GitHub price files</td>
       </tr>
       <tr style="border-bottom:1px solid var(--border)">
         <td style="padding:6px 0;color:var(--text)">D-1 historical day</td>

@@ -5179,6 +5179,7 @@ function _renderGBB(gbb) {
 
     // ── Pipeline flows chart — bold selected, dim others ──
     const pipeFlows = gbb.pipeline_flows || {};
+    console.log('[GBB charts] chartDates:', chartDates.length, 'pipeFlows:', Object.keys(pipeFlows).length, 'storage:', Object.keys(storage).length);
     const PIPE_COLORS = ["#2ed573","#f39c12","#3498db","#e74c3c","#9b59b6","#1abc9c","#e67e22","#64748b"];
     if (Object.keys(pipeFlows).length) {
       const pipeAllDates = [...new Set(Object.values(pipeFlows).flatMap(pts => pts.map(p => p.gas_date)))].sort();
@@ -5268,7 +5269,11 @@ function _renderGBB(gbb) {
             y:{ticks:{color:"#94a3b8",font:{family:"Space Mono",size:9},callback:_yTJ},grid:{color:"#1e2d45"},beginAtZero:false} }});
       _makeLegend("gbbStorLegend","gbbStorage", storColors);
     }
-    } catch(e) { console.error('GBB chart error:', e); }
+    } catch(e) { 
+      console.error('GBB chart error:', e, e.stack);
+      const el2 = document.getElementById('gbb-content');
+      if (el2) el2.innerHTML += `<div style="font-family:var(--font-mono);font-size:10px;color:#e74c3c;padding:8px">Chart error: ${e.message}</div>`;
+    }
   }, 50);
 }
 

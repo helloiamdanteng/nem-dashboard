@@ -4389,7 +4389,7 @@ async function drawPricesHist() {
     return;
   }
   const status = document.getElementById('prices-hist-status');
-  if (status) status.textContent = 'Loading 95 days of price data… (first load takes ~30s)';
+  if (status) status.textContent = 'Loading historical price data… (first load takes ~30s)';
   try {
     const data = await fetch('/api/historical_price_averages').then(r => r.json());
     if (data.error) { if (status) status.textContent = `Error: ${data.error}`; return; }
@@ -4611,10 +4611,10 @@ function _renderPriceHistCharts(data, liveData) {
   const TOD_COLS = [
     {key:'avg',         label:'All Day',   sub:'',          color:'#ffffff'},
     {key:'overnight',   label:'Overnight', sub:'12am–6am',  color:'#94a3b8'},
-    {key:'morning',     label:'Morn Peak', sub:'6am–10am',  color:'#94a3b8'},
-    {key:'midday',      label:'Midday',    sub:'10am–4pm',  color:'#94a3b8'},
-    {key:'evening',     label:'Eve Peak',  sub:'4pm–8pm',   color:'#94a3b8'},
-    {key:'late_evening',label:'Late Eve',  sub:'8pm–12am',  color:'#94a3b8'},
+    {key:'morning',     label:'Morn Peak', sub:'6am–10am',  color:'#7f8ea3'},
+    {key:'midday',      label:'Midday',    sub:'10am–4pm',  color:'#b0bec5'},
+    {key:'evening',     label:'Eve Peak',  sub:'4pm–8pm',   color:'#64748b'},
+    {key:'late_evening',label:'Late Eve',  sub:'8pm–12am',  color:'#8899a8'},
   ];
 
   // Limit to 60 days
@@ -5180,16 +5180,18 @@ function _renderGBB(gbb) {
     // ── Pipeline flows chart — bold selected, dim others ──
     const pipeFlows = gbb.pipeline_flows || {};
     const PIPE_COLORS = ["#2ed573","#f39c12","#3498db","#e74c3c","#9b59b6","#1abc9c","#e67e22","#64748b"];
-    if (Object.keys(pipeFlows).length && chartDates.length) {
+    if (Object.keys(pipeFlows).length) {
+      const pipeAllDates = [...new Set(Object.values(pipeFlows).flatMap(pts => pts.map(p => p.gas_date)))].sort();
       const pipeEntries = Object.entries(pipeFlows);
       const pipeDatasets = pipeEntries.map(([lbl,pts],i)=>({
         label: lbl.replace(/\(|\)/g,"").trim(),
-        data: chartDates.map(d=>{const p=pts.find(x=>x.gas_date===d);return p?p.flow_tj:null;}),
+        data: pipeAllDates.map(d=>{const p=pts.find(x=>x.gas_date===d);return p?p.flow_tj:null;}),
         borderColor: PIPE_COLORS[i%PIPE_COLORS.length],
         backgroundColor: "transparent",
-        borderWidth: 1.5, pointRadius: 0, tension: 0.2,
-        segment:{borderDash:ctx=>_dashStyle(chartDates[ctx.p0DataIndex])},
+        borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: true,
+        segment:{borderDash:ctx=>_dashStyle(pipeAllDates[ctx.p0DataIndex])},
       }));
+      const nowPipeIdx = pipeAllDates.indexOf(todayStr);
       const pipeCtx = document.getElementById("gbbPipelineChart");
       if (pipeCtx) {
         destroyChart("gbbPipeline");
@@ -5217,7 +5219,7 @@ function _renderGBB(gbb) {
           c.update("none");
         };
         charts.gbbPipeline = new Chart(pipeCtx, {type:"line",
-          data:{labels:_dateLabels(chartDates), datasets:pipeDatasets},
+          data:{labels:_dateLabels(pipeAllDates), datasets:pipeDatasets},
           options:{ ...CHART_DEFAULTS,
             plugins:{ ...CHART_DEFAULTS.plugins,
               legend:{display:false},
@@ -5228,7 +5230,7 @@ function _renderGBB(gbb) {
               y:{ticks:{color:"#94a3b8",font:{family:"Space Mono",size:9},callback:_yTJ},grid:{color:"#1e2d45"},beginAtZero:true}
             }
           },
-          plugins: [_makeNowLinePlugin(nowIdx, 'nowLinePipe')]
+          plugins: [_makeNowLinePlugin(nowPipeIdx, 'nowLinePipe')]
         });
         // Build pipeline buttons with bold-on-click behaviour
         const pipeLegend = document.getElementById("gbbPipeLegend");
@@ -5249,14 +5251,16 @@ function _renderGBB(gbb) {
       }
     }
 
-    // ── Storage levels chart ──
-    if (Object.keys(storage).length && chartDates.length) {
+    // ── Storage levels chart — uses its own date range (independent of chartDates) ──
+    if (Object.keys(storage).length) {
+      const storAllDates = [...new Set(Object.values(storage).flatMap(pts => pts.map(p => p.gas_date)))].sort();
+      const storLabels = _dateLabels(storAllDates);
       const storColors = Object.keys(storage).map(name => STOR_COLORS[name]||"#64748b");
       _makeChart("gbbStorageChart","gbbStorage",
         Object.entries(storage).map(([name,pts])=>({ label:name,
-          data:chartDates.map(d=>{const p=pts.find(x=>x.gas_date===d);return p?p.held_tj:null;}),
-          borderColor:STOR_COLORS[name]||"#64748b",backgroundColor:"transparent",borderWidth:1.5,pointRadius:0,tension:0.2 })),
-        _dateLabels(chartDates),
+          data:storAllDates.map(d=>{const p=pts.find(x=>x.gas_date===d);return p?p.held_tj:null;}),
+          borderColor:STOR_COLORS[name]||"#64748b",backgroundColor:"transparent",borderWidth:1.5,pointRadius:0,tension:0.2,spanGaps:true })),
+        storLabels,
         { ...CHART_DEFAULTS, plugins:{ ...CHART_DEFAULTS.plugins,
             legend:{display:false},
             tooltip:{...CHART_DEFAULTS.plugins.tooltip,callbacks:{label:c=>c.raw===null?null:(` ${c.dataset.label}: `+_yTJ(c.raw))}} },

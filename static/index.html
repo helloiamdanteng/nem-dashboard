@@ -2216,7 +2216,7 @@ function renderOrigin(data) {
       const cap = s.totalCap;
       const pct = cap > 0 ? Math.min(Math.abs(mw)/cap*100,100) : 0;
       const fuelCol = fc[s.fuel] || '#64748b';
-      const isCharging = mw < -5;
+      const isCharging = s.fuel === 'Battery' ? mw < 0 : mw < -5;
       const isOn = mw > 5;
       const isUnknown = !mwKnown;
       const displayCol = isCharging ? '#38bdf8' : fuelCol;

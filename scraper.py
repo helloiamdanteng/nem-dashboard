@@ -3822,9 +3822,9 @@ def scrape_gbb() -> dict:
                 # ── Supply ──
                 if ft == "PROD" and sup > 0:
                     state_agg[st]["supply"] += sup
-                elif ft == "STOR" and dem > 0:
-                    # STOR demand = withdrawal from storage = supply to market
-                    state_agg[st]["supply"] += dem
+                elif ft == "STOR":
+                    # Net storage flow: withdrawals (dem) = supply to market, injections (sup) = removed from market
+                    state_agg[st]["supply"] += dem - sup
                 elif ft == "PIPE" and sup > 0 and loc in TERMINAL_PIPE_SUPPLY_LOCS:
                     # End-point pipe delivery (e.g. WPP Darwin to NT power stations)
                     state_agg[st]["supply"] += sup

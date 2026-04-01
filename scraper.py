@@ -3850,7 +3850,7 @@ def scrape_gbb() -> dict:
                 key = "LNG Export"
             elif ft == "BBLARGE":
                 key = "Large Industrial"
-            elif ft == "PIPE" and loc in RESI_LOCATIONS:
+            elif ft == "PIPE" and loc in CITY_GATE_LOCS:
                 key = "Residential & Commercial"
             else:
                 continue

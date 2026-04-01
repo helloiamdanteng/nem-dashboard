@@ -165,7 +165,7 @@ _DUID_FUEL_PATTERNS = [
 
     # ── Battery ───────────────────────────────────────────────────────────────
     (re.compile(r"(BATT|BATTERY|_BAT\d?|BAT_|HPR\d|HORNSDALE.?P|BYP|"
-                r"BESS|_BESS|BARCABAT|GANNAWARRA|LAKELANDS|WANDOAN)", re.I), "Battery"),
+                r"BESS|_BESS|BARCABAT|GANNAWARRA|LAKELANDS|WANDOAN|^MLB\d)", re.I), "Battery"),
 
     # ── Liquid (diesel/oil) ───────────────────────────────────────────────────
     (re.compile(r"(DIESEL|DISTILLATE|LIQUID|FUEL.?OIL)", re.I), "Liquid"),
@@ -333,6 +333,15 @@ def _load_nem_units() -> dict:
 NEM_UNITS: dict = _load_nem_units()
 logger.info(f"NEM_UNITS loaded: {len(NEM_UNITS)} DUIDs")
 
+# ── Newly commissioned DUIDs not yet in nem_units.json ───────────────────────
+# Add here until the next AEMO registration list update picks them up
+# Use force=True for DUIDs where nem_units.json has wrong data
+_NEW_DUIDS = {
+    "MLB01": {"station": "Mortlake Battery", "fuel": "Battery", "region": "VIC1", "capacity": 250},
+}
+for _duid, _info in _NEW_DUIDS.items():
+    NEM_UNITS[_duid] = _info  # always override — nem_units.json may have stale data
+
 # Pump-load DUIDs: registered as scheduled LOAD in AEMO - SCADA reports positive MW
 # when consuming (pumping). We negate so they display as negative generation.
 PUMP_LOAD_DUIDS: set = {
@@ -384,6 +393,7 @@ ORIGIN_DUIDS: set = {
     "ERB01",
     # VIC
     "MORTLK11", "MORTLK12",
+    "MLB01",
     "STOCKYD1",
     # SA
     "OSB-AG",
@@ -425,6 +435,7 @@ ORIGIN_DISPLAY_NAMES: dict = {
     # Mortlake
     "MORTLK11": "Mortlake",
     "MORTLK12": "Mortlake",
+    "MLB01":    "Mortlake Battery",
     # Stockyard Hill
     "STOCKYD1": "Stockyard Hill",
     # Ladbroke Grove

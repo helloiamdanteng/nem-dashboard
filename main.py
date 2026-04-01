@@ -495,30 +495,6 @@ async def get_slow():
     })
 
 
-@app.get("/api/rescrape")
-async def rescrape():
-    """Force a full rescrape: backfill history + fast + gen + slow caches."""
-    import asyncio
-    from scraper import scrape_scada_history, scrape_dispatch_history
-
-    async def _run():
-        loop = asyncio.get_running_loop()
-        # Run backfills in parallel
-        await asyncio.gather(
-            loop.run_in_executor(None, scrape_scada_history),
-            loop.run_in_executor(None, scrape_dispatch_history),
-        )
-        # Then fast scrape
-        await _run_fast()
-        # Then gen scrape
-        await _run_gen()
-        # Then slow scrape (includes weather)
-        await _run_slow()
-
-    asyncio.create_task(_run())
-    return {"status": "rescrape started — allow ~60s for data to refresh"}
-
-
 @app.get("/api/health")
 async def health():
     return {
@@ -1740,6 +1716,9 @@ async def rescrape():
         gen_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
 
     asyncio.create_task(_run())
+    # Also clear D-1 server cache so next visit fetches fresh data
+    _dm1_fast_cache.clear()
+    _dm1_fuel_cache.clear()
     return {"status": "rescrape triggered — history backfill + fast + gen running in background"}
 
 @app.get("/api/pd-sens-debug")

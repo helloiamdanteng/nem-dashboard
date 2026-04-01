@@ -3751,24 +3751,7 @@ def scrape_gbb() -> dict:
         for name, dates in storage_hist.items():
             result["storage"][name] = [{"gas_date": d, **v} for d, v in sorted(dates.items())]
 
-        # ── State summary for latest date ────────────────────────────────────
-        # Supply: PROD + STOR supply + PIPE supply at terminal/hub locations (for TAS, NT etc.)
-        # Demand: LNGEXPORT + BBGPG + BBLARGE + PIPE demand at end-user locations
-        # TAS has no PROD — its supply is TGP pipeline delivery, counted as PIPE supply
-        TERMINAL_SUPPLY_LOCS = {
-            "Regional - TAS", "Darwin", "Regional - ACT",
-        }
-        DEMAND_TYPES   = {"LNGEXPORT", "BBGPG", "BBLARGE"}
-        RESI_LOCATIONS = {
-            "Melbourne", "Sydney", "Adelaide", "Brisbane", "Geelong",
-            "Ballarat", "Northern", "Western", "Canberra", "Darwin",
-            "Regional - TAS", "Regional - ACT", "Regional - SA",
-            "Regional - NSW", "Regional - NT", "Regional - VIC", "Gippsland",
-        }
-
-        # Determine which dates are complete:
-        # Must have PROD + LNGEXPORT AND a full complement of rows (≥150)
-        # A partial day may have all types present but very few facilities submitted
+        # ── Determine complete vs partial dates ──────────────────────────────
         MIN_COMPLETE_ROWS = 150
         complete_dates = set()
         partial_dates  = set()
@@ -3788,6 +3771,31 @@ def scrape_gbb() -> dict:
         summary_date = max(complete_dates) if complete_dates else latest_date
         result["latest_date"] = summary_date
         latest_rows = [row for row in rows if row["GasDate"] == summary_date]
+
+        # ── State summary for latest date ────────────────────────────────────
+        # Methodology matching GBB bulletin board:
+        # Supply = PROD supply + PIPE supply at end-point delivery locations (Darwin)
+        # Demand = LNGEXPORT + BBGPG + BBLARGE + PIPE demand at city gates
+        # Notes:
+        # - Darwin PIPE supply (WPP) counts as NT supply (gas to power stations)
+        # - Curtis Island PIPE demand is already captured in LNGEXPORT — skip
+        # - Darwin PIPE demand = same gas as Darwin BBGPG — skip to avoid double-count
+        # - Regional-QLD/VIC/SA PIPE = transit flows, not end-user demand
+        CITY_GATE_LOCS = {
+            "Melbourne", "Sydney", "Adelaide", "Brisbane", "Geelong",
+            "Ballarat", "Northern", "Western", "Canberra",
+            "Gippsland", "Darwin",
+            "Regional - TAS", "Regional - ACT",
+        }
+        TRANSIT_LOCS = {
+            "Longford Hub", "Iona Hub", "Wallumbilla Hub", "Moomba Hub",
+            "Ballera", "Curtis Island",
+            "Regional - QLD", "Regional - VIC", "Regional - SA",
+            "Regional - NSW", "Regional - NT",
+        }
+        # PIPE supply locations that count as state supply (end-point, not transit)
+        TERMINAL_PIPE_SUPPLY_LOCS = {"Darwin"}
+
         state_agg = {}
         for row in latest_rows:
             st  = row.get("State", "")
@@ -3799,27 +3807,27 @@ def scrape_gbb() -> dict:
             try:
                 sup = float(row.get("Supply") or 0)
                 dem = float(row.get("Demand") or 0)
-                # GBB methodology (per their footnote):
-                # VIC: supply = PIPE supply receipted into VTS; demand = PIPE demand at end-user locs
-                # Other states: supply = PROD + STOR withdrawals; demand = LNGEXPORT/BBGPG/BBLARGE + PIPE at city locs
-                if st == "VIC":
-                    if ft == "PIPE" and sup > 0:
-                        state_agg[st]["supply"] += sup
-                    if ft in DEMAND_TYPES:
+
+                # ── Supply ──
+                if ft == "PROD" and sup > 0:
+                    state_agg[st]["supply"] += sup
+                elif ft == "STOR" and dem > 0:
+                    # STOR demand = withdrawal from storage = supply to market
+                    state_agg[st]["supply"] += dem
+                elif ft == "PIPE" and sup > 0 and loc in TERMINAL_PIPE_SUPPLY_LOCS:
+                    # End-point pipe delivery (e.g. WPP Darwin to NT power stations)
+                    state_agg[st]["supply"] += sup
+
+                # ── Demand ──
+                if ft in ("LNGEXPORT", "BBGPG", "BBLARGE") and dem > 0:
+                    state_agg[st]["demand"] += dem
+                elif ft == "PIPE" and dem > 0 and loc in CITY_GATE_LOCS and loc not in TRANSIT_LOCS:
+                    # Skip Darwin PIPE demand — same gas already counted in BBGPG
+                    if loc == "Darwin":
+                        pass
+                    else:
                         state_agg[st]["demand"] += dem
-                    elif ft == "PIPE" and loc in RESI_LOCATIONS:
-                        state_agg[st]["demand"] += dem
-                else:
-                    if ft == "PROD":
-                        state_agg[st]["supply"] += sup
-                    elif ft == "STOR":
-                        state_agg[st]["supply"] += dem  # STOR demand = withdrawals = supply to market
-                    elif ft == "PIPE" and loc in TERMINAL_SUPPLY_LOCS and sup > 0:
-                        state_agg[st]["supply"] += sup
-                    if ft in DEMAND_TYPES:
-                        state_agg[st]["demand"] += dem
-                    elif ft == "PIPE" and loc in RESI_LOCATIONS:
-                        state_agg[st]["demand"] += dem
+
             except (ValueError, TypeError):
                 pass
 

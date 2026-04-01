@@ -5505,6 +5505,25 @@ function dMinusSelectDate(y, m, d) {
 
 async function dMinusLoadPrices(dateStr) {
   const status = document.getElementById('dMinus-status');
+
+  // Browser cache — D-1 data is immutable, skip fetch if already loaded for this date
+  if (window._dm1Cache?.date === dateStr && window._dm1Cache?.fast) {
+    window._dMinus1Data = window._dm1Cache.fast;
+    drawDMinus1PriceChart(window._dMinus1Data);
+    drawDMinus1DemandChart(window._dMinus1Data);
+    drawDMinus1RenewChart(window._dMinus1Data);
+    drawDm1IcChart(window._dMinus1Data);
+    drawDm1BatteryCharts(window._dMinus1Data);
+    _loadDm1Portfolio();
+    if (window._dm1Cache.fuel) {
+      window._dMinus1Data = { ...window._dm1Cache.fast, fuel_history: window._dm1Cache.fuel.fuel_history };
+      drawDMinus1RenewChart(window._dMinus1Data);
+      drawDm1FuelMixChart(window._dMinus1Data);
+    }
+    if (status) status.textContent = '';
+    return;
+  }
+
   if (status) status.textContent = 'Loading…';
   destroyChart('dm1Price');
   destroyChart('dm1Demand');
@@ -5515,12 +5534,18 @@ async function dMinusLoadPrices(dateStr) {
   destroyChart('dm1BattMw');
   destroyChart('dm1BattSoc');
 
+  // Initialise cache entry for this date
+  if (!window._dm1Cache || window._dm1Cache.date !== dateStr) {
+    window._dm1Cache = { date: dateStr, fast: null, fuel: null };
+  }
+
   try {
     const fast = await fetch(`/api/historical_day_fast?date=${dateStr}`).then(r => r.json());
     if (!fast || fast.error) {
       if (status) status.textContent = `No data for ${dateStr}`;
       return;
     }
+    window._dm1Cache.fast = fast;
     window._dMinus1Data = fast;
     if (status) status.textContent = 'Loading fuel mix…';
     drawDMinus1PriceChart(fast);
@@ -5528,11 +5553,11 @@ async function dMinusLoadPrices(dateStr) {
     drawDMinus1RenewChart(fast);
     drawDm1IcChart(fast);
     drawDm1BatteryCharts(fast);
-    // Load Origin portfolio in parallel
     _loadDm1Portfolio();
 
     const fuel = await fetch(`/api/historical_day_fuel?date=${dateStr}`).then(r => r.json());
     if (fuel && !fuel.error && fuel.fuel_history) {
+      window._dm1Cache.fuel = fuel;
       window._dMinus1Data = { ...fast, fuel_history: fuel.fuel_history };
       drawDMinus1RenewChart(window._dMinus1Data);
       drawDm1FuelMixChart(window._dMinus1Data);

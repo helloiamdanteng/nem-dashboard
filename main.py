@@ -2086,7 +2086,37 @@ async def historical_day_fuel(date: str):
         logger.error(f"historical_day_fuel error: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-@app.get("/api/dminus_debug")
+@app.get("/api/gbb-debug")
+async def gbb_debug():
+    """Debug GBB data — show raw rows by FacilityType for latest complete date."""
+    import csv as _csv
+    loop = asyncio.get_running_loop()
+    def _fetch():
+        import requests as _req
+        url = "https://www.nemweb.com.au/Reports/Current/GBB/GasBBActualFlowStorageLast31.CSV"
+        r = _req.get(url, timeout=30)
+        rows = list(_csv.DictReader(r.text.splitlines()))
+        dates = sorted({row["GasDate"] for row in rows})
+        latest = dates[-1] if dates else None
+        latest_rows = [row for row in rows if row["GasDate"] == latest]
+        # Group by FacilityType
+        by_type = {}
+        for row in latest_rows:
+            ft = row.get("FacilityType","")
+            st = row.get("State","")
+            fn = row.get("FacilityName","")
+            loc = row.get("LocationName","")
+            sup = float(row.get("Supply") or 0)
+            dem = float(row.get("Demand") or 0)
+            by_type.setdefault(ft, []).append({
+                "state": st, "facility": fn, "location": loc,
+                "supply": sup, "demand": dem
+            })
+        return {"date": latest, "by_type": by_type}
+    data = await loop.run_in_executor(None, _fetch)
+    return JSONResponse(content=data)
+
+
 async def dminus_debug(date: str):
     """Inspect one TradingIS file for a date to see actual table names and columns."""
     import re as _re

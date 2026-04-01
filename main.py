@@ -1690,6 +1690,7 @@ async def rescrape():
     # Also clear D-1 server cache so next visit fetches fresh data
     _dm1_fast_cache.clear()
     _dm1_fuel_cache.clear()
+    _origin_d1_cache.clear()
     return {"status": "rescrape triggered — history backfill + fast + gen running in background"}
 
 @app.get("/api/pd-sens-debug")
@@ -2057,6 +2058,8 @@ async def historical_day_fuel(date: str):
         logger.error(f"historical_day_fuel error: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+_origin_d1_cache: dict[str, dict] = {}  # date → data
+
 @app.get("/api/origin_d1")
 async def origin_d1_history():
     """Return Origin asset DUID history for yesterday from DispatchIS CURRENT SCADA."""
@@ -2068,8 +2071,13 @@ async def origin_d1_history():
     now_aest  = datetime.now(AEST)
     yest_date = (now_aest - timedelta(days=1)).date()
     date_str  = yest_date.strftime("%Y%m%d")
-    origin_set = set(ORIGIN_DUIDS)
 
+    # Serve from cache if available — yesterday's SCADA is immutable
+    if date_str in _origin_d1_cache:
+        logger.info(f"origin_d1: cache hit for {date_str}")
+        return JSONResponse(content=_origin_d1_cache[date_str])
+
+    origin_set = set(ORIGIN_DUIDS)
     loop = asyncio.get_running_loop()
 
     def _scrape():
@@ -2112,6 +2120,11 @@ async def origin_d1_history():
 
     try:
         data = await asyncio.wait_for(loop.run_in_executor(None, _scrape), timeout=120.0)
+        if data:
+            _origin_d1_cache[date_str] = data
+            # Keep only latest date
+            for old in [k for k in _origin_d1_cache if k != date_str]:
+                del _origin_d1_cache[old]
         return JSONResponse(content=data)
     except Exception as e:
         logger.error(f"origin_d1 error: {e}")

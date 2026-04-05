@@ -1695,12 +1695,13 @@ async def rescrape():
 
 @app.get("/api/pd-sens-debug")
 async def pd_sens_debug():
-    """Debug: show all tables + columns in the predispatch file, and sample PRICESENSITIVITIES rows."""
-    from scraper import _fetch_predispatch, _parse_aemo
+    """Debug: show sensitivity data from current fast cache."""
+    from scraper import _fetch_predispatch, _parse_aemo, scrape_predispatch_sensitivity
     import csv, io
     text = _fetch_predispatch()
     if not text:
         return {"error": "could not fetch predispatch file"}
+    # Show table names and REGION_PRICES columns
     tables = {}
     reader = csv.reader(io.StringIO(text))
     for row in reader:
@@ -1708,17 +1709,24 @@ async def pd_sens_debug():
             tbl = row[2].strip().upper()
             cols = [c.strip() for c in row[4:] if c.strip()]
             tables[tbl] = cols
-    # Sample PRICESENSITIVITIES rows
-    sens_rows = []
-    for tbl_key in tables:
-        if 'SENS' in tbl_key and 'PRICE' in tbl_key:
-            rows = list(_parse_aemo(text, tbl_key))
-            nsw = [r for r in rows if r.get('REGIONID','').strip() == 'NSW1'][:3]
-            sens_rows = nsw
+    # Sample first NSW1 row from REGION_PRICES
+    region_prices_sample = []
+    for tk in ["PREDISPATCH_REGION_PRICES", "REGION_PRICES"]:
+        rows = list(_parse_aemo(text, tk))
+        nsw = [r for r in rows if r.get('REGIONID','').strip() == 'NSW1'][:2]
+        if nsw:
+            region_prices_sample = nsw
             break
+    # Run sensitivity scrape
+    sens = scrape_predispatch_sensitivity(text)
+    # Sample first NSW1 entry
+    nsw_sens = (sens.get('NSW1') or [])[:2]
     return {
-        "tables": {k: v for k, v in sorted(tables.items())},
-        "sens_sample": sens_rows
+        "table_names": sorted(tables.keys()),
+        "region_prices_cols": tables.get("REGION_PRICES", tables.get("PREDISPATCH_REGION_PRICES", [])),
+        "region_prices_sample": region_prices_sample,
+        "sensitivity_nsw_sample": nsw_sens,
+        "sensitivity_counts": {r: len(v) for r, v in sens.items()}
     }
 
 # Cache for MTPASA calendar data (refreshed with slow cache)

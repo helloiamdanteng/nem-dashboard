@@ -1696,45 +1696,61 @@ async def rescrape():
 
 @app.get("/api/pd-sens-debug")
 async def pd_sens_debug():
-    """Debug: step through sensitivity scraper with diagnostics."""
+    """Debug: trace scrape_predispatch_sensitivity step by step."""
     from scraper import _list_hrefs, _read_zip, _parse_aemo, NEMWEB_BASE, NEM_REGIONS, AEST
     from datetime import datetime, timedelta
-    import csv, io
     diag = {}
-    try:
-        url = f"{NEMWEB_BASE}/REPORTS/CURRENT/Predispatch_Sensitivities/"
-        files = _list_hrefs(url)
-        diag["files_found"] = len(files)
-        diag["latest_file"] = files[-1] if files else None
-        if not files:
-            return diag
-        text = _read_zip(files[-1])
-        diag["text_len"] = len(text)
-        rows = list(_parse_aemo(text, "PREDISPATCH_PRICESENSITIVITIES"))
-        diag["total_rows"] = len(rows)
-        if not rows:
-            return diag
-        sample = rows[0]
-        diag["sample_keys"] = list(sample.keys())
-        diag["sample_regionid"] = sample.get("REGIONID","")
-        diag["sample_intervention"] = sample.get("INTERVENTION","")
-        diag["sample_datetime"] = sample.get("DATETIME","")
-        diag["sample_rrpeep1"] = sample.get("RRPEEP1","")
-        # Check date filtering
-        now_aest = datetime.now(AEST).replace(tzinfo=None)
-        diag["now_aest"] = now_aest.strftime("%Y-%m-%d %H:%M")
-        dt_str = sample.get("DATETIME","")
-        if dt_str:
+    url = f"{NEMWEB_BASE}/REPORTS/CURRENT/Predispatch_Sensitivities/"
+    files = _list_hrefs(url)
+    text = _read_zip(files[-1])
+    rows = list(_parse_aemo(text, "PREDISPATCH_PRICESENSITIVITIES"))
+    diag["total_rows"] = len(rows)
+    if not rows:
+        return diag
+    sample = rows[0]
+    rrpeep_cols = sorted([k for k in sample.keys() if k.startswith("RRPEEP")],
+                          key=lambda x: int(x.replace("RRPEEP", "")))
+    diag["rrpeep_cols_count"] = len(rrpeep_cols)
+    diag["rrpeep_cols_first6"] = rrpeep_cols[:6]
+    now_aest = datetime.now(AEST).replace(tzinfo=None)
+    passed = 0
+    filtered = 0
+    no_scenarios = 0
+    region_series = {r: {} for r in NEM_REGIONS}
+    for row in rows:
+        region = row.get("REGIONID","").strip()
+        if region not in NEM_REGIONS:
+            continue
+        if row.get("INTERVENTION","0") not in ("0",""):
+            continue
+        dt_str = row.get("DATETIME","")
+        if not dt_str:
+            continue
+        try:
             dt = datetime.fromisoformat(dt_str.replace("/","-")) - timedelta(minutes=30)
-            diag["sample_dt_shifted"] = dt.strftime("%Y-%m-%d %H:%M")
-            diag["sample_passes_filter"] = dt.replace(tzinfo=None) >= now_aest - timedelta(minutes=30)
-        # NSW1 rows
-        nsw = [r for r in rows if r.get("REGIONID","").strip() == "NSW1"]
-        diag["nsw_rows"] = len(nsw)
-        if nsw:
-            diag["nsw_sample"] = {k: v for k, v in list(nsw[0].items())[:10]}
-    except Exception as e:
-        diag["error"] = str(e)
+            if dt.replace(tzinfo=None) < now_aest - timedelta(minutes=30):
+                filtered += 1
+                continue
+            passed += 1
+            label = dt.strftime("%H:%M")
+            scenarios = {}
+            for col in rrpeep_cols[:6]:
+                v = row.get(col,"")
+                if v:
+                    try: scenarios[f"S{col.replace('RRPEEP','')}"] = round(float(v),2)
+                    except: pass
+            if scenarios:
+                region_series[region][label] = scenarios
+            else:
+                no_scenarios += 1
+        except Exception as e:
+            diag["row_error"] = str(e)
+    diag["rows_passed_filter"] = passed
+    diag["rows_filtered_out"] = filtered
+    diag["rows_no_scenarios"] = no_scenarios
+    result = {r: list(s.items())[:2] for r,s in region_series.items() if s}
+    diag["result_regions"] = list(result.keys())
+    diag["nsw_sample"] = result.get("NSW1",[])
     return diag
 
 # Cache for MTPASA calendar data (refreshed with slow cache)

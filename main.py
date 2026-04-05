@@ -1696,24 +1696,21 @@ async def rescrape():
 
 @app.get("/api/pd-sens-debug")
 async def pd_sens_debug():
-    """Debug: show columns and sample rows from the Predispatch_Sensitivities file."""
-    from scraper import _list_hrefs, _read_zip, _parse_aemo, NEMWEB_BASE
-    import csv, io
-    url = f"{NEMWEB_BASE}/REPORTS/CURRENT/Predispatch_Sensitivities/"
-    files = _list_hrefs(url)
-    if not files:
-        return {"error": "no files found"}
-    text = _read_zip(files[-1])
-    tables = {}
-    reader = csv.reader(io.StringIO(text))
-    for row in reader:
-        if row and row[0].strip().upper() == 'I' and len(row) >= 3:
-            tbl = f"{row[1].strip()}_{row[2].strip()}".upper()
-            cols = [c.strip() for c in row[4:] if c.strip()]
-            tables[tbl] = cols
-    rows = list(_parse_aemo(text, "PREDISPATCH_PRICESENSITIVITIES"))
-    nsw = [r for r in rows if r.get('REGIONID','').strip() == 'NSW1'][:2]
-    return {"tables": tables, "nsw_sample": nsw, "total_rows": len(rows)}
+    """Debug: test sensitivity scraper and show result."""
+    from scraper import scrape_predispatch_sensitivity
+    loop = asyncio.get_running_loop()
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, scrape_predispatch_sensitivity, ""),
+            timeout=60.0
+        )
+        nsw = (result.get("NSW1") or [])[:2]
+        return {
+            "counts": {r: len(v) for r, v in result.items()},
+            "nsw_sample": nsw
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 # Cache for MTPASA calendar data (refreshed with slow cache)
 _mtpasa_cal_cache: dict = {"data": None, "last_updated": None}

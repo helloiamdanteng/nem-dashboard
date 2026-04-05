@@ -555,10 +555,9 @@ function drawPriceSensitivityChart(data) {
   if (!ctx) return;
   destroyChart('pdSens');
 
-  // Full 5-min spine for today + 5-min slots for PD horizon (fills 30-min PD values across 6 slots each)
-  // This gives even visual spacing across the whole chart
+  // 5-min spine for today only (00:00–23:55)
   const allSlots = [];
-  for (let h = 0; h < 48; h++)
+  for (let h = 0; h < 24; h++)
     for (let m = 0; m < 60; m += 5)
       allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
 
@@ -566,15 +565,14 @@ function drawPriceSensitivityChart(data) {
   const histMap = {};
   ((data.historical_prices || {})[region] || []).forEach(p => { histMap[p.interval] = p.rrp; });
 
-  // Expand 30-min PD prices to fill every 5-min slot in the window
-  // e.g. PD value at 14:30 fills 14:00, 14:05, 14:10, 14:15, 14:20, 14:25
+  // Expand 30-min PD prices to fill every 5-min slot
   const pdMap = {};
   ((data.predispatch_prices || {})[region] || []).forEach(p => {
     const [hh, mm] = p.interval.split(':').map(Number);
     for (let i = 0; i < 6; i++) {
       let fm = mm + i * 5; let fh = hh;
       if (fm >= 60) { fm -= 60; fh += 1; }
-      if (fh >= 48) return;
+      if (fh >= 24) return;
       const slot = (fh<10?'0':'')+fh+':'+(fm<10?'0':'')+fm;
       pdMap[slot] = p.rrp;
     }
@@ -584,27 +582,32 @@ function drawPriceSensitivityChart(data) {
   const sensMap = {};
   ((data.predispatch_sensitivity || {})[region] || []).forEach(p => {
     const [hh, mm] = p.interval.split(':').map(Number);
+    if (hh >= 24) return;
     for (let i = 0; i < 6; i++) {
       let fm = mm + i * 5; let fh = hh;
       if (fm >= 60) { fm -= 60; fh += 1; }
-      if (fh >= 48) return;
+      if (fh >= 24) return;
       const slot = (fh<10?'0':'')+fh+':'+(fm<10?'0':'')+fm;
       sensMap[slot] = p.scenarios;
     }
   });
 
-  // Predispatch base forecast (30-min, uses 00:00-23:30 + 24:00+ labels)
-  // sensMap and pdMap already built above with 5-min expansion
-
-  // Find now index
   const nowStr = nowAEST();
-  // nowIdx on the 5-min spine
   const nowIdx = allSlots.findIndex(l => l >= nowStr);
-
   const color = REGION_COLORS[region];
+  const selectedScen = window._pdSensScen || null;
+
+  const SENS_COLORS = {
+    '+100 MW': '#22c55e', '+200 MW': '#16a34a', '+500 MW': '#15803d', '+1000 MW': '#14532d',
+    '-100 MW': '#f97316', '-200 MW': '#ea580c', '-500 MW': '#c2410c', '-1000 MW': '#9a3412',
+    'NEM +450 MW': '#22c55e', 'NEM -450 MW': '#f97316',
+    'NEM +900 MW': '#16a34a', 'NEM -900 MW': '#ea580c',
+  };
+  const SENS_PALETTE = ['#22c55e','#16a34a','#15803d','#f97316','#ea580c','#c2410c','#818cf8','#f472b6'];
+
   const datasets = [];
 
-  // 1. Actual 5-min prices (solid line up to now)
+  // 1. Actual 5-min prices
   datasets.push({
     label: 'Actual',
     data: allSlots.map((l,i) => i <= nowIdx ? (histMap[l] ?? null) : null),
@@ -613,7 +616,7 @@ function drawPriceSensitivityChart(data) {
     fill: false, spanGaps: true,
   });
 
-  // 2. PD base forecast (dashed from now, 30-min slots)
+  // 2. PD base forecast
   datasets.push({
     label: 'PD Forecast',
     data: allSlots.map((l,i) => {
@@ -627,36 +630,29 @@ function drawPriceSensitivityChart(data) {
   });
 
   // 3. Sensitivity scenario lines
-  const SENS_COLORS = {
-    '+100 MW': '#22c55e', '+200 MW': '#16a34a', '+500 MW': '#15803d', '+1000 MW': '#14532d',
-    '-100 MW': '#f97316', '-200 MW': '#ea580c', '-500 MW': '#c2410c', '-1000 MW': '#9a3412',
-    'NEM +450 MW': '#22c55e', 'NEM -450 MW': '#f97316',
-    'NEM +900 MW': '#16a34a', 'NEM -900 MW': '#ea580c',
-  };
-  const SENS_PALETTE = ['#22c55e','#16a34a','#15803d','#f97316','#ea580c','#c2410c','#818cf8','#f472b6'];
-
-  // Collect all scenario labels present in the data
   const scenarioLabels = new Set();
   Object.values(sensMap).forEach(s => Object.keys(s).forEach(k => scenarioLabels.add(k)));
-
   const scenList = [...scenarioLabels].sort();
+
   for (let si = 0; si < scenList.length; si++) {
     const scen = scenList[si];
-    const col = SENS_COLORS[scen] || SENS_PALETTE[si % SENS_PALETTE.length];
+    const isSelected = selectedScen === scen;
+    const baseCol = SENS_COLORS[scen] || SENS_PALETTE[si % SENS_PALETTE.length];
+    const col = isSelected ? '#fbbf24' : baseCol;
     datasets.push({
       label: scen,
+      _sensScen: scen,
       data: allSlots.map((l,i) => {
         if (i < nowIdx) return null;
         if (i === nowIdx) return histMap[l] ?? sensMap[l]?.[scen] ?? null;
         return sensMap[l]?.[scen] ?? null;
       }),
       borderColor: col, backgroundColor: 'transparent',
-      borderWidth: 1, borderDash: [4, 3],
+      borderWidth: isSelected ? 2 : 1,
+      borderDash: isSelected ? [] : [4, 3],
       pointRadius: 0, tension: 0.2, fill: false, spanGaps: false,
     });
   }
-
-  const hasSens = scenarioLabels.size > 0;
 
   charts.pdSens = new Chart(ctx, {
     type: 'line',
@@ -664,15 +660,26 @@ function drawPriceSensitivityChart(data) {
     options: { ...CHART_DEFAULTS,
       plugins: { ...CHART_DEFAULTS.plugins,
         legend: { display: true,
-          labels: { color:'#94a3b8', font:{family:'Space Mono',size:8}, boxWidth:8, padding:5 }
+          labels: { color:'#94a3b8', font:{family:'Space Mono',size:8}, boxWidth:8, padding:5,
+            generateLabels: chart => chart.data.datasets.map((ds, i) => ({
+              text: ds.label,
+              fillStyle: ds._sensScen ? (ds._sensScen === selectedScen ? '#fbbf24' : (SENS_COLORS[ds._sensScen] || SENS_PALETTE[i % SENS_PALETTE.length])) : ds.borderColor,
+              strokeStyle: ds.borderColor,
+              lineWidth: 1,
+              datasetIndex: i,
+              fontColor: ds._sensScen === selectedScen ? '#fbbf24' : '#94a3b8',
+            }))
+          },
+          onClick: (e, legendItem, legend) => {
+            const ds = legend.chart.data.datasets[legendItem.datasetIndex];
+            if (!ds._sensScen) return;
+            window._pdSensScen = (window._pdSensScen === ds._sensScen) ? null : ds._sensScen;
+            if (latestData) drawPriceSensitivityChart(latestData);
+          }
         },
         tooltip: { ...CHART_DEFAULTS.plugins.tooltip, filter: i => i.raw !== null,
           callbacks: {
-            title: cs => {
-              const l = cs[0]?.label || '';
-              const h = parseInt(l.split(':')[0]);
-              return h >= 24 ? String(h-24).padStart(2,'0')+':'+l.split(':')[1]+' (+1d)' : l;
-            },
+            title: cs => cs[0]?.label || '',
             label: c => c.raw===null ? null : ` ${c.dataset.label}: $${c.raw.toFixed(2)}/MWh`
           }
         }
@@ -682,10 +689,9 @@ function drawPriceSensitivityChart(data) {
                autoSkip: false, maxTicksLimit: 1000,
                callback: function(val) {
                  const l = this.getLabelForValue(val);
-                 if (!l) return null;
+                 if (!l || !l.endsWith(':00')) return null;
                  const h = parseInt(l.split(':')[0]);
-                 if (!l.endsWith(':00') || h % 3 !== 0) return null;
-                 return h >= 24 ? String(h-24).padStart(2,'0')+':00' : l;
+                 return h % 3 === 0 ? l : null;
                }
              },
              grid: { color:'#1e293b', drawOnChartArea:true, drawTicks:false }

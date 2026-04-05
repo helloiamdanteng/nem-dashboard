@@ -1097,9 +1097,71 @@ def scrape_predispatch_prices(text: str) -> dict:
 def scrape_predispatch_sensitivity(text: str) -> dict:
     """
     Fetch sensitivity prices from Predispatch_Sensitivities file.
-    Returns { region: [{interval, scenarios: {'S1': rrp, ...}}] }
+    Returns { region: [{interval, scenarios: {label: rrp}}] }
+    Uses AEMO's published scenario definitions (Pre-Dispatch Sensitivities doc, March 2021).
     """
     now_aest = datetime.now(AEST).replace(tzinfo=None)
+
+    # Scenario demand offsets by region — from AEMO Pre-Dispatch Sensitivities doc
+    # Format: scenario_num -> {region -> offset_MW}
+    SCENARIO_DEFS = {
+        1:  {"NSW1": +100},
+        2:  {"NSW1": -100},
+        3:  {"NSW1": +200},
+        4:  {"NSW1": -200},
+        5:  {"NSW1": +500},
+        6:  {"NSW1": -500},
+        7:  {"NSW1": +1000},
+        8:  {"QLD1": +100},
+        9:  {"QLD1": -100},
+        10: {"QLD1": +200},
+        11: {"QLD1": -200},
+        12: {"QLD1": +500},
+        13: {"QLD1": -500},
+        14: {"QLD1": +1000},
+        15: {"SA1": +50},
+        16: {"SA1": -50},
+        17: {"SA1": +100},
+        18: {"SA1": -100},
+        19: {"SA1": +200},
+        20: {"SA1": -200},
+        25: {"NSW1": +200, "QLD1": +100, "SA1": +50, "VIC1": +100},
+        26: {"NSW1": -200, "QLD1": -100, "SA1": -50, "VIC1": -100},
+        27: {"NSW1": +400, "QLD1": +200, "SA1": +100, "VIC1": +200},
+        28: {"NSW1": -400, "QLD1": -200, "SA1": -100, "VIC1": -200},
+        29: {"VIC1": +100},
+        30: {"VIC1": -100},
+        31: {"VIC1": +200},
+        32: {"VIC1": -200},
+        33: {"VIC1": +500},
+        34: {"VIC1": -500},
+        35: {"VIC1": +1000},
+        36: {"TAS1": +50},
+        37: {"TAS1": -50},
+        38: {"TAS1": +100},
+        39: {"TAS1": -100},
+        40: {"TAS1": +150},
+        41: {"TAS1": -150},
+        42: {"TAS1": +300},
+        43: {"TAS1": +500},
+    }
+
+    def _scen_label(scen_num: int, region: str) -> str | None:
+        defn = SCENARIO_DEFS.get(scen_num, {})
+        if not defn:
+            return None
+        # For multi-region scenarios, show total NEM offset
+        if len(defn) > 1:
+            total = sum(defn.values())
+            sign = "+" if total > 0 else ""
+            return f"NEM {sign}{total} MW"
+        # Single-region: only label if it affects this region
+        r, off = next(iter(defn.items()))
+        if r != region:
+            return None  # skip scenarios that don't affect this region
+        sign = "+" if off > 0 else ""
+        return f"{sign}{off} MW"
+
     try:
         SENS_URL = f"{NEMWEB_BASE}/REPORTS/CURRENT/Predispatch_Sensitivities/"
         urls = _list_hrefs(SENS_URL)
@@ -1135,11 +1197,15 @@ def scrape_predispatch_sensitivity(text: str) -> dict:
                     continue
                 label = dt.strftime("%H:%M")
                 scenarios = {}
-                for col in rrpeep_cols[:6]:
+                for col in rrpeep_cols:
+                    scen_num = int(col.replace("RRPEEP", ""))
+                    scen_label = _scen_label(scen_num, region)
+                    if scen_label is None:
+                        continue  # skip scenarios not relevant to this region
                     v = row.get(col, "")
                     if v:
                         try:
-                            scenarios[f"S{col.replace('RRPEEP', '')}"] = round(float(v), 2)
+                            scenarios[scen_label] = round(float(v), 2)
                         except (ValueError, TypeError):
                             pass
                 if scenarios:

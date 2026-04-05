@@ -1096,74 +1096,66 @@ def scrape_predispatch_prices(text: str) -> dict:
 
 def scrape_predispatch_sensitivity(text: str) -> dict:
     """
-    Extract predispatch price sensitivity scenarios (RRP1–RRP8) from REGION_PRICES table.
-    Returns { region: [{interval, scenarios: {label: rrp}}] }
-    Scenario labels come from PREDISPATCHSCENARIODEMAND (demand offsets in MW).
-    Falls back to generic labels (Scenario 1–8) if demand table not available.
+    Fetch sensitivity prices from Predispatch_Sensitivities file.
+    Returns { region: [{interval, scenarios: {'S1': rrp, ...}}] }
     """
     now_aest = datetime.now(AEST).replace(tzinfo=None)
-    today    = now_aest.date()
+    try:
+        SENS_URL = f"{NEMWEB_BASE}/REPORTS/CURRENT/Predispatch_Sensitivities/"
+        urls = _list_hrefs(SENS_URL)
+        if not urls:
+            return {}
+        sens_text = _read_zip(urls[-1])
+        if not sens_text:
+            return {}
 
-    # Try to read scenario demand offsets to build labels like "+100 MW", "-200 MW"
-    scenario_labels: dict[str, str] = {}
-    for tk in ["PREDISPATCH_SCENARIO_DEMAND", "PREDISPATCHSCENARIODEMAND"]:
-        rows = _parse_aemo(text, tk)
+        rows = _parse_aemo(sens_text, "PREDISPATCH_PRICESENSITIVITIES")
         if not rows:
-            continue
-        for row in rows:
-            scen = row.get("SCENARIO", "").strip()
-            offset_str = row.get("REGIONDEMANDOFFSET", row.get("DEMANDOFFSET", ""))
-            if scen and offset_str:
-                try:
-                    offset = float(offset_str)
-                    label = (f"+{int(offset)} MW" if offset > 0 else f"{int(offset)} MW") if offset != 0 else "Base"
-                    scenario_labels[scen] = label
-                except (ValueError, TypeError):
-                    pass
-        if scenario_labels:
-            break
+            return {}
 
-    region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-    for tk in ["PREDISPATCH_REGION_PRICES", "REGION_PRICES", "PREDISPATCH_PRICE", "PREDISPATCH_REGIONPRICE"]:
-        rows = _parse_aemo(text, tk)
-        if not rows:
-            continue
+        sample = rows[0]
+        rrpeep_cols = sorted(
+            [k for k in sample.keys() if k.startswith("RRPEEP")],
+            key=lambda x: int(x.replace("RRPEEP", ""))
+        )
+
+        region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
         for row in rows:
-            region = row.get("REGIONID", "")
+            region = row.get("REGIONID", "").strip()
             if region not in NEM_REGIONS:
                 continue
             if row.get("INTERVENTION", "0") not in ("0", ""):
                 continue
-            dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", ""))
+            dt_str = row.get("DATETIME", "")
             if not dt_str:
                 continue
             try:
                 dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                if dt.date() != today or dt < now_aest - timedelta(minutes=30):
+                if dt.replace(tzinfo=None) < now_aest - timedelta(minutes=30):
                     continue
                 label = dt.strftime("%H:%M")
                 scenarios = {}
-                for i in range(1, 9):
-                    rrp_str = row.get(f"RRP{i}", "")
-                    if rrp_str:
+                for col in rrpeep_cols[:6]:
+                    v = row.get(col, "")
+                    if v:
                         try:
-                            scen_key = str(i)
-                            scen_label = scenario_labels.get(scen_key, f"Scenario {i}")
-                            scenarios[scen_label] = round(float(rrp_str), 2)
+                            scenarios[f"S{col.replace('RRPEEP', '')}"] = round(float(v), 2)
                         except (ValueError, TypeError):
                             pass
                 if scenarios:
                     region_series[region][label] = scenarios
             except (ValueError, TypeError):
                 pass
-        break
 
-    result = {}
-    for region, series in region_series.items():
-        if series:
-            result[region] = [{"interval": k, "scenarios": v} for k, v in sorted(series.items())]
-    logger.info(f"Predispatch sensitivity: {sum(len(v) for v in result.values())} pts")
-    return result
+        result = {}
+        for region, series in region_series.items():
+            if series:
+                result[region] = [{"interval": k, "scenarios": v} for k, v in sorted(series.items())]
+        logger.info(f"Predispatch sensitivity: {sum(len(v) for v in result.values())} pts")
+        return result
+    except Exception as e:
+        logger.warning(f"scrape_predispatch_sensitivity: {e}")
+        return {}
 
 
 def scrape_predispatch_demand(text: str) -> dict:
@@ -1693,12 +1685,13 @@ def scrape_all() -> dict:
     logger.info("scrape_all starting...")
 
     # Run all IO-bound fetches concurrently with per-future timeout
-    with ThreadPoolExecutor(max_workers=5) as ex:
+    with ThreadPoolExecutor(max_workers=6) as ex:
         f_dispatch_is   = ex.submit(_fetch_dispatch_is)
         f_predispatch   = ex.submit(_fetch_predispatch)
         f_trading       = ex.submit(scrape_trading_history)
         f_dispatch_hist = ex.submit(scrape_dispatch_history)
         f_scada         = ex.submit(_fetch_full_scada)
+        f_sens          = ex.submit(scrape_predispatch_sensitivity, "")
 
     def _safe_result(fut, default, name):
         try:
@@ -1712,13 +1705,7 @@ def scrape_all() -> dict:
     trading          = _safe_result(f_trading,        {"prices": {}, "fetch_stats": {}}, "trading")
     dispatch_hist    = _safe_result(f_dispatch_hist,  {"demand": {}, "op_demand": {}, "prices": {}}, "dispatch_hist")
     scada_vals       = _safe_result(f_scada,          {}, "scada")
-
-    # Parse sensitivity from predispatch text (RRP1-RRP8 in REGION_PRICES table)
-    try:
-        pd_sensitivity = scrape_predispatch_sensitivity(predispatch_text)
-    except Exception as e:
-        logger.warning(f"scrape_predispatch_sensitivity failed: {e}")
-        pd_sensitivity = {}
+    pd_sensitivity   = _safe_result(f_sens,           {}, "sensitivity")
 
     dispatch_demand       = dispatch_hist.get("demand", {})
     dispatch_op_demand    = dispatch_hist.get("op_demand", {})

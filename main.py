@@ -2465,6 +2465,60 @@ async def gas_data(refresh: bool = False):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+_asx_cache: dict = {"data": None, "last_updated": None}
+
+@app.get("/api/asx")
+async def asx_data(refresh: bool = False):
+    """Return ASX Energy futures data (1-hour cache)."""
+    import os
+    from datetime import datetime, timezone, timedelta
+    token = os.environ.get("ASX_API_KEY", "")
+    if not token:
+        return JSONResponse(status_code=503, content={"error": "ASX_API_KEY not configured"})
+
+    if not refresh and _asx_cache["data"] and _asx_cache["last_updated"]:
+        age = datetime.now(timezone.utc) - _asx_cache["last_updated"]
+        if age < timedelta(hours=1):
+            return JSONResponse(content=_asx_cache["data"])
+
+    loop = asyncio.get_running_loop()
+    try:
+        from scraper import scrape_asx
+        data = await asyncio.wait_for(
+            loop.run_in_executor(None, scrape_asx, token),
+            timeout=30.0
+        )
+        if data:
+            _asx_cache["data"] = data
+            _asx_cache["last_updated"] = datetime.now(timezone.utc)
+        return JSONResponse(content=data or {})
+    except Exception as e:
+        logger.error(f"asx_data error: {e}")
+        if _asx_cache["data"]:
+            return JSONResponse(content=_asx_cache["data"])
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.get("/api/asx/history")
+async def asx_history(code: str):
+    """Return 90-day price history for a specific ASX futures code."""
+    import os
+    token = os.environ.get("ASX_API_KEY", "")
+    if not token:
+        return JSONResponse(status_code=503, content={"error": "ASX_API_KEY not configured"})
+    loop = asyncio.get_running_loop()
+    try:
+        from scraper import scrape_asx_history
+        data = await asyncio.wait_for(
+            loop.run_in_executor(None, scrape_asx_history, token, code),
+            timeout=120.0
+        )
+        return JSONResponse(content={"code": code, "history": data})
+    except Exception as e:
+        logger.error(f"asx_history error: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 _gbb_cache: dict = {"data": None, "last_updated": None}
 
 @app.get("/api/gbb-cache-inspect")

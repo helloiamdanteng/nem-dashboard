@@ -1696,44 +1696,33 @@ async def rescrape():
 
 @app.get("/api/asx-debug")
 async def asx_debug():
-    """Debug: check ASX data freshness and history fetch."""
+    """Debug: check ASX access level and history availability."""
     import os, httpx
     token = os.environ.get("ASX_API_KEY", "")
     if not token:
         return {"error": "ASX_API_KEY not set"}
     result = {}
     async with httpx.AsyncClient(timeout=15) as client:
-        # Check latest data
-        r = await client.get(
-            "https://asxenergy.com.au/api/data?futures=au_electricity",
-            headers={"Authorization": f"Bearer {token}"}
-        )
-        data = r.json()
-        result["latest_date"] = data.get("date")
-        result["cache_date"] = _asx_cache["data"].get("date") if _asx_cache["data"] else None
-        result["cache_age_mins"] = None
-        if _asx_cache["last_updated"]:
-            from datetime import datetime, timezone
-            age = datetime.now(timezone.utc) - _asx_cache["last_updated"]
-            result["cache_age_mins"] = round(age.total_seconds() / 60, 1)
-
-        # Test history for BNM2026
-        r2 = await client.get(
-            "https://asxenergy.com.au/api/dates?futures=BNM2026",
-            headers={"Authorization": f"Bearer {token}"}
-        )
-        dates = r2.json().get("data", [])
-        result["bnm2026_dates_count"] = len(dates)
-        result["bnm2026_dates_last5"] = dates[-5:] if dates else []
-
-        # Fetch one date
-        if dates:
-            r3 = await client.get(
-                f"https://asxenergy.com.au/api/data?futures=BNM2026&date={dates[-1]}",
+        # Test dates for a current active code
+        for test_code in ["BNM2027", "BNM", "BVM2027", "au_electricity"]:
+            r = await client.get(
+                f"https://asxenergy.com.au/api/dates?futures={test_code}",
                 headers={"Authorization": f"Bearer {token}"}
             )
-            result["bnm2026_sample"] = r3.json()
+            dates = r.json().get("data", [])
+            result[f"dates_{test_code}"] = {"count": len(dates), "last3": dates[-3:] if dates else []}
 
+        # Try fetching historical data for a specific past date
+        r2 = await client.get(
+            "https://asxenergy.com.au/api/data?futures=BNM2027&date=20260401",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        d2 = r2.json()
+        result["historical_test"] = {
+            "date_returned": d2.get("date"),
+            "requested_date": "20260401",
+            "same_date": d2.get("date") == "20260401"
+        }
     return result
     """Debug: fetch PREDISPATCHSCENARIODEMAND to see what S1-S6 mean."""
     from scraper import _list_hrefs, _read_zip, _parse_aemo, _fetch_predispatch, NEMWEB_BASE

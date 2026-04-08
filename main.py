@@ -1696,34 +1696,36 @@ async def rescrape():
 
 @app.get("/api/asx-debug")
 async def asx_debug():
-    """Debug: check ASX access level and history availability."""
+    """Debug: show decoded ASX structure."""
     import os, httpx
     token = os.environ.get("ASX_API_KEY", "")
     if not token:
         return {"error": "ASX_API_KEY not set"}
-    result = {}
     async with httpx.AsyncClient(timeout=15) as client:
-        # Test dates for a current active code
-        for test_code in ["BNM2027", "BNM", "BVM2027", "au_electricity"]:
-            r = await client.get(
-                f"https://asxenergy.com.au/api/dates?futures={test_code}",
-                headers={"Authorization": f"Bearer {token}"}
-            )
-            dates = r.json().get("data", [])
-            result[f"dates_{test_code}"] = {"count": len(dates), "last3": dates[-3:] if dates else []}
-
-        # Try fetching historical data for a specific past date
-        r2 = await client.get(
-            "https://asxenergy.com.au/api/data?futures=BNM2027&date=20260401",
+        r = await client.get(
+            "https://asxenergy.com.au/api/data?futures=au_electricity",
             headers={"Authorization": f"Bearer {token}"}
         )
-        d2 = r2.json()
-        result["historical_test"] = {
-            "date_returned": d2.get("date"),
-            "requested_date": "20260401",
-            "same_date": d2.get("date") == "20260401"
-        }
-    return result
+    raw = r.json()
+    from scraper import _asx_decode
+    decoded = []
+    for row in raw.get("data", []):
+        d = _asx_decode(row["code"])
+        if d and d["region"] in ("NSW","QLD","VIC","SA") and d["product"] in ("base","cap"):
+            decoded.append({
+                "code": row["code"],
+                "product": d["product"],
+                "region": d["region"],
+                "period_type": d["period_type"],
+                "period_label": d["period_label"],
+                "settle": row.get("settle"),
+            })
+    # Group by period_type for easy review
+    from collections import defaultdict
+    grouped = defaultdict(list)
+    for d in decoded:
+        grouped[d["period_type"]].append(f"{d['code']} → {d['period_label']} {d['region']} ${d['settle']}")
+    return {"date": raw.get("date"), "grouped": dict(grouped)}
     """Debug: fetch PREDISPATCHSCENARIODEMAND to see what S1-S6 mean."""
     from scraper import _list_hrefs, _read_zip, _parse_aemo, _fetch_predispatch, NEMWEB_BASE
     import csv, io

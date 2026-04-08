@@ -4328,13 +4328,20 @@ def scrape_asx(token: str) -> dict:
     """
     Fetch AU electricity futures from ASX Energy API.
     Returns structured data: {
-      date, base: {period_label: {NSW, QLD, VIC, SA}}, cap: {...}
-      history available via separate calls
+      date, is_live, base: {period_label: {NSW, QLD, VIC, SA}}, cap: {...}
     }
     """
+    now_aest = datetime.now(AEST)
+    # Market hours: Mon-Fri 10am-4pm AEST
+    is_market_hours = (
+        now_aest.weekday() < 5 and
+        now_aest.hour >= 10 and
+        (now_aest.hour < 16 or (now_aest.hour == 16 and now_aest.minute == 0))
+    )
+
     try:
         resp = requests.get(
-            f"{ASX_API_BASE}/data",
+            f"{ASX_API_BASE}/intraday",
             params={"futures": "au_electricity"},
             headers=_asx_headers(token),
             timeout=15,
@@ -4345,13 +4352,11 @@ def scrape_asx(token: str) -> dict:
         logger.warning(f"scrape_asx: fetch failed: {e}")
         return {}
 
-    date = raw.get("date", "")
+    date = now_aest.strftime("%Y%m%d")
     rows = raw.get("data", [])
 
-    # Decode all codes and group by product → period → region
-    result: dict = {"date": date, "base": {}, "cap": {}}
+    result: dict = {"date": date, "is_live": is_market_hours, "base": {}, "cap": {}}
 
-    now_aest = datetime.now(AEST)
     current_year = now_aest.year
     current_q = (now_aest.month - 1) // 3 + 1
 
@@ -4361,7 +4366,6 @@ def scrape_asx(token: str) -> dict:
         if not decoded:
             continue
         product = decoded["product"]
-        # Map annual strip products to base/cap for the frontend
         if product == "base_strip":
             product = "base"
         elif product == "cap_strip":
@@ -4392,31 +4396,52 @@ def scrape_asx(token: str) -> dict:
             "sort_key": sort_key,
             "year": year,
         })
+
+        last   = row.get("last")
+        settle = row.get("settle")
+        # Display price: last if live market hours and available, otherwise settle
+        display = last if (is_market_hours and last and float(last) > 0) else settle
+        net_change = row.get("net_change")
+
         entry[region] = {
-            "settle":        row.get("settle"),
+            "display":       display,
+            "last":          last,
+            "settle":        settle,
+            "net_change":    net_change,
             "bid":           row.get("bid"),
             "ask":           row.get("ask"),
+            "high":          row.get("high"),
+            "low":           row.get("low"),
             "volume":        row.get("volume"),
             "open_interest": row.get("open_interest"),
             "code":          code,
+            "is_live":       bool(is_market_hours and last and float(last) > 0),
         }
 
-    logger.info(f"scrape_asx: date={date} base={len(result['base'])} cap={len(result['cap'])} periods")
+    logger.info(f"scrape_asx: date={date} live={is_market_hours} base={len(result['base'])} cap={len(result['cap'])} periods")
     return result
 
 
 def scrape_asx_history(token: str, code: str) -> list:
     """
     Fetch 90-day price history for a specific futures code.
-    Generates trading dates directly (dates endpoint appears non-functional).
-    Returns [{date, settle, volume, open_interest}]
+    Past days: uses EOD settle via /api/data?date=YYYYMMDD
+    Today: uses /api/intraday last price (or settle if market closed)
+    Returns [{date, settle, last, volume, open_interest, is_today}]
     """
-    # Generate last 90 calendar days, skip weekends
     now_aest = datetime.now(AEST)
+    is_market_hours = (
+        now_aest.weekday() < 5 and
+        now_aest.hour >= 10 and
+        (now_aest.hour < 16 or (now_aest.hour == 16 and now_aest.minute == 0))
+    )
+    today_str = now_aest.strftime("%Y%m%d")
+
+    # Generate past trading days (skip today, start from yesterday)
     dates = []
     for i in range(1, 91):
         d = now_aest - timedelta(days=i)
-        if d.weekday() < 5:  # Mon-Fri only
+        if d.weekday() < 5:
             dates.append(d.strftime("%Y%m%d"))
 
     def _fetch_date(dt: str) -> dict | None:
@@ -4432,14 +4457,15 @@ def scrape_asx_history(token: str, code: str) -> list:
             if data:
                 row = data[0]
                 settle = row.get("settle")
-                # Skip zero/missing settle
                 if not settle or float(settle) == 0:
                     return None
                 return {
                     "date":          dt,
                     "settle":        settle,
+                    "last":          None,
                     "volume":        row.get("volume"),
                     "open_interest": row.get("open_interest"),
+                    "is_today":      False,
                 }
         except Exception as e:
             logger.warning(f"scrape_asx_history {code} {dt}: {e}")
@@ -4454,5 +4480,35 @@ def scrape_asx_history(token: str, code: str) -> list:
                 history.append(result)
 
     history.sort(key=lambda x: x["date"])
-    logger.info(f"scrape_asx_history: {code} → {len(history)} pts from {len(dates)} dates")
+
+    # Append today's price from intraday endpoint
+    try:
+        r = requests.get(
+            f"{ASX_API_BASE}/intraday",
+            params={"futures": code},
+            headers=_asx_headers(token),
+            timeout=10,
+        )
+        r.raise_for_status()
+        intraday_rows = r.json().get("data", [])
+        if intraday_rows:
+            row = intraday_rows[0]
+            last   = row.get("last")
+            settle = row.get("settle")
+            display = last if (is_market_hours and last and float(last or 0) > 0) else settle
+            if display and float(display) > 0:
+                history.append({
+                    "date":          today_str,
+                    "settle":        settle,
+                    "last":          last,
+                    "display":       display,
+                    "volume":        row.get("volume"),
+                    "open_interest": row.get("open_interest"),
+                    "is_today":      True,
+                    "is_live":       bool(is_market_hours and last and float(last or 0) > 0),
+                })
+    except Exception as e:
+        logger.warning(f"scrape_asx_history today {code}: {e}")
+
+    logger.info(f"scrape_asx_history: {code} → {len(history)} pts")
     return history

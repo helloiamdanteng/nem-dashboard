@@ -1694,8 +1694,24 @@ async def rescrape():
     return {"status": "rescrape triggered — history backfill + fast + gen running in background"}
 
 
-@app.get("/api/pd-sens-debug")
-async def pd_sens_debug():
+@app.get("/api/asx-debug")
+async def asx_debug():
+    """Debug: fetch AU electricity futures codes from ASX Energy API."""
+    import os, httpx
+    token = os.environ.get("ASX_API_KEY", "")
+    if not token:
+        return {"error": "ASX_API_KEY not set"}
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            "https://asxenergy.com.au/api/data?futures=au_electricity",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+    if r.status_code != 200:
+        return {"error": f"HTTP {r.status_code}", "body": r.text[:500]}
+    data = r.json()
+    # Return just the codes and settle prices
+    codes = [{"code": d["code"], "settle": d.get("settle"), "volume": d.get("volume"), "open_interest": d.get("open_interest")} for d in data.get("data", [])]
+    return {"date": data.get("date"), "count": len(codes), "codes": codes}
     """Debug: fetch PREDISPATCHSCENARIODEMAND to see what S1-S6 mean."""
     from scraper import _list_hrefs, _read_zip, _parse_aemo, _fetch_predispatch, NEMWEB_BASE
     import csv, io
@@ -2720,6 +2736,25 @@ async def record_view(request: Request):
         "by_month":         data.get("by_month", {}),
         "unique_by_month":  unique_by_month_counts,
     }
+
+
+@app.get("/api/asx-debug")
+async def asx_debug():
+    """Debug: fetch au_electricity futures codes from ASX Energy API."""
+    import os, httpx
+    token = os.environ.get("ASX_API_KEY", "")
+    if not token:
+        return {"error": "ASX_API_KEY not set"}
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            "https://asxenergy.com.au/api/data?futures=au_electricity",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+    if r.status_code != 200:
+        return {"error": f"HTTP {r.status_code}", "body": r.text[:500]}
+    data = r.json()
+    codes = [d["code"] for d in data.get("data", [])]
+    return {"date": data.get("date"), "total": len(codes), "codes": codes}
 
 
 @app.get("/", response_class=HTMLResponse)

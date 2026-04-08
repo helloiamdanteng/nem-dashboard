@@ -233,7 +233,7 @@ tr:last-child td { border-bottom:none; }
     <span class="icon">🔋</span><span class="label">Batt</span>
   </button>
   <button class="nav-btn" onclick="showPanel('dminus1')" id="nav-dminus1">
-    <span class="icon">📈</span><span class="label">D−1</span>
+    <span class="icon">🕐</span><span class="label">D−1</span>
   </button>
   <button class="nav-btn" onclick="showPanel('dayahead')" id="nav-dayahead">
     <span class="icon">📅</span><span class="label">D+</span>
@@ -4934,7 +4934,7 @@ function renderASX() {
 
   // Period buttons
   html += '<div style="display:flex;gap:6px;margin-bottom:12px">';
-  for (const [key, label] of [['quarter','Quarters'],['cal','Cal Years'],['fy','Fin Years']]) {
+  for (const [key, label] of [['quarter','Quarters'],['cal','Calendar Years']]) {
     const active = _asxPeriod === key;
     html += `<button onclick="setASXPeriod('${key}')"
       style="font-family:var(--font-mono);font-size:10px;padding:5px 14px;border-radius:20px;cursor:pointer;
@@ -4963,9 +4963,6 @@ function _renderASXTable() {
 
   // Filter by period type and sort
   const PERIOD_TYPE = _asxPeriod === 'quarter' ? 'quarter' : 'cal';
-  // For FY: financial year = H period (Jul-Jun), in our data these are also period_type 'cal' with 'Cal YYYY' label
-  // Actually H = Cal year strip. FY strips would need different codes (not present in this dataset).
-  // We'll treat 'fy' as the same as cal for now — same H-coded annual strips.
 
   let periods = Object.entries(productData)
     .filter(([, v]) => v.period_type === PERIOD_TYPE)

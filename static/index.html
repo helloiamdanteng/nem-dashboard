@@ -5027,10 +5027,11 @@ function _renderASXTable() {
     t += `<tr style="border-bottom:1px solid #1e2d4533">`;
     for (const r of ASX_REGIONS) {
       const d = pdata[r];
-      const bid = d?.bid ? `$${parseFloat(d.bid).toFixed(2)}` : '—';
-      const ask = d?.ask ? `$${parseFloat(d.ask).toFixed(2)}` : '—';
-      const hasBidAsk = d?.bid || d?.ask;
-      t += `<td colspan="3" style="text-align:right;padding:2px 8px 6px;color:#475569;font-size:9px">${hasBidAsk ? `<span style="color:#2ed573">${bid}</span> / <span style="color:#ff4757">${ask}</span>` : ''}</td>`;
+      const bid = d?.bid ? `$${parseFloat(d.bid).toFixed(2)}` : null;
+      const ask = d?.ask ? `$${parseFloat(d.ask).toFixed(2)}` : null;
+      t += `<td style="text-align:right;padding:2px 4px 6px;color:#475569;font-size:9px">${bid ? `<span style="color:#2ed573">${bid}</span>` : ''}</td>`;
+      t += `<td style="text-align:center;padding:2px 4px 6px;color:#334155;font-size:9px">${(bid||ask) ? '/' : ''}</td>`;
+      t += `<td style="text-align:left;padding:2px 8px 6px;color:#475569;font-size:9px">${ask ? `<span style="color:#ff4757">${ask}</span>` : ''}</td>`;
     }
     t += '</tr>';
   }
@@ -7886,6 +7887,18 @@ function renderAbout(data) {
       </tr>
     </table>
 
+    <div style="font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--text);margin-bottom:8px">ASX ENERGY DATA SOURCES</div>
+    <table style="width:100%;font-family:var(--font-mono);font-size:10px;border-collapse:collapse;margin-bottom:12px">
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 0;color:var(--text)">Electricity futures &amp; caps (ASX)</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">ASX Energy API · asxenergy.com.au</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 0;color:var(--text)">Intraday bid/ask/last · EOD settle</td>
+        <td style="padding:6px 0;color:var(--text-muted);text-align:right">ASX Energy API · /intraday + /data</td>
+      </tr>
+    </table>
+
     <div style="font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--text);margin-bottom:8px">DATA REFRESH</div>
     <table style="width:100%;font-family:var(--font-mono);font-size:10px;border-collapse:collapse;margin-bottom:12px">
       <tr style="border-bottom:1px solid var(--border)">
@@ -7897,7 +7910,13 @@ function renderAbout(data) {
         <td style="padding:6px 0;color:var(--accent);text-align:right">Server polling — every 30 min</td>
       </tr>
       <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:6px 0;color:var(--text)">Gas (GBB production, storage, pipelines)</td>
+        <td style="padding:6px 0;color:var(--text)">ASX futures (market hours)</td>
+        <td style="padding:6px 0;color:var(--accent);text-align:right">Fetched on demand — 5 min cache</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 0;color:var(--text)">ASX futures (outside market hours)</td>
+        <td style="padding:6px 0;color:#f39c12;text-align:right">Fetched on demand — 1 hour cache</td>
+      </tr>
         <td style="padding:6px 0;color:var(--accent);text-align:right">Server cache — 1 hour TTL</td>
       </tr>
       <tr style="border-bottom:1px solid var(--border)">

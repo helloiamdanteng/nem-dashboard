@@ -5067,8 +5067,10 @@ async function fetchASXData() {
 
 async function loadASXHistory(code, label) {
   _asxHistCode = code;
+  _asxHistData = null; // Always fetch fresh
   // Refresh table to highlight selected cell
   const tableDiv = document.getElementById('asx-table-container');
+  if (tableDiv) tableDiv.innerHTML = _renderASXTable();
   if (tableDiv) tableDiv.innerHTML = _renderASXTable();
 
   const histDiv = document.getElementById('asx-history-container');
@@ -5099,17 +5101,47 @@ function _drawASXHistory(label) {
   }
 
   const todayPt = data.find(d => d.is_today);
-  const chartTitle = `${label} — 90-Day History${todayPt?.is_live ? ' (today: live)' : ' (EOD settles)'}`;
+  const chartTitle = `${label} — 90-Day History${todayPt?.is_live ? ' · Today: live' : ' · EOD Settles'}`;
+
+  // Build historical table (reverse chronological, exclude today)
+  const histRows = [...data].reverse();
+  let tableHtml = '<div class="chart-card" style="padding:12px 14px;margin-top:8px;overflow-x:auto">';
+  tableHtml += '<div class="chart-title" style="margin-bottom:8px">Price History</div>';
+  tableHtml += '<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px">';
+  tableHtml += '<thead><tr>';
+  tableHtml += '<th style="text-align:left;padding:5px 8px;color:#64748b;border-bottom:1px solid #1e2d45">Date</th>';
+  tableHtml += '<th style="text-align:right;padding:5px 8px;color:#64748b;border-bottom:1px solid #1e2d45">Settle</th>';
+  tableHtml += '<th style="text-align:right;padding:5px 8px;color:#64748b;border-bottom:1px solid #1e2d45">Volume</th>';
+  tableHtml += '<th style="text-align:right;padding:5px 8px;color:#64748b;border-bottom:1px solid #1e2d45">OI</th>';
+  tableHtml += '</tr></thead><tbody>';
+  for (const row of histRows) {
+    const s = row.date;
+    const dateLabel = `${s.slice(6,8)}/${s.slice(4,6)}/${s.slice(2,4)}`;
+    const price = row.is_today ? (row.display || row.last || row.settle) : row.settle;
+    const priceStr = price ? `$${parseFloat(price).toFixed(2)}` : '—';
+    const vol = row.volume ? Number(row.volume).toLocaleString() : '—';
+    const oi  = row.open_interest ? Number(row.open_interest).toLocaleString() : '—';
+    const rowCol = row.is_today ? '#00d4ff' : '#94a3b8';
+    const liveTag = row.is_today && row.is_live ? ' <span style="color:#00d4ff;font-size:8px">LIVE</span>' : (row.is_today ? ' <span style="color:#475569;font-size:8px">EOD</span>' : '');
+    tableHtml += `<tr style="border-bottom:1px solid #1e2d4533">
+      <td style="padding:5px 8px;color:${rowCol};white-space:nowrap">${dateLabel}${liveTag}</td>
+      <td style="text-align:right;padding:5px 8px;color:${rowCol};font-weight:${row.is_today?'700':'400'}">${priceStr}</td>
+      <td style="text-align:right;padding:5px 8px;color:#475569">${vol}</td>
+      <td style="text-align:right;padding:5px 8px;color:#475569">${oi}</td>
+    </tr>`;
+  }
+  tableHtml += '</tbody></table></div>';
+
   histDiv.innerHTML = `<div class="chart-card" style="padding:14px">
     <div class="chart-title">${chartTitle}</div>
     <div style="position:relative;height:260px"><canvas id="asxHistChart"></canvas></div>
     <div style="position:relative;height:80px;margin-top:6px"><canvas id="asxVolChart"></canvas></div>
-    <div style="font-family:var(--font-mono);font-size:8px;color:#475569;margin-top:8px">Settle price ($/MWh) · Volume (contracts)</div>
-  </div>`;
+    <div style="font-family:var(--font-mono);font-size:8px;color:#475569;margin-top:8px">Settle $/MWh · Volume contracts · ${todayPt?.is_live ? 'Today = live last price (cyan)' : 'All EOD settlement prices'}</div>
+  </div>${tableHtml}`;
 
   const labels = data.map(d => {
     const s = d.date;
-    return `${s.slice(6,8)}/${s.slice(4,6)}/${s.slice(0,4)}`;
+    return `${s.slice(6,8)}/${s.slice(4,6)}`;
   });
   const settles = data.map(d => {
     const price = d.is_today ? (d.display || d.last || d.settle) : d.settle;
@@ -5117,9 +5149,8 @@ function _drawASXHistory(label) {
   });
   const volumes = data.map(d => d.volume ? parseInt(d.volume) : 0);
 
-  // Highlight today's point
-  const pointColors = data.map(d => d.is_today ? '#00d4ff' : '#fbbf24');
-  const pointSizes  = data.map(d => d.is_today ? 4 : 0);
+  const pointColors = data.map(d => d.is_today ? '#00d4ff' : 'transparent');
+  const pointSizes  = data.map(d => d.is_today ? 5 : 0);
 
   // Price chart
   destroyChart('asxHist');
@@ -5131,17 +5162,21 @@ function _drawASXHistory(label) {
         label: 'Price', data: settles,
         borderColor: '#fbbf24', backgroundColor: '#fbbf2422',
         borderWidth: 2, pointRadius: pointSizes, pointBackgroundColor: pointColors,
+        pointBorderColor: '#00d4ff', pointBorderWidth: 2,
         tension: 0.2, fill: true, spanGaps: true,
       }]},
       options: { ...CHART_DEFAULTS,
         plugins: { ...CHART_DEFAULTS.plugins,
           legend: { display: false },
           tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
-            callbacks: { label: c => c.raw !== null ? ` $${c.raw.toFixed(2)}/MWh` : null }
+            callbacks: {
+              title: cs => cs[0]?.label || '',
+              label: c => c.raw !== null ? ` $${c.raw.toFixed(2)}/MWh` : null
+            }
           }
         },
         scales: {
-          x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:8},maxRotation:0,maxTicksLimit:8}, grid:{color:'#1e2d4544'} },
+          x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:8},maxRotation:0,maxTicksLimit:10}, grid:{color:'#1e2d4544'} },
           y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>'$'+v.toFixed(0)}, grid:{color:'#1e293b'} }
         }
       }
@@ -5152,11 +5187,13 @@ function _drawASXHistory(label) {
   destroyChart('asxVol');
   const ctx2 = document.getElementById('asxVolChart');
   if (ctx2) {
+    const volColors = data.map(d => d.is_today ? '#00d4ff66' : '#3498db44');
+    const volBorders = data.map(d => d.is_today ? '#00d4ff' : '#3498db');
     charts.asxVol = new Chart(ctx2, {
       type: 'bar',
       data: { labels, datasets: [{
         label: 'Volume', data: volumes,
-        backgroundColor: '#3498db66', borderColor: '#3498db', borderWidth: 1,
+        backgroundColor: volColors, borderColor: volBorders, borderWidth: 1,
       }]},
       options: { ...CHART_DEFAULTS,
         plugins: { ...CHART_DEFAULTS.plugins,

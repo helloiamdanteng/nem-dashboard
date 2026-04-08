@@ -241,6 +241,9 @@ tr:last-child td { border-bottom:none; }
   <button class="nav-btn" onclick="showPanel('prices-hist')" id="nav-prices-hist">
     <span class="icon">$</span><span class="label">Avg</span>
   </button>
+  <button class="nav-btn" onclick="showPanel('asx')" id="nav-asx">
+    <span class="icon">📈</span><span class="label">ASX</span>
+  </button>
   <button class="nav-btn" onclick="showPanel('outages')" id="nav-outages">
     <span class="icon">⚠️</span><span class="label">Outages</span>
   </button>
@@ -4905,6 +4908,255 @@ function _renderPriceHistCharts(data, liveData) {
   window._liveDataRef = liveData;
 }
 
+// ── ASX Energy Futures ────────────────────────────────────────────────────────
+
+let _asxData = null;
+let _asxProduct = 'base';      // 'base' | 'cap'
+let _asxPeriod  = 'quarter';   // 'quarter' | 'cal' | 'fy'
+let _asxHistCode = null;
+let _asxHistData = null;
+const ASX_REGIONS = ['QLD','NSW','VIC','SA'];
+const ASX_REGION_COLORS = {QLD:'#f39c12', NSW:'#3498db', VIC:'#2ed573', SA:'#e74c3c'};
+
+function renderASX() {
+  let html = '<div class="section-title">ASX Energy Futures</div>';
+
+  // Product buttons
+  html += '<div style="display:flex;gap:6px;margin-bottom:10px">';
+  for (const [key, label] of [['base','Base Futures'],['cap','$300 Cap']]) {
+    const active = _asxProduct === key;
+    html += `<button onclick="setASXProduct('${key}')"
+      style="font-family:var(--font-mono);font-size:10px;padding:5px 14px;border-radius:20px;cursor:pointer;
+      border:1px solid ${active?'#00d4ff':'#334155'};background:${active?'#00d4ff22':'transparent'};
+      color:${active?'#00d4ff':'#64748b'};font-weight:${active?'700':'400'}">${label}</button>`;
+  }
+  html += '</div>';
+
+  // Period buttons
+  html += '<div style="display:flex;gap:6px;margin-bottom:12px">';
+  for (const [key, label] of [['quarter','Quarters'],['cal','Cal Years'],['fy','Fin Years']]) {
+    const active = _asxPeriod === key;
+    html += `<button onclick="setASXPeriod('${key}')"
+      style="font-family:var(--font-mono);font-size:10px;padding:5px 14px;border-radius:20px;cursor:pointer;
+      border:1px solid ${active?'#94a3b8':'#334155'};background:${active?'#94a3b822':'transparent'};
+      color:${active?'#94a3b8':'#64748b'};font-weight:${active?'700':'400'}">${label}</button>`;
+  }
+  html += '</div>';
+
+  // Table
+  html += '<div id="asx-table-container">';
+  html += _renderASXTable();
+  html += '</div>';
+
+  // History chart
+  html += '<div id="asx-history-container" style="margin-top:12px"></div>';
+
+  return html;
+}
+
+function _renderASXTable() {
+  if (!_asxData) {
+    return '<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:20px 0;text-align:center">Loading ASX data…</div>';
+  }
+
+  const productData = _asxData[_asxProduct] || {};
+
+  // Filter by period type and sort
+  const PERIOD_TYPE = _asxPeriod === 'quarter' ? 'quarter' : 'cal';
+  // For FY: financial year = H period (Jul-Jun), in our data these are also period_type 'cal' with 'Cal YYYY' label
+  // Actually H = Cal year strip. FY strips would need different codes (not present in this dataset).
+  // We'll treat 'fy' as the same as cal for now — same H-coded annual strips.
+
+  let periods = Object.entries(productData)
+    .filter(([, v]) => v.period_type === PERIOD_TYPE)
+    .sort((a, b) => a[1].sort_key - b[1].sort_key);
+
+  // Limit: quarters = next 8, cal = next 3
+  const limit = _asxPeriod === 'quarter' ? 8 : 3;
+  periods = periods.slice(0, limit);
+
+  if (!periods.length) {
+    return '<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:20px 0;text-align:center">No data for this selection</div>';
+  }
+
+  let t = '<div class="chart-card" style="padding:0;overflow-x:auto">';
+  t += '<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px">';
+
+  // Header
+  t += '<thead><tr>';
+  t += '<th style="text-align:left;padding:10px 12px;color:#64748b;border-bottom:1px solid #1e2d45;white-space:nowrap">Period</th>';
+  for (const r of ASX_REGIONS) {
+    t += `<th colspan="3" style="text-align:center;padding:10px 8px;color:${ASX_REGION_COLORS[r]};border-bottom:1px solid #1e2d45;white-space:nowrap">${r}</th>`;
+  }
+  t += '</tr>';
+  t += '<tr>';
+  t += '<th style="padding:4px 12px 8px;border-bottom:1px solid #1e2d45"></th>';
+  for (const r of ASX_REGIONS) {
+    t += `<th style="text-align:right;padding:4px 4px 8px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400;font-size:9px">Settle</th>`;
+    t += `<th style="text-align:right;padding:4px 4px 8px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400;font-size:9px">Vol</th>`;
+    t += `<th style="text-align:right;padding:4px 8px 8px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400;font-size:9px">OI</th>`;
+  }
+  t += '</tr></thead><tbody>';
+
+  for (const [label, pdata] of periods) {
+    t += `<tr style="border-bottom:1px solid #1e2d4533">`;
+    t += `<td style="padding:8px 12px;color:#94a3b8;white-space:nowrap;font-weight:700">${label}</td>`;
+    for (const r of ASX_REGIONS) {
+      const d = pdata[r];
+      const code = d?.code || '';
+      const settle = d?.settle ? `$${parseFloat(d.settle).toFixed(2)}` : '—';
+      const vol = d?.volume ? Number(d.volume).toLocaleString() : '—';
+      const oi  = d?.open_interest ? Number(d.open_interest).toLocaleString() : '—';
+      const isSelected = _asxHistCode === code;
+      const settleCol = isSelected ? '#fbbf24' : (d?.settle ? '#e2e8f0' : '#334155');
+      t += `<td style="text-align:right;padding:8px 4px;color:${settleCol};cursor:${code?'pointer':'default'};font-weight:${isSelected?'700':'400'}"
+              onclick="${code?`loadASXHistory('${code}','${label} ${r}')`:''}">${settle}</td>`;
+      t += `<td style="text-align:right;padding:8px 4px;color:#475569">${vol}</td>`;
+      t += `<td style="text-align:right;padding:8px 8px;color:#475569">${oi}</td>`;
+    }
+    t += '</tr>';
+  }
+
+  t += '</tbody></table></div>';
+  return t;
+}
+
+function setASXProduct(p) {
+  _asxProduct = p;
+  _asxHistCode = null;
+  _asxHistData = null;
+  const tableDiv = document.getElementById('asx-table-container');
+  if (tableDiv) tableDiv.innerHTML = _renderASXTable();
+  const histDiv = document.getElementById('asx-history-container');
+  if (histDiv) histDiv.innerHTML = '';
+}
+
+function setASXPeriod(p) {
+  _asxPeriod = p;
+  _asxHistCode = null;
+  _asxHistData = null;
+  const tableDiv = document.getElementById('asx-table-container');
+  if (tableDiv) tableDiv.innerHTML = _renderASXTable();
+  const histDiv = document.getElementById('asx-history-container');
+  if (histDiv) histDiv.innerHTML = '';
+}
+
+async function fetchASXData() {
+  if (_asxData) {
+    const tableDiv = document.getElementById('asx-table-container');
+    if (tableDiv) tableDiv.innerHTML = _renderASXTable();
+    return;
+  }
+  try {
+    const resp = await fetch('/api/asx');
+    _asxData = await resp.json();
+    const tableDiv = document.getElementById('asx-table-container');
+    if (tableDiv) tableDiv.innerHTML = _renderASXTable();
+  } catch(e) {
+    const tableDiv = document.getElementById('asx-table-container');
+    if (tableDiv) tableDiv.innerHTML = `<div style="color:#e74c3c;font-family:var(--font-mono);font-size:10px;padding:12px">Failed to load ASX data: ${e.message}</div>`;
+  }
+}
+
+async function loadASXHistory(code, label) {
+  _asxHistCode = code;
+  // Refresh table to highlight selected cell
+  const tableDiv = document.getElementById('asx-table-container');
+  if (tableDiv) tableDiv.innerHTML = _renderASXTable();
+
+  const histDiv = document.getElementById('asx-history-container');
+  if (!histDiv) return;
+  histDiv.innerHTML = `<div class="chart-card" style="padding:14px">
+    <div class="chart-title">${label} — Loading 90-day history…</div>
+    <div class="spinner"><div class="spinner-icon">📡</div></div>
+  </div>`;
+
+  try {
+    const resp = await fetch(`/api/asx/history?code=${encodeURIComponent(code)}`);
+    const json = await resp.json();
+    _asxHistData = json.history || [];
+    _drawASXHistory(label);
+  } catch(e) {
+    histDiv.innerHTML = `<div style="color:#e74c3c;font-family:var(--font-mono);font-size:10px;padding:12px">Failed: ${e.message}</div>`;
+  }
+}
+
+function _drawASXHistory(label) {
+  const histDiv = document.getElementById('asx-history-container');
+  if (!histDiv || !_asxHistData) return;
+
+  const data = _asxHistData;
+  if (!data.length) {
+    histDiv.innerHTML = '<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:12px">No history available</div>';
+    return;
+  }
+
+  histDiv.innerHTML = `<div class="chart-card" style="padding:14px">
+    <div class="chart-title">${label} — 90-Day Price History</div>
+    <div style="position:relative;height:260px"><canvas id="asxHistChart"></canvas></div>
+    <div style="position:relative;height:80px;margin-top:6px"><canvas id="asxVolChart"></canvas></div>
+    <div style="font-family:var(--font-mono);font-size:8px;color:#475569;margin-top:8px">Settle price ($/MWh) · Volume (contracts)</div>
+  </div>`;
+
+  const labels = data.map(d => {
+    const s = d.date;
+    return `${s.slice(6,8)}/${s.slice(4,6)}/${s.slice(0,4)}`;
+  });
+  const settles = data.map(d => d.settle ? parseFloat(d.settle) : null);
+  const volumes = data.map(d => d.volume ? parseInt(d.volume) : 0);
+
+  // Price chart
+  destroyChart('asxHist');
+  const ctx1 = document.getElementById('asxHistChart');
+  if (ctx1) {
+    charts.asxHist = new Chart(ctx1, {
+      type: 'line',
+      data: { labels, datasets: [{
+        label: 'Settle', data: settles,
+        borderColor: '#fbbf24', backgroundColor: '#fbbf2422',
+        borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true, spanGaps: true,
+      }]},
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins,
+          legend: { display: false },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
+            callbacks: { label: c => c.raw !== null ? ` $${c.raw.toFixed(2)}/MWh` : null }
+          }
+        },
+        scales: {
+          x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:8},maxRotation:0,maxTicksLimit:8}, grid:{color:'#1e2d4544'} },
+          y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9},callback:v=>'$'+v.toFixed(0)}, grid:{color:'#1e293b'} }
+        }
+      }
+    });
+  }
+
+  // Volume chart
+  destroyChart('asxVol');
+  const ctx2 = document.getElementById('asxVolChart');
+  if (ctx2) {
+    charts.asxVol = new Chart(ctx2, {
+      type: 'bar',
+      data: { labels, datasets: [{
+        label: 'Volume', data: volumes,
+        backgroundColor: '#3498db66', borderColor: '#3498db', borderWidth: 1,
+      }]},
+      options: { ...CHART_DEFAULTS,
+        plugins: { ...CHART_DEFAULTS.plugins,
+          legend: { display: false },
+          tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
+            callbacks: { label: c => ` Vol: ${c.raw?.toLocaleString()}` }
+          }
+        },
+        scales: {
+          x: { ticks:{display:false}, grid:{display:false} },
+          y: { ticks:{color:'#64748b',font:{family:'Space Mono',size:8},maxTicksLimit:3}, grid:{color:'#1e293b'} }
+        }
+      }
+    });
+  }
+}
+
 // ── Gas Page ──────────────────────────────────────────────────────────────────
 
 const GAS_HUBS = ['Adelaide', 'Brisbane', 'Sydney'];
@@ -7124,6 +7376,7 @@ function renderPanel(panel, data) {
     else if (panel === 'batteries')  html = renderBatteries(data);
     else if (panel === 'dminus1')    { html = renderDMinus1(data); }
     else if (panel === 'prices-hist') { html = renderPricesHist(); }
+    else if (panel === 'asx')         { html = renderASX(); }
     else if (panel === 'gas')         { html = renderGas(); }
 
     else if (panel === 'dayahead')   html = renderDayAhead(data);
@@ -7146,6 +7399,7 @@ function renderPanel(panel, data) {
       else if (panel === 'batteries')  drawBatteryCharts(data);
       else if (panel === 'dminus1')    drawDMinus1Charts(data);
       else if (panel === 'prices-hist') { setTimeout(drawPricesHist, 0); }
+      else if (panel === 'asx') { fetchASXData(); }
       else if (panel === 'gas') {
         if (_gasData) {
           setTimeout(() => _drawGasCharts(_gasData), 50);

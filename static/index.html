@@ -4930,7 +4930,7 @@ function renderASX() {
   html += '<div style="display:flex;gap:6px;margin-bottom:10px">';
   for (const [key, label] of [['base','Base Futures'],['cap','$300 Cap']]) {
     const active = _asxProduct === key;
-    html += `<button onclick="setASXProduct('${key}')"
+    html += `<button id="asx-prod-${key}" onclick="setASXProduct('${key}')"
       style="font-family:var(--font-mono);font-size:10px;padding:5px 14px;border-radius:20px;cursor:pointer;
       border:1px solid ${active?'#00d4ff':'#334155'};background:${active?'#00d4ff22':'transparent'};
       color:${active?'#00d4ff':'#64748b'};font-weight:${active?'700':'400'}">${label}</button>`;
@@ -4941,7 +4941,7 @@ function renderASX() {
   html += '<div style="display:flex;gap:6px;margin-bottom:12px">';
   for (const [key, label] of [['quarter','Quarters'],['cal','Cal Years'],['fy','Fin Years']]) {
     const active = _asxPeriod === key;
-    html += `<button onclick="setASXPeriod('${key}')"
+    html += `<button id="asx-period-${key}" onclick="setASXPeriod('${key}')"
       style="font-family:var(--font-mono);font-size:10px;padding:5px 14px;border-radius:20px;cursor:pointer;
       border:1px solid ${active?'#94a3b8':'#334155'};background:${active?'#94a3b822':'transparent'};
       color:${active?'#94a3b8':'#64748b'};font-weight:${active?'700':'400'}">${label}</button>`;
@@ -5032,6 +5032,7 @@ function setASXProduct(p) {
   _asxProduct = p;
   _asxHistCode = null;
   _asxHistData = null;
+  _refreshASXButtons();
   const tableDiv = document.getElementById('asx-table-container');
   if (tableDiv) tableDiv.innerHTML = _renderASXTable();
   const histDiv = document.getElementById('asx-history-container');
@@ -5042,10 +5043,34 @@ function setASXPeriod(p) {
   _asxPeriod = p;
   _asxHistCode = null;
   _asxHistData = null;
+  _refreshASXButtons();
   const tableDiv = document.getElementById('asx-table-container');
   if (tableDiv) tableDiv.innerHTML = _renderASXTable();
   const histDiv = document.getElementById('asx-history-container');
   if (histDiv) histDiv.innerHTML = '';
+}
+
+function _refreshASXButtons() {
+  // Update product buttons
+  for (const [key] of [['base'],['cap']]) {
+    const btn = document.getElementById(`asx-prod-${key}`);
+    if (!btn) continue;
+    const active = _asxProduct === key;
+    btn.style.borderColor = active ? '#00d4ff' : '#334155';
+    btn.style.background  = active ? '#00d4ff22' : 'transparent';
+    btn.style.color       = active ? '#00d4ff' : '#64748b';
+    btn.style.fontWeight  = active ? '700' : '400';
+  }
+  // Update period buttons
+  for (const [key] of [['quarter'],['cal'],['fy']]) {
+    const btn = document.getElementById(`asx-period-${key}`);
+    if (!btn) continue;
+    const active = _asxPeriod === key;
+    btn.style.borderColor = active ? '#94a3b8' : '#334155';
+    btn.style.background  = active ? '#94a3b822' : 'transparent';
+    btn.style.color       = active ? '#94a3b8' : '#64748b';
+    btn.style.fontWeight  = active ? '700' : '400';
+  }
 }
 
 async function fetchASXData() {

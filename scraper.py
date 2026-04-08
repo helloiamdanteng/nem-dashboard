@@ -4242,8 +4242,15 @@ ASX_API_BASE = "https://asxenergy.com.au/api"
 ASX_REGION_MAP = {"N": "NSW", "Q": "QLD", "S": "SA", "V": "VIC"}
 ASX_PRODUCT_MAP = {"B": "base", "G": "cap"}
 
-# Quarter letter to label
-ASX_QUARTER_MAP = {"M": "Q2", "U": "Q3", "Z": "Q4", "H": "Q1"}
+# Period letter mapping - corrected
+# H = Q1 (Jan-Mar), M = FY (Jul-Jun annual strip), U = Q3 (Jul-Sep), Z = Cal Year (Jan-Dec annual strip)
+# Also: quarterly letters for other products
+ASX_PERIOD_DECODE = {
+    "H": ("quarter", "Q1"),
+    "M": ("fy",      None),   # Financial Year strip (Jul-Jun)
+    "U": ("quarter", "Q3"),
+    "Z": ("cal",     None),   # Calendar Year strip (Jan-Dec)
+}
 
 def _asx_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
@@ -4252,7 +4259,11 @@ def _asx_decode(code: str) -> dict | None:
     """
     Decode an ASX code like BNM2026 into its components.
     Format: [product][region][period][year]
-    Returns None if not a recognised format.
+    Period letters:
+      H = Q1 (Jan-Mar quarter)
+      U = Q3 (Jul-Sep quarter)
+      M = Financial Year strip (Jul-Jun, e.g. FY27 = Jul26-Jun27)
+      Z = Calendar Year strip (Jan-Dec)
     """
     if len(code) < 7:
         return None
@@ -4269,23 +4280,23 @@ def _asx_decode(code: str) -> dict | None:
         return None
     year = int(year_str)
 
-    # Cal year: BNH = H period for base is Cal year (Jan-Dec)
-    # FY: BNM (Q2), BNU (Q3), BNZ (Q4), BNH could also be Q1
-    # We use H as Cal Year for B/G products when it appears with 2027+
-    # Quarters: M=Q2(Apr-Jun), U=Q3(Jul-Sep), Z=Q4(Oct-Dec), H=Q1(Jan-Mar) or Cal
-    # Convention: H = Cal Year (annual strip), others are quarters
-    if period_char == "H":
-        period_type = "cal"
+    decoded_period = ASX_PERIOD_DECODE.get(period_char)
+    if not decoded_period:
+        return None
+
+    period_type, quarter_label = decoded_period
+
+    if period_type == "quarter":
+        period_label = f"{quarter_label} {year}"
+        q_num = {"Q1": 1, "Q3": 3}[quarter_label]
+        sort_key = year * 100 + q_num
+    elif period_type == "cal":
         period_label = f"Cal {year}"
         sort_key = year * 100
-    elif period_char in ASX_QUARTER_MAP:
-        period_type = "quarter"
-        qtr = ASX_QUARTER_MAP[period_char]
-        period_label = f"{qtr} {year}"
-        q_num = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}[qtr]
-        sort_key = year * 100 + q_num
-    else:
-        return None
+    elif period_type == "fy":
+        # FY ending in this year: e.g. M2027 = FY27 = Jul 2026 - Jun 2027
+        period_label = f"FY{str(year)[2:]}"
+        sort_key = year * 100
 
     return {
         "code": code,

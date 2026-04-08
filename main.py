@@ -2493,7 +2493,11 @@ async def asx_data(refresh: bool = False):
 
     if not refresh and _asx_cache["data"] and _asx_cache["last_updated"]:
         age = datetime.now(timezone.utc) - _asx_cache["last_updated"]
-        if age < timedelta(hours=1):
+        from scraper import AEST as _AEST
+        now_aest = datetime.now(_AEST)
+        is_mkt = now_aest.weekday() < 5 and 10 <= now_aest.hour < 16
+        ttl = timedelta(minutes=5) if is_mkt else timedelta(hours=1)
+        if age < ttl:
             return JSONResponse(content=_asx_cache["data"])
 
     loop = asyncio.get_running_loop()

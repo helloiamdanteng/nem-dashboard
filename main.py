@@ -1696,22 +1696,45 @@ async def rescrape():
 
 @app.get("/api/asx-debug")
 async def asx_debug():
-    """Debug: fetch AU electricity futures codes from ASX Energy API."""
+    """Debug: check ASX data freshness and history fetch."""
     import os, httpx
     token = os.environ.get("ASX_API_KEY", "")
     if not token:
         return {"error": "ASX_API_KEY not set"}
+    result = {}
     async with httpx.AsyncClient(timeout=15) as client:
+        # Check latest data
         r = await client.get(
             "https://asxenergy.com.au/api/data?futures=au_electricity",
             headers={"Authorization": f"Bearer {token}"}
         )
-    if r.status_code != 200:
-        return {"error": f"HTTP {r.status_code}", "body": r.text[:500]}
-    data = r.json()
-    # Return just the codes and settle prices
-    codes = [{"code": d["code"], "settle": d.get("settle"), "volume": d.get("volume"), "open_interest": d.get("open_interest")} for d in data.get("data", [])]
-    return {"date": data.get("date"), "count": len(codes), "codes": codes}
+        data = r.json()
+        result["latest_date"] = data.get("date")
+        result["cache_date"] = _asx_cache["data"].get("date") if _asx_cache["data"] else None
+        result["cache_age_mins"] = None
+        if _asx_cache["last_updated"]:
+            from datetime import datetime, timezone
+            age = datetime.now(timezone.utc) - _asx_cache["last_updated"]
+            result["cache_age_mins"] = round(age.total_seconds() / 60, 1)
+
+        # Test history for BNM2026
+        r2 = await client.get(
+            "https://asxenergy.com.au/api/dates?futures=BNM2026",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        dates = r2.json().get("data", [])
+        result["bnm2026_dates_count"] = len(dates)
+        result["bnm2026_dates_last5"] = dates[-5:] if dates else []
+
+        # Fetch one date
+        if dates:
+            r3 = await client.get(
+                f"https://asxenergy.com.au/api/data?futures=BNM2026&date={dates[-1]}",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            result["bnm2026_sample"] = r3.json()
+
+    return result
     """Debug: fetch PREDISPATCHSCENARIODEMAND to see what S1-S6 mean."""
     from scraper import _list_hrefs, _read_zip, _parse_aemo, _fetch_predispatch, NEMWEB_BASE
     import csv, io

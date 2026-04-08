@@ -4439,7 +4439,7 @@ def scrape_asx_history(token: str, code: str) -> list:
 
     # Generate past trading days (skip today, start from yesterday)
     dates = []
-    for i in range(1, 91):
+    for i in range(1, 182):
         d = now_aest - timedelta(days=i)
         if d.weekday() < 5:
             dates.append(d.strftime("%Y%m%d"))

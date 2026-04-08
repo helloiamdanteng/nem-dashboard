@@ -2527,11 +2527,15 @@ async def asx_history(code: str):
     if not token:
         return JSONResponse(status_code=503, content={"error": "ASX_API_KEY not configured"})
 
-    # Serve from cache if < 6 hours old
+    # Serve from cache — shorter TTL during market hours for today's live price
     cached = _asx_history_cache.get(code)
     if cached and cached.get("last_updated"):
+        from scraper import AEST as _AEST
+        now_aest = datetime.now(_AEST)
+        is_mkt = now_aest.weekday() < 5 and 10 <= now_aest.hour < 16
+        ttl = timedelta(minutes=5) if is_mkt else timedelta(hours=6)
         age = datetime.now(timezone.utc) - cached["last_updated"]
-        if age < timedelta(hours=6):
+        if age < ttl:
             return JSONResponse(content={"code": code, "history": cached["history"]})
 
     loop = asyncio.get_running_loop()

@@ -4230,3 +4230,204 @@ def scrape_slow() -> dict:
 
     logger.info("scrape_slow done")
     return result
+
+
+# ---------------------------------------------------------------------------
+# ASX Energy futures scraper
+# ---------------------------------------------------------------------------
+
+ASX_API_BASE = "https://asxenergy.com.au/api"
+
+# Code decoding maps
+ASX_REGION_MAP = {"N": "NSW", "Q": "QLD", "S": "SA", "V": "VIC"}
+ASX_PRODUCT_MAP = {"B": "base", "G": "cap"}
+
+# Quarter letter to label
+ASX_QUARTER_MAP = {"M": "Q2", "U": "Q3", "Z": "Q4", "H": "Q1"}
+
+def _asx_headers(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+def _asx_decode(code: str) -> dict | None:
+    """
+    Decode an ASX code like BNM2026 into its components.
+    Format: [product][region][period][year]
+    Returns None if not a recognised format.
+    """
+    if len(code) < 7:
+        return None
+    product_char = code[0]
+    region_char  = code[1]
+    period_char  = code[2]
+    year_str     = code[3:]
+
+    product = ASX_PRODUCT_MAP.get(product_char)
+    region  = ASX_REGION_MAP.get(region_char)
+    if not product or not region:
+        return None
+    if not year_str.isdigit():
+        return None
+    year = int(year_str)
+
+    # Cal year: BNH = H period for base is Cal year (Jan-Dec)
+    # FY: BNM (Q2), BNU (Q3), BNZ (Q4), BNH could also be Q1
+    # We use H as Cal Year for B/G products when it appears with 2027+
+    # Quarters: M=Q2(Apr-Jun), U=Q3(Jul-Sep), Z=Q4(Oct-Dec), H=Q1(Jan-Mar) or Cal
+    # Convention: H = Cal Year (annual strip), others are quarters
+    if period_char == "H":
+        period_type = "cal"
+        period_label = f"Cal {year}"
+        sort_key = year * 100
+    elif period_char in ASX_QUARTER_MAP:
+        period_type = "quarter"
+        qtr = ASX_QUARTER_MAP[period_char]
+        period_label = f"{qtr} {year}"
+        q_num = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}[qtr]
+        sort_key = year * 100 + q_num
+    else:
+        return None
+
+    return {
+        "code": code,
+        "product": product,
+        "region": region,
+        "period_type": period_type,
+        "period_label": period_label,
+        "sort_key": sort_key,
+        "year": year,
+    }
+
+
+def scrape_asx(token: str) -> dict:
+    """
+    Fetch AU electricity futures from ASX Energy API.
+    Returns structured data: {
+      date, base: {period_label: {NSW, QLD, VIC, SA}}, cap: {...}
+      history available via separate calls
+    }
+    """
+    try:
+        resp = requests.get(
+            f"{ASX_API_BASE}/data",
+            params={"futures": "au_electricity"},
+            headers=_asx_headers(token),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        raw = resp.json()
+    except Exception as e:
+        logger.warning(f"scrape_asx: fetch failed: {e}")
+        return {}
+
+    date = raw.get("date", "")
+    rows = raw.get("data", [])
+
+    # Decode all codes and group by product → period → region
+    result: dict = {"date": date, "base": {}, "cap": {}}
+
+    now_aest = datetime.now(AEST)
+    current_year = now_aest.year
+    current_q = (now_aest.month - 1) // 3 + 1
+
+    for row in rows:
+        code = row.get("code", "")
+        decoded = _asx_decode(code)
+        if not decoded:
+            continue
+        product = decoded["product"]
+        if product not in ("base", "cap"):
+            continue
+        region = decoded["region"]
+        if region not in ("NSW", "QLD", "VIC", "SA"):
+            continue
+
+        period_label = decoded["period_label"]
+        period_type  = decoded["period_type"]
+        sort_key     = decoded["sort_key"]
+        year         = decoded["year"]
+
+        # Skip expired quarters
+        if period_type == "quarter":
+            q_num = sort_key % 100
+            if year < current_year or (year == current_year and q_num < current_q):
+                continue
+
+        entry = result[product].setdefault(period_label, {
+            "period_type": period_type,
+            "sort_key": sort_key,
+            "year": year,
+        })
+        entry[region] = {
+            "settle":        row.get("settle"),
+            "bid":           row.get("bid"),
+            "ask":           row.get("ask"),
+            "volume":        row.get("volume"),
+            "open_interest": row.get("open_interest"),
+            "code":          code,
+        }
+
+    logger.info(f"scrape_asx: date={date} base={len(result['base'])} cap={len(result['cap'])} periods")
+    return result
+
+
+def scrape_asx_history(token: str, code: str) -> list:
+    """
+    Fetch 90-day price history for a specific futures code.
+    Returns [{date, settle, volume, open_interest}]
+    """
+    try:
+        # Get available dates
+        dates_resp = requests.get(
+            f"{ASX_API_BASE}/dates",
+            params={"futures": code},
+            headers=_asx_headers(token),
+            timeout=15,
+        )
+        dates_resp.raise_for_status()
+        all_dates = dates_resp.json().get("data", [])
+    except Exception as e:
+        logger.warning(f"scrape_asx_history dates: {e}")
+        return []
+
+    # Last 90 calendar days
+    cutoff = (datetime.now(AEST) - timedelta(days=90)).strftime("%Y%m%d")
+    recent_dates = [d for d in all_dates if d >= cutoff]
+
+    if not recent_dates:
+        return []
+
+    # Fetch each date (batch with threads, max 10 workers)
+    history = []
+
+    def _fetch_date(dt: str) -> dict | None:
+        try:
+            r = requests.get(
+                f"{ASX_API_BASE}/data",
+                params={"futures": code, "date": dt},
+                headers=_asx_headers(token),
+                timeout=10,
+            )
+            r.raise_for_status()
+            data = r.json().get("data", [])
+            if data:
+                row = data[0]
+                return {
+                    "date":          dt,
+                    "settle":        row.get("settle"),
+                    "volume":        row.get("volume"),
+                    "open_interest": row.get("open_interest"),
+                }
+        except Exception as e:
+            logger.warning(f"scrape_asx_history {dt}: {e}")
+        return None
+
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures_map = {ex.submit(_fetch_date, d): d for d in recent_dates}
+        for fut in as_completed(futures_map):
+            result = fut.result()
+            if result:
+                history.append(result)
+
+    history.sort(key=lambda x: x["date"])
+    logger.info(f"scrape_asx_history: {code} → {len(history)} pts")
+    return history

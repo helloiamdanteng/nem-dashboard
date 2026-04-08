@@ -4373,31 +4373,16 @@ def scrape_asx(token: str) -> dict:
 def scrape_asx_history(token: str, code: str) -> list:
     """
     Fetch 90-day price history for a specific futures code.
+    Generates trading dates directly (dates endpoint appears non-functional).
     Returns [{date, settle, volume, open_interest}]
     """
-    try:
-        # Get available dates
-        dates_resp = requests.get(
-            f"{ASX_API_BASE}/dates",
-            params={"futures": code},
-            headers=_asx_headers(token),
-            timeout=15,
-        )
-        dates_resp.raise_for_status()
-        all_dates = dates_resp.json().get("data", [])
-    except Exception as e:
-        logger.warning(f"scrape_asx_history dates: {e}")
-        return []
-
-    # Last 90 calendar days
-    cutoff = (datetime.now(AEST) - timedelta(days=90)).strftime("%Y%m%d")
-    recent_dates = [d for d in all_dates if d >= cutoff]
-
-    if not recent_dates:
-        return []
-
-    # Fetch each date (batch with threads, max 10 workers)
-    history = []
+    # Generate last 90 calendar days, skip weekends
+    now_aest = datetime.now(AEST)
+    dates = []
+    for i in range(1, 91):
+        d = now_aest - timedelta(days=i)
+        if d.weekday() < 5:  # Mon-Fri only
+            dates.append(d.strftime("%Y%m%d"))
 
     def _fetch_date(dt: str) -> dict | None:
         try:
@@ -4411,23 +4396,28 @@ def scrape_asx_history(token: str, code: str) -> list:
             data = r.json().get("data", [])
             if data:
                 row = data[0]
+                settle = row.get("settle")
+                # Skip zero/missing settle
+                if not settle or float(settle) == 0:
+                    return None
                 return {
                     "date":          dt,
-                    "settle":        row.get("settle"),
+                    "settle":        settle,
                     "volume":        row.get("volume"),
                     "open_interest": row.get("open_interest"),
                 }
         except Exception as e:
-            logger.warning(f"scrape_asx_history {dt}: {e}")
+            logger.warning(f"scrape_asx_history {code} {dt}: {e}")
         return None
 
+    history = []
     with ThreadPoolExecutor(max_workers=10) as ex:
-        futures_map = {ex.submit(_fetch_date, d): d for d in recent_dates}
+        futures_map = {ex.submit(_fetch_date, d): d for d in dates}
         for fut in as_completed(futures_map):
             result = fut.result()
             if result:
                 history.append(result)
 
     history.sort(key=lambda x: x["date"])
-    logger.info(f"scrape_asx_history: {code} → {len(history)} pts")
+    logger.info(f"scrape_asx_history: {code} → {len(history)} pts from {len(dates)} dates")
     return history

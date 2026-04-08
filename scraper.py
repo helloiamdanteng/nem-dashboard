@@ -4241,15 +4241,21 @@ ASX_API_BASE = "https://asxenergy.com.au/api"
 # Code decoding maps
 ASX_REGION_MAP = {"N": "NSW", "Q": "QLD", "S": "SA", "V": "VIC"}
 ASX_PRODUCT_MAP = {"B": "base", "G": "cap"}
+ASX_STRIP_PRODUCT_MAP = {"H": "base_strip", "R": "cap_strip"}  # annual strip first letters
 
-# Period letter mapping - corrected
-# H = Q1 (Jan-Mar), M = FY (Jul-Jun annual strip), U = Q3 (Jul-Sep), Z = Cal Year (Jan-Dec annual strip)
-# Also: quarterly letters for other products
-ASX_PERIOD_DECODE = {
-    "H": ("quarter", "Q1"),
-    "M": ("fy",      None),   # Financial Year strip (Jul-Jun)
-    "U": ("quarter", "Q3"),
-    "Z": ("cal",     None),   # Calendar Year strip (Jan-Dec)
+# Quarter letter mapping for B/G quarterly products
+ASX_QUARTER_MAP = {
+    "H": ("Q1", 1),   # Jan-Mar
+    "M": ("Q2", 2),   # Apr-Jun
+    "U": ("Q3", 3),   # Jul-Sep
+    "Z": ("Q4", 4),   # Oct-Dec
+}
+
+# Annual strip period: determined by ending quarter letter (3rd char of HNZ2027 etc)
+# Z = Calendar Year (Jan-Dec), M = Financial Year (Jul-Jun)
+ASX_STRIP_PERIOD_MAP = {
+    "Z": "cal",
+    "M": "fy",
 }
 
 def _asx_headers(token: str) -> dict:
@@ -4257,13 +4263,17 @@ def _asx_headers(token: str) -> dict:
 
 def _asx_decode(code: str) -> dict | None:
     """
-    Decode an ASX code like BNM2026 into its components.
-    Format: [product][region][period][year]
-    Period letters:
-      H = Q1 (Jan-Mar quarter)
-      U = Q3 (Jul-Sep quarter)
-      M = Financial Year strip (Jul-Jun, e.g. FY27 = Jul26-Jun27)
-      Z = Calendar Year strip (Jan-Dec)
+    Decode an ASX electricity futures code.
+
+    Quarterly futures (B=base, G=cap):
+      Format: [B/G][region][quarter][year]
+      H=Q1(Jan-Mar), M=Q2(Apr-Jun), U=Q3(Jul-Sep), Z=Q4(Oct-Dec)
+      e.g. BNM2026 = Base NSW Q2 2026
+
+    Annual strip futures (H=base strip, R=cap strip):
+      Format: [H/R][region][period][year]
+      Z=Calendar Year (Jan-Dec), M=Financial Year (Jul-Jun)
+      e.g. HNZ2027 = Base NSW Cal 2027, HNM2027 = Base NSW FY27
     """
     if len(code) < 7:
         return None
@@ -4271,41 +4281,46 @@ def _asx_decode(code: str) -> dict | None:
     region_char  = code[1]
     period_char  = code[2]
     year_str     = code[3:]
-
-    product = ASX_PRODUCT_MAP.get(product_char)
-    region  = ASX_REGION_MAP.get(region_char)
-    if not product or not region:
-        return None
     if not year_str.isdigit():
         return None
     year = int(year_str)
 
-    decoded_period = ASX_PERIOD_DECODE.get(period_char)
-    if not decoded_period:
+    region = ASX_REGION_MAP.get(region_char)
+    if not region:
         return None
 
-    period_type, quarter_label = decoded_period
+    # Annual strips: H or R as first char
+    if product_char in ASX_STRIP_PRODUCT_MAP:
+        product = ASX_STRIP_PRODUCT_MAP[product_char]
+        period_type = ASX_STRIP_PERIOD_MAP.get(period_char)
+        if not period_type:
+            return None
+        if period_type == "cal":
+            period_label = f"Cal {year}"
+            sort_key = year * 100
+        else:
+            period_label = f"FY{str(year)[2:]}"
+            sort_key = year * 100
+        return {
+            "code": code, "product": product, "region": region,
+            "period_type": period_type, "period_label": period_label,
+            "sort_key": sort_key, "year": year,
+        }
 
-    if period_type == "quarter":
-        period_label = f"{quarter_label} {year}"
-        q_num = {"Q1": 1, "Q3": 3}[quarter_label]
-        sort_key = year * 100 + q_num
-    elif period_type == "cal":
-        period_label = f"Cal {year}"
-        sort_key = year * 100
-    elif period_type == "fy":
-        # FY ending in this year: e.g. M2027 = FY27 = Jul 2026 - Jun 2027
-        period_label = f"FY{str(year)[2:]}"
-        sort_key = year * 100
-
+    # Quarterly futures: B or G as first char
+    product = ASX_PRODUCT_MAP.get(product_char)
+    if not product:
+        return None
+    qtr_info = ASX_QUARTER_MAP.get(period_char)
+    if not qtr_info:
+        return None
+    qtr_label, q_num = qtr_info
+    period_label = f"{qtr_label} {year}"
+    sort_key = year * 100 + q_num
     return {
-        "code": code,
-        "product": product,
-        "region": region,
-        "period_type": period_type,
-        "period_label": period_label,
-        "sort_key": sort_key,
-        "year": year,
+        "code": code, "product": product, "region": region,
+        "period_type": "quarter", "period_label": period_label,
+        "sort_key": sort_key, "year": year,
     }
 
 
@@ -4346,7 +4361,12 @@ def scrape_asx(token: str) -> dict:
         if not decoded:
             continue
         product = decoded["product"]
-        if product not in ("base", "cap"):
+        # Map annual strip products to base/cap for the frontend
+        if product == "base_strip":
+            product = "base"
+        elif product == "cap_strip":
+            product = "cap"
+        elif product not in ("base", "cap"):
             continue
         region = decoded["region"]
         if region not in ("NSW", "QLD", "VIC", "SA"):
@@ -4362,6 +4382,10 @@ def scrape_asx(token: str) -> dict:
             q_num = sort_key % 100
             if year < current_year or (year == current_year and q_num < current_q):
                 continue
+
+        # Skip Cal/FY for current year — partially elapsed
+        if period_type in ("cal", "fy") and year <= current_year:
+            continue
 
         entry = result[product].setdefault(period_label, {
             "period_type": period_type,

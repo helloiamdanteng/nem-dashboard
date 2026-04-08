@@ -4920,6 +4920,11 @@ const ASX_REGION_COLORS = {QLD:'#f39c12', NSW:'#3498db', VIC:'#2ed573', SA:'#e74
 
 function renderASX() {
   let html = '<div class="section-title">ASX Energy Futures</div>';
+  const isLive = _asxData?.is_live;
+  const dateStr = _asxData?.date ? `${_asxData.date.slice(6,8)}/${_asxData.date.slice(4,6)}/${_asxData.date.slice(0,4)}` : '';
+  html += `<div style="font-family:var(--font-mono);font-size:9px;color:${isLive?'#00d4ff':'#475569'};margin-bottom:10px">
+    ${isLive ? '🟢 LIVE — intraday prices' : `⚪ EOD — settle ${dateStr}`}
+  </div>`;
 
   // Product buttons
   html += '<div style="display:flex;gap:6px;margin-bottom:10px">';
@@ -5001,13 +5006,18 @@ function _renderASXTable() {
     for (const r of ASX_REGIONS) {
       const d = pdata[r];
       const code = d?.code || '';
-      const settle = d?.settle ? `$${parseFloat(d.settle).toFixed(2)}` : '—';
+      const isLive = d?.is_live;
+      const price = d?.display || d?.settle;
+      const priceStr = price ? `$${parseFloat(price).toFixed(2)}` : '—';
+      const change = d?.net_change ? parseFloat(d.net_change) : null;
+      const changeStr = change !== null ? `${change >= 0 ? '+' : ''}${change.toFixed(2)}` : '';
+      const changeCol = change !== null ? (change >= 0 ? '#2ed573' : '#ff4757') : '#475569';
       const vol = d?.volume ? Number(d.volume).toLocaleString() : '—';
       const oi  = d?.open_interest ? Number(d.open_interest).toLocaleString() : '—';
       const isSelected = _asxHistCode === code;
-      const settleCol = isSelected ? '#fbbf24' : (d?.settle ? '#e2e8f0' : '#334155');
+      const settleCol = isSelected ? '#fbbf24' : (price ? (isLive ? '#00d4ff' : '#e2e8f0') : '#334155');
       t += `<td style="text-align:right;padding:8px 4px;color:${settleCol};cursor:${code?'pointer':'default'};font-weight:${isSelected?'700':'400'}"
-              onclick="${code?`loadASXHistory('${code}','${label} ${r}')`:''}">${settle}</td>`;
+              onclick="${code?`loadASXHistory('${code}','${label} ${r}')`:''}">${priceStr}${changeStr ? `<br><span style="font-size:8px;color:${changeCol}">${changeStr}</span>` : ''}</td>`;
       t += `<td style="text-align:right;padding:8px 4px;color:#475569">${vol}</td>`;
       t += `<td style="text-align:right;padding:8px 8px;color:#475569">${oi}</td>`;
     }
@@ -5088,8 +5098,10 @@ function _drawASXHistory(label) {
     return;
   }
 
+  const todayPt = data.find(d => d.is_today);
+  const chartTitle = `${label} — 90-Day History${todayPt?.is_live ? ' (today: live)' : ' (EOD settles)'}`;
   histDiv.innerHTML = `<div class="chart-card" style="padding:14px">
-    <div class="chart-title">${label} — 90-Day Price History</div>
+    <div class="chart-title">${chartTitle}</div>
     <div style="position:relative;height:260px"><canvas id="asxHistChart"></canvas></div>
     <div style="position:relative;height:80px;margin-top:6px"><canvas id="asxVolChart"></canvas></div>
     <div style="font-family:var(--font-mono);font-size:8px;color:#475569;margin-top:8px">Settle price ($/MWh) · Volume (contracts)</div>
@@ -5099,8 +5111,15 @@ function _drawASXHistory(label) {
     const s = d.date;
     return `${s.slice(6,8)}/${s.slice(4,6)}/${s.slice(0,4)}`;
   });
-  const settles = data.map(d => d.settle ? parseFloat(d.settle) : null);
+  const settles = data.map(d => {
+    const price = d.is_today ? (d.display || d.last || d.settle) : d.settle;
+    return price ? parseFloat(price) : null;
+  });
   const volumes = data.map(d => d.volume ? parseInt(d.volume) : 0);
+
+  // Highlight today's point
+  const pointColors = data.map(d => d.is_today ? '#00d4ff' : '#fbbf24');
+  const pointSizes  = data.map(d => d.is_today ? 4 : 0);
 
   // Price chart
   destroyChart('asxHist');
@@ -5109,9 +5128,10 @@ function _drawASXHistory(label) {
     charts.asxHist = new Chart(ctx1, {
       type: 'line',
       data: { labels, datasets: [{
-        label: 'Settle', data: settles,
+        label: 'Price', data: settles,
         borderColor: '#fbbf24', backgroundColor: '#fbbf2422',
-        borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true, spanGaps: true,
+        borderWidth: 2, pointRadius: pointSizes, pointBackgroundColor: pointColors,
+        tension: 0.2, fill: true, spanGaps: true,
       }]},
       options: { ...CHART_DEFAULTS,
         plugins: { ...CHART_DEFAULTS.plugins,

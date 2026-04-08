@@ -4968,8 +4968,8 @@ function _renderASXTable() {
     .filter(([, v]) => v.period_type === PERIOD_TYPE)
     .sort((a, b) => a[1].sort_key - b[1].sort_key);
 
-  // Limit: quarters = next 8, cal/fy = next 3
-  const limit = _asxPeriod === 'quarter' ? 8 : 3;
+  // Limit: quarters = next 6 (Q1/Q3 only available), cal/fy = next 3
+  const limit = _asxPeriod === 'quarter' ? 6 : 3;
   periods = periods.slice(0, limit);
 
   if (!periods.length) {

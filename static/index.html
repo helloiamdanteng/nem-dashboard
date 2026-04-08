@@ -5001,8 +5001,9 @@ function _renderASXTable() {
   t += '</tr></thead><tbody>';
 
   for (const [label, pdata] of periods) {
-    t += `<tr style="border-bottom:1px solid #1e2d4533">`;
-    t += `<td style="padding:8px 12px;color:#94a3b8;white-space:nowrap;font-weight:700">${label}</td>`;
+    // Row 1: settle / vol / OI
+    t += `<tr>`;
+    t += `<td rowspan="2" style="padding:8px 12px 4px;color:#94a3b8;white-space:nowrap;font-weight:700;vertical-align:top">${label}</td>`;
     for (const r of ASX_REGIONS) {
       const d = pdata[r];
       const code = d?.code || '';
@@ -5016,10 +5017,20 @@ function _renderASXTable() {
       const oi  = d?.open_interest ? Number(d.open_interest).toLocaleString() : '—';
       const isSelected = _asxHistCode === code;
       const settleCol = isSelected ? '#fbbf24' : (price ? (isLive ? '#00d4ff' : '#e2e8f0') : '#334155');
-      t += `<td style="text-align:right;padding:8px 4px;color:${settleCol};cursor:${code?'pointer':'default'};font-weight:${isSelected?'700':'400'}"
+      t += `<td style="text-align:right;padding:8px 4px 2px;color:${settleCol};cursor:${code?'pointer':'default'};font-weight:${isSelected?'700':'400'}"
               onclick="${code?`loadASXHistory('${code}','${label} ${r}')`:''}">${priceStr}${changeStr ? `<br><span style="font-size:8px;color:${changeCol}">${changeStr}</span>` : ''}</td>`;
-      t += `<td style="text-align:right;padding:8px 4px;color:#475569">${vol}</td>`;
-      t += `<td style="text-align:right;padding:8px 8px;color:#475569">${oi}</td>`;
+      t += `<td style="text-align:right;padding:8px 4px 2px;color:#475569">${vol}</td>`;
+      t += `<td style="text-align:right;padding:8px 8px 2px;color:#475569">${oi}</td>`;
+    }
+    t += '</tr>';
+    // Row 2: bid/ask
+    t += `<tr style="border-bottom:1px solid #1e2d4533">`;
+    for (const r of ASX_REGIONS) {
+      const d = pdata[r];
+      const bid = d?.bid ? `$${parseFloat(d.bid).toFixed(2)}` : '—';
+      const ask = d?.ask ? `$${parseFloat(d.ask).toFixed(2)}` : '—';
+      const hasBidAsk = d?.bid || d?.ask;
+      t += `<td colspan="3" style="text-align:right;padding:2px 8px 6px;color:#475569;font-size:9px">${hasBidAsk ? `<span style="color:#2ed573">${bid}</span> / <span style="color:#ff4757">${ask}</span>` : ''}</td>`;
     }
     t += '</tr>';
   }
@@ -5101,7 +5112,7 @@ async function loadASXHistory(code, label) {
   const histDiv = document.getElementById('asx-history-container');
   if (!histDiv) return;
   histDiv.innerHTML = `<div class="chart-card" style="padding:14px">
-    <div class="chart-title">${label} — Loading 90-day history…</div>
+    <div class="chart-title">${label} — Loading 180-day history…</div>
     <div class="spinner"><div class="spinner-icon">📡</div></div>
   </div>`;
 
@@ -5126,7 +5137,7 @@ function _drawASXHistory(label) {
   }
 
   const todayPt = data.find(d => d.is_today);
-  const chartTitle = `${label} — 90-Day History${todayPt?.is_live ? ' · Today: live' : ' · EOD Settles'}`;
+  const chartTitle = `${label} — 180-Day History${todayPt?.is_live ? ' · Today: live' : ' · EOD Settles'}`;
 
   // Build historical table (reverse chronological, exclude today)
   const histRows = [...data].reverse();

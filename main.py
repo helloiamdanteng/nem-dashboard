@@ -2478,6 +2478,7 @@ async def gas_data(refresh: bool = False):
 
 
 _asx_cache: dict = {"data": None, "last_updated": None}
+_asx_history_cache: dict = {}  # code → {history, last_updated}
 
 @app.get("/api/asx")
 async def asx_data(refresh: bool = False):
@@ -2515,16 +2516,26 @@ async def asx_data(refresh: bool = False):
 async def asx_history(code: str):
     """Return 90-day price history for a specific ASX futures code."""
     import os
+    from datetime import datetime, timezone, timedelta
     token = os.environ.get("ASX_API_KEY", "")
     if not token:
         return JSONResponse(status_code=503, content={"error": "ASX_API_KEY not configured"})
+
+    # Serve from cache if < 6 hours old
+    cached = _asx_history_cache.get(code)
+    if cached and cached.get("last_updated"):
+        age = datetime.now(timezone.utc) - cached["last_updated"]
+        if age < timedelta(hours=6):
+            return JSONResponse(content={"code": code, "history": cached["history"]})
+
     loop = asyncio.get_running_loop()
     try:
         from scraper import scrape_asx_history
         data = await asyncio.wait_for(
             loop.run_in_executor(None, scrape_asx_history, token, code),
-            timeout=120.0
+            timeout=180.0
         )
+        _asx_history_cache[code] = {"history": data, "last_updated": datetime.now(timezone.utc)}
         return JSONResponse(content={"code": code, "history": data})
     except Exception as e:
         logger.error(f"asx_history error: {e}")

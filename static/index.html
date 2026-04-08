@@ -5008,30 +5008,36 @@ function _renderASXTable() {
       const d = pdata[r];
       const code = d?.code || '';
       const isLive = d?.is_live;
-      const price = d?.display || d?.settle;
-      const priceStr = price ? `$${parseFloat(price).toFixed(2)}` : '—';
+      const last   = d?.last ? parseFloat(d.last) : null;
+      const settle = d?.settle ? parseFloat(d.settle) : null;
+      const displayPrice = isLive && last ? last : settle;
+      const priceStr = displayPrice ? `$${displayPrice.toFixed(2)}` : '—';
+      const priceLabel = isLive && last ? 'Last' : 'Settle';
       const change = d?.net_change ? parseFloat(d.net_change) : null;
       const changeStr = change !== null ? `${change >= 0 ? '+' : ''}${change.toFixed(2)}` : '';
       const changeCol = change !== null ? (change >= 0 ? '#2ed573' : '#ff4757') : '#475569';
       const vol = d?.volume ? Number(d.volume).toLocaleString() : '—';
       const oi  = d?.open_interest ? Number(d.open_interest).toLocaleString() : '—';
       const isSelected = _asxHistCode === code;
-      const settleCol = isSelected ? '#fbbf24' : (price ? (isLive ? '#00d4ff' : '#e2e8f0') : '#334155');
-      t += `<td style="text-align:right;padding:8px 4px 2px;color:${settleCol};cursor:${code?'pointer':'default'};font-weight:${isSelected?'700':'400'}"
-              onclick="${code?`loadASXHistory('${code}','${label} ${r}')`:''}">${priceStr}${changeStr ? `<br><span style="font-size:8px;color:${changeCol}">${changeStr}</span>` : ''}</td>`;
+      const priceCol = isSelected ? '#fbbf24' : (displayPrice ? (isLive && last ? '#00d4ff' : '#e2e8f0') : '#334155');
+      t += `<td style="text-align:right;padding:8px 4px 2px;cursor:${code?'pointer':'default'}"
+              onclick="${code?`loadASXHistory('${code}','${label} ${r}')`:''}"
+            ><span style="color:${priceCol};font-weight:${isSelected?'700':'400'}">${priceStr}</span
+            ><br><span style="font-size:8px;color:#475569">${priceLabel}</span>${changeStr ? `<br><span style="font-size:8px;color:${changeCol}">${changeStr}</span>` : ''}</td>`;
       t += `<td style="text-align:right;padding:8px 4px 2px;color:#475569">${vol}</td>`;
       t += `<td style="text-align:right;padding:8px 8px 2px;color:#475569">${oi}</td>`;
     }
     t += '</tr>';
-    // Row 2: bid/ask
+    // Row 2: bid/ask tightly under settle
     t += `<tr style="border-bottom:1px solid #1e2d4533">`;
     for (const r of ASX_REGIONS) {
       const d = pdata[r];
-      const bid = d?.bid ? `$${parseFloat(d.bid).toFixed(2)}` : null;
-      const ask = d?.ask ? `$${parseFloat(d.ask).toFixed(2)}` : null;
-      t += `<td style="text-align:right;padding:2px 4px 6px;color:#475569;font-size:9px">${bid ? `<span style="color:#2ed573">${bid}</span>` : ''}</td>`;
-      t += `<td style="text-align:center;padding:2px 4px 6px;color:#334155;font-size:9px">${(bid||ask) ? '/' : ''}</td>`;
-      t += `<td style="text-align:left;padding:2px 8px 6px;color:#475569;font-size:9px">${ask ? `<span style="color:#ff4757">${ask}</span>` : ''}</td>`;
+      const bid = d?.bid && parseFloat(d.bid) > 0 ? `$${parseFloat(d.bid).toFixed(2)}` : null;
+      const ask = d?.ask && parseFloat(d.ask) > 0 ? `$${parseFloat(d.ask).toFixed(2)}` : null;
+      t += `<td style="text-align:right;padding:0 4px 6px;font-size:9px;white-space:nowrap">
+        ${bid || ask ? `<span style="color:#2ed573">${bid||'—'}</span><span style="color:#475569"> / </span><span style="color:#ff4757">${ask||'—'}</span>` : ''}
+      </td>`;
+      t += `<td colspan="2" style="padding:0 8px 6px"></td>`;
     }
     t += '</tr>';
   }

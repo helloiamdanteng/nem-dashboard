@@ -4359,6 +4359,30 @@ def scrape_asx(token: str) -> dict:
         logger.warning(f"scrape_asx: fetch failed: {e}")
         return {}
 
+    # Fetch yesterday's EOD settle in parallel for day change calculation
+    yesterday_settle: dict = {}  # code → settle
+    try:
+        # Find last trading day (skip weekends)
+        prev = now_aest - timedelta(days=1)
+        while prev.weekday() >= 5:
+            prev -= timedelta(days=1)
+        prev_str = prev.strftime("%Y%m%d")
+        resp_prev = requests.get(
+            f"{ASX_API_BASE}/data",
+            params={"futures": "au_electricity", "date": prev_str},
+            headers=_asx_headers(token),
+            timeout=15,
+        )
+        resp_prev.raise_for_status()
+        for row in resp_prev.json().get("data", []):
+            code = row.get("code", "")
+            s = row.get("settle")
+            if code and s:
+                yesterday_settle[code] = float(s)
+        logger.info(f"scrape_asx: loaded {len(yesterday_settle)} yesterday settles for {prev_str}")
+    except Exception as e:
+        logger.warning(f"scrape_asx: yesterday settle fetch failed: {e}")
+
     date = now_aest.strftime("%Y%m%d")
     rows = raw.get("data", [])
 
@@ -4408,7 +4432,6 @@ def scrape_asx(token: str) -> dict:
         settle = row.get("settle")
         bid    = row.get("bid")
         ask    = row.get("ask")
-        # Live if market hours AND any of last/bid/ask is present
         has_intraday = bool(
             (last and float(last or 0) > 0) or
             (bid  and float(bid  or 0) > 0) or
@@ -4417,11 +4440,17 @@ def scrape_asx(token: str) -> dict:
         display = last if (is_market_hours and last and float(last or 0) > 0) else settle
         net_change = row.get("net_change")
 
+        # Day change: today settle vs yesterday settle (works outside market hours too)
+        day_change = None
+        if settle and code in yesterday_settle:
+            day_change = round(float(settle) - yesterday_settle[code], 2)
+
         entry[region] = {
             "display":       display,
             "last":          last,
             "settle":        settle,
             "net_change":    net_change,
+            "day_change":    day_change,
             "bid":           bid,
             "ask":           ask,
             "bid_size":      row.get("bid_size"),

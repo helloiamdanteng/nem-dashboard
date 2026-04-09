@@ -5048,15 +5048,20 @@ function _renderASXTable() {
       const displayPrice = isLive && last ? last : settle;
       const priceStr = displayPrice ? `$${displayPrice.toFixed(2)}` : '—';
       const priceLabel = isLive && last ? ' <span style="color:#ffffff;font-size:8px">Last</span>' : ' <span style="color:#475569;font-size:8px">Settle</span>';
-      // Movement vs settle
-      const mvmt = (isLive && last && settle) ? last - settle : (d?.net_change ? parseFloat(d.net_change) : null);
-      const mvmtStr = mvmt !== null && mvmt !== 0 ? `${mvmt >= 0 ? '+' : ''}${mvmt.toFixed(2)}` : '';
+      // Movement: intraday = last vs settle; EOD = today settle vs yesterday settle (day_change)
+      const mvmt = (isLive && last && settle) ? last - settle
+                 : (d?.day_change != null) ? d.day_change
+                 : (d?.net_change ? parseFloat(d.net_change) : null);
+      const mvmtStr = mvmt !== null && mvmt !== 0 ? `${mvmt >= 0 ? '+' : ''}${parseFloat(mvmt).toFixed(2)}` : '';
       const mvmtCol = mvmt !== null ? (mvmt > 0 ? '#2ed573' : mvmt < 0 ? '#ff4757' : '#475569') : '#475569';
       const vol = d?.volume ? Number(d.volume).toLocaleString() : '—';
       const isSelected = _asxHistCode === code;
+      const dayMove = (isLive && last && settle) ? last - settle : (d?.day_change ?? null);
       const priceCol = isSelected ? '#fbbf24'
         : (isLive && last && settle)
           ? (last > settle ? '#2ed573' : last < settle ? '#ff4757' : '#ffffff')
+          : (dayMove != null && dayMove !== 0)
+          ? (dayMove > 0 ? '#2ed573' : '#ff4757')
           : (displayPrice ? '#e2e8f0' : '#334155');
       const priceBold = (isLive && last) ? '700' : (isSelected ? '700' : '400');
       t += `<td style="text-align:right;padding:8px 4px 2px;cursor:${code?'pointer':'default'}"

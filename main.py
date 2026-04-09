@@ -1696,36 +1696,21 @@ async def rescrape():
 
 @app.get("/api/asx-debug")
 async def asx_debug():
-    """Debug: show decoded ASX structure."""
+    """Debug: show full intraday fields for a few NSW contracts."""
     import os, httpx
     token = os.environ.get("ASX_API_KEY", "")
     if not token:
         return {"error": "ASX_API_KEY not set"}
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.get(
-            "https://asxenergy.com.au/api/data?futures=au_electricity",
+            "https://asxenergy.com.au/api/intraday?futures=au_electricity",
             headers={"Authorization": f"Bearer {token}"}
         )
     raw = r.json()
-    from scraper import _asx_decode
-    decoded = []
-    for row in raw.get("data", []):
-        d = _asx_decode(row["code"])
-        if d and d["region"] in ("NSW","QLD","VIC","SA") and d["product"] in ("base","cap"):
-            decoded.append({
-                "code": row["code"],
-                "product": d["product"],
-                "region": d["region"],
-                "period_type": d["period_type"],
-                "period_label": d["period_label"],
-                "settle": row.get("settle"),
-            })
-    # Group by period_type for easy review
-    from collections import defaultdict
-    grouped = defaultdict(list)
-    for d in decoded:
-        grouped[d["period_type"]].append(f"{d['code']} → {d['period_label']} {d['region']} ${d['settle']}")
-    return {"date": raw.get("date"), "grouped": dict(grouped)}
+    # Show all fields for first few NSW base contracts
+    rows = raw.get("data", [])
+    nsw = [r for r in rows if r.get("code","").startswith("BN")][:5]
+    return {"sample_fields": nsw, "all_keys": list(nsw[0].keys()) if nsw else []}
     """Debug: fetch PREDISPATCHSCENARIODEMAND to see what S1-S6 mean."""
     from scraper import _list_hrefs, _read_zip, _parse_aemo, _fetch_predispatch, NEMWEB_BASE
     import csv, io

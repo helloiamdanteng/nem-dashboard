@@ -1696,7 +1696,7 @@ async def rescrape():
 
 @app.get("/api/asx-debug")
 async def asx_debug():
-    """Debug: show full intraday fields for a few NSW contracts."""
+    """Debug: show cap strip codes and quarterly cap codes."""
     import os, httpx
     token = os.environ.get("ASX_API_KEY", "")
     if not token:
@@ -1707,10 +1707,15 @@ async def asx_debug():
             headers={"Authorization": f"Bearer {token}"}
         )
     raw = r.json()
-    # Show all fields for first few NSW base contracts
     rows = raw.get("data", [])
-    nsw = [r for r in rows if r.get("code","").startswith("BN")][:5]
-    return {"sample_fields": nsw, "all_keys": list(nsw[0].keys()) if nsw else []}
+    # Show all unique first chars and examples
+    from collections import defaultdict
+    by_first = defaultdict(list)
+    for row in rows:
+        c = row["code"]
+        by_first[c[0]].append(c)
+    # Show first 3 of each type
+    return {k: v[:3] for k, v in sorted(by_first.items())}
     """Debug: fetch PREDISPATCHSCENARIODEMAND to see what S1-S6 mean."""
     from scraper import _list_hrefs, _read_zip, _parse_aemo, _fetch_predispatch, NEMWEB_BASE
     import csv, io

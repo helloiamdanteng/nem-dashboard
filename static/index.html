@@ -4913,7 +4913,7 @@ function _renderPriceHistCharts(data, liveData) {
 let _asxData = null;
 let _asxFetchedAt = null;  // timestamp of last fetch
 let _asxProduct = 'base';
-let _asxPeriod  = 'cal';   // 'quarter' | 'cal' | 'fy'
+let _asxPeriod  = 'quarter';   // 'quarter' | 'cal' | 'fy'
 let _asxHistCode = null;
 let _asxHistRegion = null;
 let _asxHistData = null;
@@ -5192,22 +5192,20 @@ async function refreshASXData() {
 }
 
 async function fetchASXData(forceRefresh = false) {
-  if (_asxData && !forceRefresh) {
-    const tableDiv = document.getElementById('asx-table-container');
-    if (tableDiv) tableDiv.innerHTML = _renderASXTable();
-    return;
-  }
+  const url = forceRefresh ? '/api/asx?refresh=true' : '/api/asx';
   try {
-    const url = forceRefresh ? '/api/asx?refresh=true' : '/api/asx';
     const resp = await fetch(url);
     _asxData = await resp.json();
     _asxFetchedAt = new Date();
-    // Re-render full panel to update timestamp and live indicator
-    if (currentPanel === 'asx' && latestData) renderPanel('asx', latestData);
   } catch(e) {
-    const tableDiv = document.getElementById('asx-table-container');
-    if (tableDiv) tableDiv.innerHTML = `<div style="color:#e74c3c;font-family:var(--font-mono);font-size:10px;padding:12px">Failed to load ASX data: ${e.message}</div>`;
+    if (!_asxData) {
+      const tableDiv = document.getElementById('asx-table-container');
+      if (tableDiv) tableDiv.innerHTML = `<div style="color:#e74c3c;font-family:var(--font-mono);font-size:10px;padding:12px">Failed to load ASX data: ${e.message}</div>`;
+      return;
+    }
   }
+  const tableDiv = document.getElementById('asx-table-container');
+  if (tableDiv) tableDiv.innerHTML = _renderASXTable();
 }
 
 async function loadASXHistory(code, label) {

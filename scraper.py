@@ -4399,8 +4399,15 @@ def scrape_asx(token: str) -> dict:
 
         last   = row.get("last")
         settle = row.get("settle")
-        # Display price: last if live market hours and available, otherwise settle
-        display = last if (is_market_hours and last and float(last) > 0) else settle
+        bid    = row.get("bid")
+        ask    = row.get("ask")
+        # Live if market hours AND any of last/bid/ask is present
+        has_intraday = bool(
+            (last and float(last or 0) > 0) or
+            (bid  and float(bid  or 0) > 0) or
+            (ask  and float(ask  or 0) > 0)
+        )
+        display = last if (is_market_hours and last and float(last or 0) > 0) else settle
         net_change = row.get("net_change")
 
         entry[region] = {
@@ -4408,14 +4415,16 @@ def scrape_asx(token: str) -> dict:
             "last":          last,
             "settle":        settle,
             "net_change":    net_change,
-            "bid":           row.get("bid"),
-            "ask":           row.get("ask"),
+            "bid":           bid,
+            "ask":           ask,
+            "bid_size":      row.get("bid_size"),
+            "ask_size":      row.get("ask_size"),
             "high":          row.get("high"),
             "low":           row.get("low"),
             "volume":        row.get("volume"),
             "open_interest": row.get("open_interest"),
             "code":          code,
-            "is_live":       bool(is_market_hours and last and float(last) > 0),
+            "is_live":       bool(is_market_hours and has_intraday),
         }
 
     logger.info(f"scrape_asx: date={date} live={is_market_hours} base={len(result['base'])} cap={len(result['cap'])} periods")

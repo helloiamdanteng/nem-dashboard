@@ -1696,26 +1696,36 @@ async def rescrape():
 
 @app.get("/api/asx-debug")
 async def asx_debug():
-    """Debug: show all non-B/G/H/E codes to find cap strips."""
+    """Debug: check for R* cap strip codes in intraday feed."""
     import os, httpx
     token = os.environ.get("ASX_API_KEY", "")
     if not token:
         return {"error": "ASX_API_KEY not set"}
     async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(
+        # Check intraday
+        r1 = await client.get(
             "https://asxenergy.com.au/api/intraday?futures=au_electricity",
             headers={"Authorization": f"Bearer {token}"}
         )
-    raw = r.json()
-    rows = raw.get("data", [])
-    # Show unique first chars + one NSW example each
-    from collections import defaultdict
-    by_prefix = defaultdict(list)
-    for row in rows:
-        c = row.get("code","")
-        if len(c) > 1 and c[1] == "N":
-            by_prefix[c[0]].append({"code": c, "settle": row.get("settle")})
-    return {k: v[:2] for k, v in sorted(by_prefix.items())}
+        # Also check EOD data directly for R codes
+        r2 = await client.get(
+            "https://asxenergy.com.au/api/data?futures=au_electricity",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+    intraday_r = [r["code"] for r in r1.json().get("data",[]) if r.get("code","").startswith("R")]
+    eod_r = [r["code"] for r in r2.json().get("data",[]) if r.get("code","").startswith("R")]
+    # Also try fetching RNZ directly
+    async with httpx.AsyncClient(timeout=15) as client:
+        r3 = await client.get(
+            "https://asxenergy.com.au/api/intraday?futures=RNZ2027",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+    direct = r3.json()
+    return {
+        "intraday_R_codes": intraday_r,
+        "eod_R_codes": eod_r,
+        "direct_RNZ2027": direct
+    }
     """Debug: fetch PREDISPATCHSCENARIODEMAND to see what S1-S6 mean."""
     from scraper import _list_hrefs, _read_zip, _parse_aemo, _fetch_predispatch, NEMWEB_BASE
     import csv, io

@@ -5047,8 +5047,6 @@ function _renderASXTable() {
       const settle = d?.settle ? parseFloat(d.settle) : null;
       const displayPrice = isLive && last ? last : settle;
       const priceStr = displayPrice ? `$${displayPrice.toFixed(2)}` : '—';
-      const priceLabel = isLive && last ? ' <span style="color:#ffffff;font-size:8px">Last</span>' : ' <span style="color:#475569;font-size:8px">Settle</span>';
-      // Movement: intraday = last vs settle; EOD = today settle vs yesterday settle (day_change)
       const mvmt = (isLive && last && settle) ? last - settle
                  : (d?.day_change != null) ? d.day_change
                  : (d?.net_change ? parseFloat(d.net_change) : null);
@@ -5057,29 +5055,39 @@ function _renderASXTable() {
       const vol = d?.volume ? Number(d.volume).toLocaleString() : '—';
       const isSelected = _asxHistCode === code;
       const dayMove = (isLive && last && settle) ? last - settle : (d?.day_change ?? null);
+
+      // Colours — everything yellow when selected
       const priceCol = isSelected ? '#fbbf24'
-        : (isLive && last && settle)
-          ? (last > settle ? '#2ed573' : last < settle ? '#ff4757' : '#ffffff')
-          : (dayMove != null && dayMove !== 0)
-          ? (dayMove > 0 ? '#2ed573' : '#ff4757')
-          : (displayPrice ? '#e2e8f0' : '#334155');
-      const priceBold = (isLive && last) ? '700' : (isSelected ? '700' : '400');
+        : (isLive && last && settle) ? (last > settle ? '#2ed573' : last < settle ? '#ff4757' : '#ffffff')
+        : (dayMove != null && dayMove !== 0) ? (dayMove > 0 ? '#2ed573' : '#ff4757')
+        : (displayPrice ? '#e2e8f0' : '#334155');
+      const priceBold = (isSelected || (isLive && last)) ? '700' : '400';
+      const labelCol  = isSelected ? '#fbbf24' : (isLive && last ? '#ffffff' : '#475569');
+      const volCol    = isSelected ? '#fbbf24' : '#e2e8f0';
+      const priceLabel = isLive && last
+        ? ` <span style="color:${labelCol};font-size:8px">Last</span>`
+        : ` <span style="color:${labelCol};font-size:8px">Settle</span>`;
+
       t += `<td style="text-align:right;padding:8px 4px 2px;cursor:${code?'pointer':'default'}"
               onclick="${code?`loadASXHistory('${code}','${label} ${r}')`:''}"
-            ><span style="color:${priceCol};font-weight:${priceBold}">${priceStr}</span>${priceLabel}${mvmtStr ? `<br><span style="font-size:8px;color:${mvmtCol}">${mvmtStr}</span>` : ''}</td>`;
-      t += `<td style="text-align:right;padding:8px 8px 2px;color:#e2e8f0">${vol}</td>`;
+            ><span style="color:${priceCol};font-weight:${priceBold}">${priceStr}</span>${priceLabel}${mvmtStr ? `<br><span style="font-size:8px;color:${isSelected?'#fbbf24':mvmtCol}">${mvmtStr}</span>` : ''}</td>`;
+      t += `<td style="text-align:right;padding:8px 8px 2px;color:${volCol}">${vol}</td>`;
     }
     t += '</tr>';
     // Row 2: bid/ask
     t += `<tr style="border-bottom:1px solid #1e2d4533">`;
     for (const r of activeRegions) {
       const d = pdata[r];
+      const code = d?.code || '';
+      const isSelected = _asxHistCode === code;
       const bid = d?.bid && parseFloat(d.bid) > 0 ? parseFloat(d.bid).toFixed(2) : null;
       const ask = d?.ask && parseFloat(d.ask) > 0 ? parseFloat(d.ask).toFixed(2) : null;
       const bs = d?.bid_size || null;
       const as_ = d?.ask_size || null;
+      const baCol = isSelected ? '#fbbf24' : '#94a3b8';
+      const sepCol = isSelected ? '#fbbf2488' : '#475569';
       t += `<td style="text-align:right;padding:0 4px 6px;font-size:9px;white-space:nowrap">
-        ${bid || ask ? `<span style="color:#94a3b8">${bs?`${bs}×`:''}\$${bid||'—'}</span><span style="color:#475569"> / </span><span style="color:#94a3b8">\$${ask||'—'}${as_?`×${as_}`:''}</span>` : ''}
+        ${bid || ask ? `<span style="color:${baCol}">${bs?`${bs}×`:''}\$${bid||'—'}</span><span style="color:${sepCol}"> / </span><span style="color:${baCol}">\$${ask||'—'}${as_?`×${as_}`:''}</span>` : ''}
       </td>`;
       t += `<td style="padding:0 8px 6px"></td>`;
     }

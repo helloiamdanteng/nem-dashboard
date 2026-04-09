@@ -4359,6 +4359,41 @@ def scrape_asx(token: str) -> dict:
         logger.warning(f"scrape_asx: fetch failed: {e}")
         return {}
 
+    rows = raw.get("data", [])
+
+    # Cap strips (R prefix) are NOT in the au_electricity feed — fetch separately
+    # Generate codes: R[region][period][year] for Cal (Z) and FY (M), years 2027-2030
+    cap_strip_codes = []
+    for region_char in ("N", "Q", "V", "S"):
+        for period_char in ("Z", "M"):
+            for year in range(now_aest.year + 1, now_aest.year + 5):
+                cap_strip_codes.append(f"R{region_char}{period_char}{year}")
+
+    def _fetch_cap_strip(code: str) -> dict | None:
+        try:
+            r = requests.get(
+                f"{ASX_API_BASE}/intraday",
+                params={"futures": code},
+                headers=_asx_headers(token),
+                timeout=8,
+            )
+            r.raise_for_status()
+            data = r.json().get("data", [])
+            if data:
+                return data[0]
+        except Exception as e:
+            logger.debug(f"cap strip {code}: {e}")
+        return None
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures_map = {ex.submit(_fetch_cap_strip, c): c for c in cap_strip_codes}
+        for fut in as_completed(futures_map):
+            result = fut.result()
+            if result and (result.get("settle") or result.get("bid") or result.get("last")):
+                rows.append(result)
+
+    logger.info(f"scrape_asx: {len(rows)} total rows after cap strip fetch")
+
     # Fetch yesterday's EOD settle in parallel for day change calculation
     yesterday_settle: dict = {}  # code → settle
     try:
@@ -4384,8 +4419,6 @@ def scrape_asx(token: str) -> dict:
         logger.warning(f"scrape_asx: yesterday settle fetch failed: {e}")
 
     date = now_aest.strftime("%Y%m%d")
-    rows = raw.get("data", [])
-
     result: dict = {"date": date, "is_live": is_market_hours, "base": {}, "cap": {}}
 
     current_year = now_aest.year

@@ -4932,8 +4932,8 @@ function renderASX() {
     const active = _asxProduct === key;
     html += `<button id="asx-prod-${key}" onclick="setASXProduct('${key}')"
       style="font-family:var(--font-mono);font-size:10px;padding:5px 14px;border-radius:20px;cursor:pointer;
-      border:1px solid ${active?'#00d4ff':'#334155'};background:${active?'#00d4ff22':'transparent'};
-      color:${active?'#00d4ff':'#64748b'};font-weight:${active?'700':'400'}">${label}</button>`;
+      border:1px solid ${active?'#ffffff':'#334155'};background:${active?'#ffffff22':'transparent'};
+      color:${active?'#ffffff':'#64748b'};font-weight:${active?'700':'400'}">${label}</button>`;
   }
   html += '</div>';
 
@@ -4943,8 +4943,8 @@ function renderASX() {
     const active = _asxPeriod === key;
     html += `<button id="asx-period-${key}" onclick="setASXPeriod('${key}')"
       style="font-family:var(--font-mono);font-size:10px;padding:5px 14px;border-radius:20px;cursor:pointer;
-      border:1px solid ${active?'#94a3b8':'#334155'};background:${active?'#94a3b822':'transparent'};
-      color:${active?'#94a3b8':'#64748b'};font-weight:${active?'700':'400'}">${label}</button>`;
+      border:1px solid ${active?'#ffffff':'#334155'};background:${active?'#ffffff22':'transparent'};
+      color:${active?'#ffffff':'#64748b'};font-weight:${active?'700':'400'}">${label}</button>`;
   }
   html += '</div>';
 
@@ -5069,24 +5069,22 @@ function setASXPeriod(p) {
 }
 
 function _refreshASXButtons() {
-  // Update product buttons
   for (const [key] of [['base'],['cap']]) {
     const btn = document.getElementById(`asx-prod-${key}`);
     if (!btn) continue;
     const active = _asxProduct === key;
-    btn.style.borderColor = active ? '#00d4ff' : '#334155';
-    btn.style.background  = active ? '#00d4ff22' : 'transparent';
-    btn.style.color       = active ? '#00d4ff' : '#64748b';
+    btn.style.borderColor = active ? '#ffffff' : '#334155';
+    btn.style.background  = active ? '#ffffff22' : 'transparent';
+    btn.style.color       = active ? '#ffffff' : '#64748b';
     btn.style.fontWeight  = active ? '700' : '400';
   }
-  // Update period buttons
   for (const [key] of [['quarter'],['cal'],['fy']]) {
     const btn = document.getElementById(`asx-period-${key}`);
     if (!btn) continue;
     const active = _asxPeriod === key;
-    btn.style.borderColor = active ? '#94a3b8' : '#334155';
-    btn.style.background  = active ? '#94a3b822' : 'transparent';
-    btn.style.color       = active ? '#94a3b8' : '#64748b';
+    btn.style.borderColor = active ? '#ffffff' : '#334155';
+    btn.style.background  = active ? '#ffffff22' : 'transparent';
+    btn.style.color       = active ? '#ffffff' : '#64748b';
     btn.style.fontWeight  = active ? '700' : '400';
   }
 }

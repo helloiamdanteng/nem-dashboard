@@ -4916,7 +4916,7 @@ let _asxProduct = 'base';
 let _asxPeriod  = 'cal';   // 'quarter' | 'cal' | 'fy'
 let _asxHistCode = null;
 let _asxHistData = null;
-let _asxRegions = new Set(['QLD','NSW','VIC','SA']); // all on by default
+let _asxRegions = new Set(['QLD','NSW','VIC']); // SA off by default
 const ASX_REGIONS = ['QLD','NSW','VIC','SA'];
 const ASX_REGION_COLORS = {QLD:'#f39c12', NSW:'#3498db', VIC:'#2ed573', SA:'#e74c3c'};
 
@@ -5267,10 +5267,10 @@ function _drawASXHistory(label) {
       type: 'line',
       data: { labels, datasets: [{
         label: 'Price', data: settles,
-        borderColor: '#fbbf24', backgroundColor: '#fbbf2422',
+        borderColor: '#fbbf24', backgroundColor: '#fbbf24cc',
         borderWidth: 2, pointRadius: pointSizes, pointBackgroundColor: pointColors,
         pointBorderColor: '#00d4ff', pointBorderWidth: 2,
-        tension: 0.2, fill: true, spanGaps: true,
+        tension: 0, fill: true, spanGaps: true,
       }]},
       options: { ...CHART_DEFAULTS,
         plugins: { ...CHART_DEFAULTS.plugins,
@@ -5294,7 +5294,7 @@ function _drawASXHistory(label) {
   destroyChart('asxVol');
   const ctx2 = document.getElementById('asxVolChart');
   if (ctx2) {
-    const volColors = data.map(d => d.is_today ? '#00d4ff66' : '#3498db44');
+    const volColors  = data.map(d => d.is_today ? '#00d4ffcc' : '#3498dbcc');
     const volBorders = data.map(d => d.is_today ? '#00d4ff' : '#3498db');
     charts.asxVol = new Chart(ctx2, {
       type: 'bar',

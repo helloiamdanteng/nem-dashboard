@@ -4929,7 +4929,7 @@ function renderASX() {
 
   // Status row + refresh button
   html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-    <div style="font-family:var(--font-mono);font-size:9px;color:${isLive?'#00d4ff':'#475569'}">
+    <div id="asx-status-line" style="font-family:var(--font-mono);font-size:9px;color:${isLive?'#00d4ff':'#475569'}">
       ${isLive ? '🟢 Live — intraday' : `⚪ EOD — settle ${dateStr}`}
       ${_asxFetchedAt ? `<span style="color:#334155"> · fetched ${fetchedStr}</span>` : ''}
     </div>
@@ -5010,7 +5010,7 @@ function _renderASXTable() {
 
   if (!periods.length) {
     let msg = 'No data for this selection';
-    if (_asxProduct === 'cap' && _asxPeriod !== 'quarter') msg = 'Cap annual strips not listed on ASX (no RN* contracts)';
+    if (_asxProduct === 'cap' && _asxPeriod !== 'quarter') msg = 'Cap annual strips not listed on ASX';
     return `<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:20px 0;text-align:center">${msg}</div>`;
   }
 
@@ -5167,8 +5167,28 @@ async function refreshASXData() {
   _asxHistCode = null;
   _asxHistRegion = null;
   _asxHistData = null;
-  await fetchASXData(true);
+  try {
+    const resp = await fetch('/api/asx?refresh=true');
+    _asxData = await resp.json();
+    _asxFetchedAt = new Date();
+  } catch(e) {
+    console.error('ASX refresh failed:', e);
+  }
   if (btn) { btn.textContent = '↻ Refresh'; btn.style.color = '#64748b'; btn.disabled = false; }
+  // Re-render table directly (don't re-render whole panel which would lose button state)
+  const tableDiv = document.getElementById('asx-table-container');
+  if (tableDiv) tableDiv.innerHTML = _renderASXTable();
+  const histDiv = document.getElementById('asx-history-container');
+  if (histDiv) histDiv.innerHTML = '';
+  // Update status line
+  const statusDiv = document.getElementById('asx-status-line');
+  if (statusDiv) {
+    const isLive = _asxData?.is_live;
+    const dateStr = _asxData?.date ? `${_asxData.date.slice(6,8)}/${_asxData.date.slice(4,6)}/${_asxData.date.slice(0,4)}` : '';
+    const fetchedStr = _asxFetchedAt ? _asxFetchedAt.toLocaleTimeString('en-AU', {hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}) : '—';
+    statusDiv.style.color = isLive ? '#00d4ff' : '#475569';
+    statusDiv.textContent = `${isLive ? '🟢 Live — intraday' : `⚪ EOD — settle ${dateStr}`} · fetched ${fetchedStr}`;
+  }
 }
 
 async function fetchASXData(forceRefresh = false) {

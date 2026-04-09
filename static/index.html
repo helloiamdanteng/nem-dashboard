@@ -5004,9 +5004,9 @@ function _renderASXTable() {
   periods = periods.slice(0, limit);
 
   if (!periods.length) {
-    const msg = (_asxProduct === 'cap' && _asxPeriod !== 'quarter')
-      ? 'Cap annual strips not available in this data feed'
-      : 'No data for this selection';
+    let msg = 'No data for this selection';
+    if (_asxPeriod === 'cal') msg = 'Cal year base strips (HNZ) not in this data feed — only FY strips available';
+    if (_asxProduct === 'cap' && _asxPeriod !== 'quarter') msg = 'Cap annual strips (RN*) not available in this subscription';
     return `<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:20px 0;text-align:center">${msg}</div>`;
   }
 

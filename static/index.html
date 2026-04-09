@@ -4916,6 +4916,7 @@ let _asxProduct = 'base';
 let _asxPeriod  = 'cal';   // 'quarter' | 'cal' | 'fy'
 let _asxHistCode = null;
 let _asxHistData = null;
+let _asxRegions = new Set(['QLD','NSW','VIC','SA']); // all on by default
 const ASX_REGIONS = ['QLD','NSW','VIC','SA'];
 const ASX_REGION_COLORS = {QLD:'#f39c12', NSW:'#3498db', VIC:'#2ed573', SA:'#e74c3c'};
 
@@ -4947,13 +4948,25 @@ function renderASX() {
   html += '</div>';
 
   // Period buttons
-  html += '<div style="display:flex;gap:6px;margin-bottom:12px">';
+  html += '<div style="display:flex;gap:6px;margin-bottom:8px">';
   for (const [key, label] of [['quarter','Quarters'],['cal','Cal Years'],['fy','Fin Years']]) {
     const active = _asxPeriod === key;
     html += `<button id="asx-period-${key}" onclick="setASXPeriod('${key}')"
       style="font-family:var(--font-mono);font-size:10px;padding:5px 14px;border-radius:20px;cursor:pointer;
       border:1px solid ${active?'#ffffff':'#334155'};background:${active?'#ffffff22':'transparent'};
       color:${active?'#ffffff':'#64748b'};font-weight:${active?'700':'400'}">${label}</button>`;
+  }
+  html += '</div>';
+
+  // Region filter buttons
+  html += '<div style="display:flex;gap:6px;margin-bottom:12px">';
+  for (const r of ASX_REGIONS) {
+    const on = _asxRegions.has(r);
+    const col = ASX_REGION_COLORS[r];
+    html += `<button id="asx-rgn-${r}" onclick="toggleASXRegion('${r}')"
+      style="font-family:var(--font-mono);font-size:10px;padding:5px 14px;border-radius:20px;cursor:pointer;
+      border:1px solid ${on?col:col+'44'};background:${on?col+'22':'transparent'};
+      color:${on?col:col+'55'};font-weight:${on?'700':'400'}">${r}</button>`;
   }
   html += '</div>';
 
@@ -4993,26 +5006,29 @@ function _renderASXTable() {
   let t = '<div class="chart-card" style="padding:0;overflow-x:auto">';
   t += '<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px">';
 
+  // Active regions only
+  const activeRegions = ASX_REGIONS.filter(r => _asxRegions.has(r));
+
   // Header
   t += '<thead><tr>';
   t += '<th style="text-align:left;padding:10px 12px;color:#64748b;border-bottom:1px solid #1e2d45;white-space:nowrap">Period</th>';
-  for (const r of ASX_REGIONS) {
+  for (const r of activeRegions) {
     t += `<th colspan="2" style="text-align:center;padding:10px 8px;color:${ASX_REGION_COLORS[r]};border-bottom:1px solid #1e2d45;white-space:nowrap">${r}</th>`;
   }
   t += '</tr>';
   t += '<tr>';
   t += '<th style="padding:4px 12px 8px;border-bottom:1px solid #1e2d45"></th>';
-  for (const r of ASX_REGIONS) {
+  for (const r of activeRegions) {
     t += `<th style="text-align:right;padding:4px 4px 8px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400;font-size:9px">Price</th>`;
     t += `<th style="text-align:right;padding:4px 8px 8px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400;font-size:9px">Vol</th>`;
   }
   t += '</tr></thead><tbody>';
 
   for (const [label, pdata] of periods) {
-    // Row 1: settle / vol / OI
+    // Row 1: price / vol
     t += `<tr>`;
     t += `<td rowspan="2" style="padding:8px 12px 4px;color:#94a3b8;white-space:nowrap;font-weight:700;vertical-align:top">${label}</td>`;
-    for (const r of ASX_REGIONS) {
+    for (const r of activeRegions) {
       const d = pdata[r];
       const code = d?.code || '';
       const isLive = d?.is_live;
@@ -5021,31 +5037,29 @@ function _renderASXTable() {
       const displayPrice = isLive && last ? last : settle;
       const priceStr = displayPrice ? `$${displayPrice.toFixed(2)}` : '—';
       const priceLabel = isLive && last ? ' <span style="color:#00d4ff;font-size:8px">Last</span>' : ' <span style="color:#475569;font-size:8px">Settle</span>';
-      const change = d?.net_change ? parseFloat(d.net_change) : null;
-      const changeStr = change !== null ? `${change >= 0 ? '+' : ''}${change.toFixed(2)}` : '';
-      const changeCol = change !== null ? (change >= 0 ? '#2ed573' : '#ff4757') : '#475569';
+      // Movement vs settle: last vs settle (intraday), or net_change from API
+      const mvmt = (isLive && last && settle) ? last - settle : (d?.net_change ? parseFloat(d.net_change) : null);
+      const mvmtStr = mvmt !== null && mvmt !== 0 ? `${mvmt >= 0 ? '+' : ''}${mvmt.toFixed(2)}` : '';
+      const mvmtCol = mvmt !== null ? (mvmt > 0 ? '#2ed573' : mvmt < 0 ? '#ff4757' : '#475569') : '#475569';
       const vol = d?.volume ? Number(d.volume).toLocaleString() : '—';
-      const oi  = d?.open_interest ? Number(d.open_interest).toLocaleString() : '—';
       const isSelected = _asxHistCode === code;
       const priceCol = isSelected ? '#fbbf24' : (displayPrice ? (isLive && last ? '#00d4ff' : '#e2e8f0') : '#334155');
       t += `<td style="text-align:right;padding:8px 4px 2px;cursor:${code?'pointer':'default'}"
               onclick="${code?`loadASXHistory('${code}','${label} ${r}')`:''}"
-            ><span style="color:${priceCol};font-weight:${isSelected?'700':'400'}">${priceStr}</span>${priceLabel}${changeStr ? `<br><span style="font-size:8px;color:${changeCol}">${changeStr}</span>` : ''}</td>`;
+            ><span style="color:${priceCol};font-weight:${isSelected?'700':'400'}">${priceStr}</span>${priceLabel}${mvmtStr ? `<br><span style="font-size:8px;color:${mvmtCol}">${mvmtStr}</span>` : ''}</td>`;
       t += `<td style="text-align:right;padding:8px 8px 2px;color:#475569">${vol}</td>`;
     }
     t += '</tr>';
-    // Row 2: bid/ask tightly under settle
+    // Row 2: bid/ask
     t += `<tr style="border-bottom:1px solid #1e2d4533">`;
-    for (const r of ASX_REGIONS) {
+    for (const r of activeRegions) {
       const d = pdata[r];
       const bid = d?.bid && parseFloat(d.bid) > 0 ? parseFloat(d.bid).toFixed(2) : null;
       const ask = d?.ask && parseFloat(d.ask) > 0 ? parseFloat(d.ask).toFixed(2) : null;
-      const bs = d?.bid_size ? d.bid_size : null;
-      const as_ = d?.ask_size ? d.ask_size : null;
+      const bs = d?.bid_size || null;
+      const as_ = d?.ask_size || null;
       t += `<td style="text-align:right;padding:0 4px 6px;font-size:9px;white-space:nowrap">
-        ${bid || ask
-          ? `<span style="color:#2ed573">${bs?`${bs}×`:''}\$${bid||'—'}</span><span style="color:#475569"> / </span><span style="color:#ff4757">\$${ask||'—'}${as_?`×${as_}`:''}</span>`
-          : ''}
+        ${bid || ask ? `<span style="color:#2ed573">${bs?`${bs}×`:''}\$${bid||'—'}</span><span style="color:#475569"> / </span><span style="color:#ff4757">\$${ask||'—'}${as_?`×${as_}`:''}</span>` : ''}
       </td>`;
       t += `<td style="padding:0 8px 6px"></td>`;
     }
@@ -5078,6 +5092,26 @@ function setASXPeriod(p) {
   if (histDiv) histDiv.innerHTML = '';
 }
 
+function toggleASXRegion(r) {
+  if (_asxRegions.has(r)) {
+    if (_asxRegions.size > 1) _asxRegions.delete(r); // keep at least one
+  } else {
+    _asxRegions.add(r);
+  }
+  // Update button style
+  const btn = document.getElementById(`asx-rgn-${r}`);
+  if (btn) {
+    const on = _asxRegions.has(r);
+    const col = ASX_REGION_COLORS[r];
+    btn.style.borderColor = on ? col : col+'44';
+    btn.style.background  = on ? col+'22' : 'transparent';
+    btn.style.color       = on ? col : col+'55';
+    btn.style.fontWeight  = on ? '700' : '400';
+  }
+  const tableDiv = document.getElementById('asx-table-container');
+  if (tableDiv) tableDiv.innerHTML = _renderASXTable();
+}
+
 function _refreshASXButtons() {
   for (const [key] of [['base'],['cap']]) {
     const btn = document.getElementById(`asx-prod-${key}`);
@@ -5096,6 +5130,16 @@ function _refreshASXButtons() {
     btn.style.background  = active ? '#ffffff22' : 'transparent';
     btn.style.color       = active ? '#ffffff' : '#64748b';
     btn.style.fontWeight  = active ? '700' : '400';
+  }
+  for (const r of ASX_REGIONS) {
+    const btn = document.getElementById(`asx-rgn-${r}`);
+    if (!btn) continue;
+    const on = _asxRegions.has(r);
+    const col = ASX_REGION_COLORS[r];
+    btn.style.borderColor = on ? col : col+'44';
+    btn.style.background  = on ? col+'22' : 'transparent';
+    btn.style.color       = on ? col : col+'55';
+    btn.style.fontWeight  = on ? '700' : '400';
   }
 }
 

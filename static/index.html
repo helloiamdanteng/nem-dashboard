@@ -5004,7 +5004,10 @@ function _renderASXTable() {
   periods = periods.slice(0, limit);
 
   if (!periods.length) {
-    return '<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:20px 0;text-align:center">No data for this selection</div>';
+    const msg = (_asxProduct === 'cap' && _asxPeriod !== 'quarter')
+      ? 'Cap annual strips not available in this data feed'
+      : 'No data for this selection';
+    return `<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:20px 0;text-align:center">${msg}</div>`;
   }
 
   let t = '<div class="chart-card" style="padding:0;overflow-x:auto">';

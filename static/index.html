@@ -4928,13 +4928,16 @@ function renderASX() {
   const fetchedStr = _asxFetchedAt ? _asxFetchedAt.toLocaleTimeString('en-AU', {hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}) : '—';
 
   // Status row + refresh button
-  html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+  html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
     <div style="font-family:var(--font-mono);font-size:9px;color:${isLive?'#00d4ff':'#475569'}">
       ${isLive ? '🟢 Live — intraday' : `⚪ EOD — settle ${dateStr}`}
       ${_asxFetchedAt ? `<span style="color:#334155"> · fetched ${fetchedStr}</span>` : ''}
     </div>
     <button onclick="refreshASXData()" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;cursor:pointer;
       border:1px solid #334155;background:transparent;color:#64748b" id="asx-refresh-btn">↻ Refresh</button>
+  </div>
+  <div style="font-family:var(--font-mono);font-size:9px;color:#f59e0b;margin-bottom:10px">
+    ⚠ Data is delayed by approximately 10 minutes
   </div>`;
 
   // Product buttons
@@ -5044,7 +5047,10 @@ function _renderASXTable() {
       const mvmtCol = mvmt !== null ? (mvmt > 0 ? '#2ed573' : mvmt < 0 ? '#ff4757' : '#475569') : '#475569';
       const vol = d?.volume ? Number(d.volume).toLocaleString() : '—';
       const isSelected = _asxHistCode === code;
-      const priceCol = isSelected ? '#fbbf24' : (displayPrice ? (isLive && last ? '#ffffff' : '#e2e8f0') : '#334155');
+      const priceCol = isSelected ? '#fbbf24'
+        : (isLive && last && settle)
+          ? (last > settle ? '#2ed573' : last < settle ? '#ff4757' : '#ffffff')
+          : (displayPrice ? '#e2e8f0' : '#334155');
       const priceBold = (isLive && last) ? '700' : (isSelected ? '700' : '400');
       t += `<td style="text-align:right;padding:8px 4px 2px;cursor:${code?'pointer':'default'}"
               onclick="${code?`loadASXHistory('${code}','${label} ${r}')`:''}"
@@ -5061,7 +5067,7 @@ function _renderASXTable() {
       const bs = d?.bid_size || null;
       const as_ = d?.ask_size || null;
       t += `<td style="text-align:right;padding:0 4px 6px;font-size:9px;white-space:nowrap">
-        ${bid || ask ? `<span style="color:#ffffff">${bs?`${bs}×`:''}\$${bid||'—'}</span><span style="color:#475569"> / </span><span style="color:#ffffff">\$${ask||'—'}${as_?`×${as_}`:''}</span>` : ''}
+        ${bid || ask ? `<span style="color:#94a3b8">${bs?`${bs}×`:''}\$${bid||'—'}</span><span style="color:#475569"> / </span><span style="color:#94a3b8">\$${ask||'—'}${as_?`×${as_}`:''}</span>` : ''}
       </td>`;
       t += `<td style="padding:0 8px 6px"></td>`;
     }

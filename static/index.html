@@ -5280,7 +5280,7 @@ function _drawASXHistory(label) {
     const priceStr = price ? `$${parseFloat(price).toFixed(2)}` : '—';
     const vol = row.volume ? Number(row.volume).toLocaleString() : '—';
     const oi  = row.open_interest ? Number(row.open_interest).toLocaleString() : '—';
-    const rowCol = row.is_today ? '#00d4ff' : '#94a3b8';
+    const rowCol = row.is_today ? '#ffffff' : '#94a3b8';
     const liveTag = row.is_today && row.is_live ? ' <span style="color:#00d4ff;font-size:8px">LIVE</span>' : (row.is_today ? ' <span style="color:#475569;font-size:8px">EOD</span>' : '');
     tableHtml += `<tr style="border-bottom:1px solid #1e2d4533">
       <td style="padding:5px 8px;color:${rowCol};white-space:nowrap">${dateLabel}${liveTag}</td>
@@ -5308,7 +5308,7 @@ function _drawASXHistory(label) {
   });
   const volumes = data.map(d => d.volume ? parseInt(d.volume) : 0);
 
-  const pointColors = data.map(d => d.is_today ? '#00d4ff' : 'transparent');
+  const pointColors = data.map(d => d.is_today ? '#ffffff' : 'transparent');
   const pointSizes  = data.map(d => d.is_today ? 5 : 0);
 
   const regionColor = ASX_REGION_COLORS[_asxHistRegion] || '#fbbf24';
@@ -5323,7 +5323,7 @@ function _drawASXHistory(label) {
         label: 'Price', data: settles,
         borderColor: regionColor, backgroundColor: 'transparent',
         borderWidth: 2, pointRadius: pointSizes, pointBackgroundColor: pointColors,
-        pointBorderColor: '#00d4ff', pointBorderWidth: 2,
+        pointBorderColor: '#ffffff', pointBorderWidth: 2,
         tension: 0, fill: false, spanGaps: true,
       }]},
       options: { ...CHART_DEFAULTS,
@@ -5348,8 +5348,8 @@ function _drawASXHistory(label) {
   destroyChart('asxVol');
   const ctx2 = document.getElementById('asxVolChart');
   if (ctx2) {
-    const volColors  = data.map(d => d.is_today ? '#00d4ffcc' : regionColor + 'cc');
-    const volBorders = data.map(d => d.is_today ? '#00d4ff' : regionColor);
+    const volColors  = data.map(d => d.is_today ? '#ffffffcc' : regionColor + 'cc');
+    const volBorders = data.map(d => d.is_today ? '#ffffff' : regionColor);
     charts.asxVol = new Chart(ctx2, {
       type: 'bar',
       data: { labels, datasets: [{

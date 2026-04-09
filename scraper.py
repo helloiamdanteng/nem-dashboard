@@ -4240,11 +4240,14 @@ ASX_API_BASE = "https://asxenergy.com.au/api"
 
 # Code decoding maps
 ASX_REGION_MAP = {"N": "NSW", "Q": "QLD", "S": "SA", "V": "VIC"}
-ASX_PRODUCT_MAP = {"B": "base", "G": "cap"}
+ASX_PRODUCT_MAP = {"B": "base", "G": "cap"}  # quarterly futures only
+
+# Annual strip product codes (ASX market data vendor codes doc v2.2, Dec 2025)
+# H = Base load strip, R = Cap ($300) strip
+# D = Peak strip, J = Morning Peak strip, L = Evening Peak strip (skip these)
 ASX_STRIP_PRODUCT_MAP = {
-    "H": "base_strip",   # Base FY strip (HNM = Base NSW FY)
-    "J": "base_strip",   # Base Cal strip (JNM = Base NSW Cal)
-    # Cap annual strips not clearly identified in data - G prefix is cap quarterly only
+    "H": "base_strip",
+    "R": "cap_strip",
 }
 
 # Quarter letter mapping for B/G quarterly products
@@ -4255,13 +4258,11 @@ ASX_QUARTER_MAP = {
     "Z": ("Q4", 4),   # Oct-Dec
 }
 
-# Annual strip period: determined by 3rd char
-# HNM = Base FY (M=June end), HNZ = Base Cal (Z=Dec end)
-# JNM = Base Cal? JNZ = Base Cal
+# Annual strip period: 3rd char = ending quarter month
+# Z = Calendar Year (ends Dec), M = Financial Year (ends Jun)
 ASX_STRIP_PERIOD_MAP = {
-    "Z": "cal",   # Calendar Year (Jan-Dec)
-    "M": "fy",    # Financial Year (Jul-Jun)
-    "H": "cal",   # H-period in strips (some use H for cal)
+    "Z": "cal",
+    "M": "fy",
 }
 
 def _asx_headers(token: str) -> dict:
@@ -4295,15 +4296,10 @@ def _asx_decode(code: str) -> dict | None:
     if not region:
         return None
 
-    # Annual strips: H=base FY, J=base Cal
+    # Annual strips: H = base, R = cap
     if product_char in ASX_STRIP_PRODUCT_MAP:
         product = ASX_STRIP_PRODUCT_MAP[product_char]
-        # J-prefix = Cal year strip regardless of period char (settle ~82 = annual avg inc cheap months)
-        # H-prefix = FY strip (M period) or Cal (Z period)
-        if product_char == "J":
-            period_type = "cal"
-        else:
-            period_type = ASX_STRIP_PERIOD_MAP.get(period_char)
+        period_type = ASX_STRIP_PERIOD_MAP.get(period_char)
         if not period_type:
             return None
         if period_type == "cal":

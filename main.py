@@ -1696,20 +1696,30 @@ async def rescrape():
 
 @app.get("/api/asx-debug")
 async def asx_debug():
-    """Debug: show all NSW codes in the intraday feed."""
-    import os, httpx
+    """Debug: show what scrape_asx actually builds."""
+    import os
     token = os.environ.get("ASX_API_KEY", "")
     if not token:
         return {"error": "ASX_API_KEY not set"}
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(
-            "https://asxenergy.com.au/api/intraday?futures=au_electricity",
-            headers={"Authorization": f"Bearer {token}"}
-        )
-    raw = r.json()
-    rows = raw.get("data", [])
-    nsw = sorted([r["code"] for r in rows if r.get("code","")[1] == "N"])
-    return {"total": len(nsw), "nsw_codes": nsw}
+    from scraper import scrape_asx
+    import asyncio
+    loop = asyncio.get_running_loop()
+    data = await loop.run_in_executor(None, scrape_asx, token)
+    # Summarise what periods ended up in each bucket
+    result = {}
+    for product in ("base", "cap"):
+        result[product] = {}
+        for period_label, pdata in data.get(product, {}).items():
+            pt = pdata.get("period_type", "?")
+            regions = [r for r in ("NSW","QLD","VIC","SA") if r in pdata]
+            sample = pdata.get("NSW", {})
+            result[product][period_label] = {
+                "period_type": pt,
+                "regions": regions,
+                "settle_nsw": sample.get("settle"),
+                "code_nsw": sample.get("code"),
+            }
+    return result
     """Debug: fetch PREDISPATCHSCENARIODEMAND to see what S1-S6 mean."""
     from scraper import _list_hrefs, _read_zip, _parse_aemo, _fetch_predispatch, NEMWEB_BASE
     import csv, io

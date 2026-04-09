@@ -4928,7 +4928,7 @@ function renderASX() {
   // Status row + refresh button
   html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
     <div style="font-family:var(--font-mono);font-size:9px;color:${isLive?'#00d4ff':'#475569'}">
-      ${isLive ? '🟢 Last — intraday' : `⚪ EOD — settle ${dateStr}`}
+      ${isLive ? '🟢 Live — intraday' : `⚪ EOD — settle ${dateStr}`}
       ${_asxFetchedAt ? `<span style="color:#334155"> · fetched ${fetchedStr}</span>` : ''}
     </div>
     <button onclick="refreshASXData()" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;cursor:pointer;
@@ -4982,8 +4982,8 @@ function _renderASXTable() {
     .filter(([, v]) => v.period_type === PERIOD_TYPE)
     .sort((a, b) => a[1].sort_key - b[1].sort_key);
 
-  // Limit: quarters = next 6 (Q1/Q3 only available), cal/fy = next 3
-  const limit = _asxPeriod === 'quarter' ? 6 : 3;
+  // Limit: quarters = 12 (~3 years of Q1+Q3), cal/fy = next 3
+  const limit = _asxPeriod === 'quarter' ? 12 : 3;
   periods = periods.slice(0, limit);
 
   if (!periods.length) {
@@ -5020,7 +5020,7 @@ function _renderASXTable() {
       const settle = d?.settle ? parseFloat(d.settle) : null;
       const displayPrice = isLive && last ? last : settle;
       const priceStr = displayPrice ? `$${displayPrice.toFixed(2)}` : '—';
-      const priceLabel = isLive && last ? ' <span style="color:#00d4ff;font-size:8px">Live</span>' : ' <span style="color:#475569;font-size:8px">Settle</span>';
+      const priceLabel = isLive && last ? ' <span style="color:#00d4ff;font-size:8px">Last</span>' : ' <span style="color:#475569;font-size:8px">Settle</span>';
       const change = d?.net_change ? parseFloat(d.net_change) : null;
       const changeStr = change !== null ? `${change >= 0 ? '+' : ''}${change.toFixed(2)}` : '';
       const changeCol = change !== null ? (change >= 0 ? '#2ed573' : '#ff4757') : '#475569';

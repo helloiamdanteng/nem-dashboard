@@ -4915,6 +4915,8 @@ let _asxFetchedAt = null;  // timestamp of last fetch
 let _asxProduct = 'base';
 let _asxPeriod  = 'cal';   // 'quarter' | 'cal' | 'fy'
 let _asxHistCode = null;
+  _asxHistRegion = null;
+let _asxHistRegion = null;
 let _asxHistData = null;
 let _asxRegions = new Set(['QLD','NSW','VIC']); // SA off by default
 const ASX_REGIONS = ['QLD','NSW','VIC','SA'];
@@ -5036,17 +5038,18 @@ function _renderASXTable() {
       const settle = d?.settle ? parseFloat(d.settle) : null;
       const displayPrice = isLive && last ? last : settle;
       const priceStr = displayPrice ? `$${displayPrice.toFixed(2)}` : '—';
-      const priceLabel = isLive && last ? ' <span style="color:#00d4ff;font-size:8px">Last</span>' : ' <span style="color:#475569;font-size:8px">Settle</span>';
-      // Movement vs settle: last vs settle (intraday), or net_change from API
+      const priceLabel = isLive && last ? ' <span style="color:#ffffff;font-size:8px">Last</span>' : ' <span style="color:#475569;font-size:8px">Settle</span>';
+      // Movement vs settle
       const mvmt = (isLive && last && settle) ? last - settle : (d?.net_change ? parseFloat(d.net_change) : null);
       const mvmtStr = mvmt !== null && mvmt !== 0 ? `${mvmt >= 0 ? '+' : ''}${mvmt.toFixed(2)}` : '';
       const mvmtCol = mvmt !== null ? (mvmt > 0 ? '#2ed573' : mvmt < 0 ? '#ff4757' : '#475569') : '#475569';
       const vol = d?.volume ? Number(d.volume).toLocaleString() : '—';
       const isSelected = _asxHistCode === code;
-      const priceCol = isSelected ? '#fbbf24' : (displayPrice ? (isLive && last ? '#00d4ff' : '#e2e8f0') : '#334155');
+      const priceCol = isSelected ? '#fbbf24' : (displayPrice ? (isLive && last ? '#ffffff' : '#e2e8f0') : '#334155');
+      const priceBold = (isLive && last) ? '700' : (isSelected ? '700' : '400');
       t += `<td style="text-align:right;padding:8px 4px 2px;cursor:${code?'pointer':'default'}"
               onclick="${code?`loadASXHistory('${code}','${label} ${r}')`:''}"
-            ><span style="color:${priceCol};font-weight:${isSelected?'700':'400'}">${priceStr}</span>${priceLabel}${mvmtStr ? `<br><span style="font-size:8px;color:${mvmtCol}">${mvmtStr}</span>` : ''}</td>`;
+            ><span style="color:${priceCol};font-weight:${priceBold}">${priceStr}</span>${priceLabel}${mvmtStr ? `<br><span style="font-size:8px;color:${mvmtCol}">${mvmtStr}</span>` : ''}</td>`;
       t += `<td style="text-align:right;padding:8px 8px 2px;color:#475569">${vol}</td>`;
     }
     t += '</tr>';
@@ -5059,7 +5062,7 @@ function _renderASXTable() {
       const bs = d?.bid_size || null;
       const as_ = d?.ask_size || null;
       t += `<td style="text-align:right;padding:0 4px 6px;font-size:9px;white-space:nowrap">
-        ${bid || ask ? `<span style="color:#2ed573">${bs?`${bs}×`:''}\$${bid||'—'}</span><span style="color:#475569"> / </span><span style="color:#ff4757">\$${ask||'—'}${as_?`×${as_}`:''}</span>` : ''}
+        ${bid || ask ? `<span style="color:#ffffff">${bs?`${bs}×`:''}\$${bid||'—'}</span><span style="color:#475569"> / </span><span style="color:#ffffff">\$${ask||'—'}${as_?`×${as_}`:''}</span>` : ''}
       </td>`;
       t += `<td style="padding:0 8px 6px"></td>`;
     }
@@ -5073,6 +5076,7 @@ function _renderASXTable() {
 function setASXProduct(p) {
   _asxProduct = p;
   _asxHistCode = null;
+  _asxHistRegion = null;
   _asxHistData = null;
   _refreshASXButtons();
   const tableDiv = document.getElementById('asx-table-container');
@@ -5084,6 +5088,7 @@ function setASXProduct(p) {
 function setASXPeriod(p) {
   _asxPeriod = p;
   _asxHistCode = null;
+  _asxHistRegion = null;
   _asxHistData = null;
   _refreshASXButtons();
   const tableDiv = document.getElementById('asx-table-container');
@@ -5148,6 +5153,7 @@ async function refreshASXData() {
   if (btn) { btn.textContent = '↻ Fetching…'; btn.style.color = '#00d4ff'; btn.disabled = true; }
   _asxData = null;
   _asxHistCode = null;
+  _asxHistRegion = null;
   _asxHistData = null;
   await fetchASXData(true);
   if (btn) { btn.textContent = '↻ Refresh'; btn.style.color = '#64748b'; btn.disabled = false; }
@@ -5174,6 +5180,9 @@ async function fetchASXData(forceRefresh = false) {
 
 async function loadASXHistory(code, label) {
   _asxHistCode = code;
+  // Derive region colour from code 2nd char: N=NSW, Q=QLD, V=VIC, S=SA
+  const regionMap = {N:'NSW', Q:'QLD', V:'VIC', S:'SA'};
+  _asxHistRegion = regionMap[code[1]] || 'NSW';
   _asxHistData = null; // Always fetch fresh
   // Refresh table to highlight selected cell
   const tableDiv = document.getElementById('asx-table-container');
@@ -5259,6 +5268,8 @@ function _drawASXHistory(label) {
   const pointColors = data.map(d => d.is_today ? '#00d4ff' : 'transparent');
   const pointSizes  = data.map(d => d.is_today ? 5 : 0);
 
+  const regionColor = ASX_REGION_COLORS[_asxHistRegion] || '#fbbf24';
+
   // Price chart
   destroyChart('asxHist');
   const ctx1 = document.getElementById('asxHistChart');
@@ -5267,10 +5278,10 @@ function _drawASXHistory(label) {
       type: 'line',
       data: { labels, datasets: [{
         label: 'Price', data: settles,
-        borderColor: '#fbbf24', backgroundColor: '#fbbf24cc',
+        borderColor: regionColor, backgroundColor: 'transparent',
         borderWidth: 2, pointRadius: pointSizes, pointBackgroundColor: pointColors,
         pointBorderColor: '#00d4ff', pointBorderWidth: 2,
-        tension: 0, fill: true, spanGaps: true,
+        tension: 0, fill: false, spanGaps: true,
       }]},
       options: { ...CHART_DEFAULTS,
         plugins: { ...CHART_DEFAULTS.plugins,
@@ -5294,8 +5305,8 @@ function _drawASXHistory(label) {
   destroyChart('asxVol');
   const ctx2 = document.getElementById('asxVolChart');
   if (ctx2) {
-    const volColors  = data.map(d => d.is_today ? '#00d4ffcc' : '#3498dbcc');
-    const volBorders = data.map(d => d.is_today ? '#00d4ff' : '#3498db');
+    const volColors  = data.map(d => d.is_today ? '#00d4ffcc' : regionColor + 'cc');
+    const volBorders = data.map(d => d.is_today ? '#00d4ff' : regionColor);
     charts.asxVol = new Chart(ctx2, {
       type: 'bar',
       data: { labels, datasets: [{

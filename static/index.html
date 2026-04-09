@@ -4999,6 +4999,11 @@ function _renderASXTable() {
     .filter(([, v]) => v.period_type === PERIOD_TYPE)
     .sort((a, b) => a[1].sort_key - b[1].sort_key);
 
+  console.log('ASX filter:', _asxProduct, _asxPeriod, '→ PERIOD_TYPE:', PERIOD_TYPE, 
+    '| productData keys:', Object.keys(productData).length,
+    '| matched:', periods.length,
+    '| sample types:', Object.values(productData).slice(0,3).map(v=>v.period_type));
+
   // Limit: quarters = 12 (~3 years of Q1+Q3), cal/fy = next 3
   const limit = _asxPeriod === 'quarter' ? 12 : 3;
   periods = periods.slice(0, limit);

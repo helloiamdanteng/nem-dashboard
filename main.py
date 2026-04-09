@@ -1696,7 +1696,7 @@ async def rescrape():
 
 @app.get("/api/asx-debug")
 async def asx_debug():
-    """Debug: show one example per prefix with settle."""
+    """Debug: show all NSW codes in the intraday feed."""
     import os, httpx
     token = os.environ.get("ASX_API_KEY", "")
     if not token:
@@ -1708,13 +1708,8 @@ async def asx_debug():
         )
     raw = r.json()
     rows = raw.get("data", [])
-    # One NSW example per prefix, with settle
-    seen = {}
-    for row in rows:
-        c = row["code"]
-        if c[0] not in seen and c[1] == "N":
-            seen[c[0]] = {"code": c, "settle": row.get("settle"), "bid": row.get("bid"), "ask": row.get("ask")}
-    return dict(sorted(seen.items()))
+    nsw = sorted([r["code"] for r in rows if r.get("code","")[1] == "N"])
+    return {"total": len(nsw), "nsw_codes": nsw}
     """Debug: fetch PREDISPATCHSCENARIODEMAND to see what S1-S6 mean."""
     from scraper import _list_hrefs, _read_zip, _parse_aemo, _fetch_predispatch, NEMWEB_BASE
     import csv, io

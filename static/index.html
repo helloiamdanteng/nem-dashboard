@@ -4911,6 +4911,7 @@ function _renderPriceHistCharts(data, liveData) {
 // ── ASX Energy Futures ────────────────────────────────────────────────────────
 
 let _asxData = null;
+let _asxFetchedAt = null;  // timestamp of last fetch
 let _asxProduct = 'base';      // 'base' | 'cap'
 let _asxPeriod  = 'quarter';   // 'quarter' | 'cal' | 'fy'
 let _asxHistCode = null;
@@ -4922,8 +4923,16 @@ function renderASX() {
   let html = '<div class="section-title">ASX Energy Futures</div>';
   const isLive = _asxData?.is_live;
   const dateStr = _asxData?.date ? `${_asxData.date.slice(6,8)}/${_asxData.date.slice(4,6)}/${_asxData.date.slice(0,4)}` : '';
-  html += `<div style="font-family:var(--font-mono);font-size:9px;color:${isLive?'#00d4ff':'#475569'};margin-bottom:10px">
-    ${isLive ? '🟢 LIVE — intraday prices' : `⚪ EOD — settle ${dateStr}`}
+  const fetchedStr = _asxFetchedAt ? _asxFetchedAt.toLocaleTimeString('en-AU', {hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}) : '—';
+
+  // Status row + refresh button
+  html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+    <div style="font-family:var(--font-mono);font-size:9px;color:${isLive?'#00d4ff':'#475569'}">
+      ${isLive ? '🟢 LIVE — intraday' : `⚪ EOD — settle ${dateStr}`}
+      ${_asxFetchedAt ? `<span style="color:#334155"> · fetched ${fetchedStr}</span>` : ''}
+    </div>
+    <button onclick="refreshASXData()" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;cursor:pointer;
+      border:1px solid #334155;background:transparent;color:#64748b" id="asx-refresh-btn">↻ Refresh</button>
   </div>`;
 
   // Product buttons
@@ -5089,17 +5098,29 @@ function _refreshASXButtons() {
   }
 }
 
-async function fetchASXData() {
-  if (_asxData) {
+async function refreshASXData() {
+  const btn = document.getElementById('asx-refresh-btn');
+  if (btn) { btn.textContent = '↻ Fetching…'; btn.style.color = '#00d4ff'; btn.disabled = true; }
+  _asxData = null;
+  _asxHistCode = null;
+  _asxHistData = null;
+  await fetchASXData(true);
+  if (btn) { btn.textContent = '↻ Refresh'; btn.style.color = '#64748b'; btn.disabled = false; }
+}
+
+async function fetchASXData(forceRefresh = false) {
+  if (_asxData && !forceRefresh) {
     const tableDiv = document.getElementById('asx-table-container');
     if (tableDiv) tableDiv.innerHTML = _renderASXTable();
     return;
   }
   try {
-    const resp = await fetch('/api/asx');
+    const url = forceRefresh ? '/api/asx?refresh=true' : '/api/asx';
+    const resp = await fetch(url);
     _asxData = await resp.json();
-    const tableDiv = document.getElementById('asx-table-container');
-    if (tableDiv) tableDiv.innerHTML = _renderASXTable();
+    _asxFetchedAt = new Date();
+    // Re-render full panel to update timestamp and live indicator
+    if (currentPanel === 'asx' && latestData) renderPanel('asx', latestData);
   } catch(e) {
     const tableDiv = document.getElementById('asx-table-container');
     if (tableDiv) tableDiv.innerHTML = `<div style="color:#e74c3c;font-family:var(--font-mono);font-size:10px;padding:12px">Failed to load ASX data: ${e.message}</div>`;

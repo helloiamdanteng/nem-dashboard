@@ -2485,6 +2485,37 @@ async def gas_data(refresh: bool = False):
 _asx_cache: dict = {"data": None, "last_updated": None}
 _asx_history_cache: dict = {}  # code → {history, last_updated}
 
+# ── Yahoo Finance proxy for commodity forward curves ──────────────────────────
+_yahoo_cache: dict = {}  # symbol → {data, last_updated}
+
+@app.get("/api/yahoo/{symbol:path}")
+async def yahoo_proxy(symbol: str):
+    """Proxy Yahoo Finance chart API — avoids browser CORS issues. 15-min cache."""
+    from datetime import datetime, timezone, timedelta
+    cached = _yahoo_cache.get(symbol)
+    if cached and cached.get("last_updated"):
+        age = datetime.now(timezone.utc) - cached["last_updated"]
+        if age < timedelta(minutes=15):
+            return JSONResponse(content=cached["data"])
+    try:
+        import requests as req_lib
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
+        r = req_lib.get(url, timeout=8, headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "Referer": "https://finance.yahoo.com/",
+        })
+        if r.status_code != 200:
+            return JSONResponse(status_code=r.status_code, content={"error": f"Yahoo returned {r.status_code}"})
+        data = r.json()
+        _yahoo_cache[symbol] = {"data": data, "last_updated": datetime.now(timezone.utc)}
+        return JSONResponse(content=data)
+    except Exception as e:
+        logger.error(f"yahoo_proxy {symbol}: {e}")
+        if cached:
+            return JSONResponse(content=cached["data"])
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
 @app.get("/api/asx")
 async def asx_data(refresh: bool = False):
     """Return ASX Energy futures data (1-hour cache)."""

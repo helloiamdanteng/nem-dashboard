@@ -5456,46 +5456,62 @@ async function fetchCommoditiesData(force = false) {
   }
   if (container) container.innerHTML = '<div class="state-msg"><div class="spinner-icon">📡</div><div style="margin-top:8px;font-family:var(--font-mono);font-size:10px;color:#475569">Fetching forward curves…</div></div>';
 
-  // Fetch EUR/USD for TTF conversion
-  try {
-    const fx = await _commFetchQuote('EURUSD=X');
-    _commFxRate = fx?.price ?? 1.08;
-  } catch { _commFxRate = 1.08; }
-
-  // Fetch all contracts in parallel
-  const allFetches = [];
+  // Build all symbols
+  const allSymbols = ['EURUSD=X'];
+  const symbolMeta = {};
   for (const contract of COMM_CONTRACTS) {
     const syms = _commGenSymbols(contract.root, contract.months);
     for (const s of syms) {
-      allFetches.push({ contract, ...s });
+      allSymbols.push(s.symbol);
+      symbolMeta[s.symbol] = { contract, month: s.month };
     }
   }
 
-  const results = await Promise.allSettled(
-    allFetches.map(item => _commFetchQuote(item.symbol).then(q => ({ ...item, quote: q })))
-  );
+  // Fetch in batches of 20 (Yahoo limit)
+  const quotes = {};
+  const batchSize = 20;
+  for (let i = 0; i < allSymbols.length; i += batchSize) {
+    const batch = allSymbols.slice(i, i + batchSize);
+    try {
+      const resp = await fetch(`/api/yahoo-batch?symbols=${encodeURIComponent(batch.join(','))}`);
+      const j = await resp.json();
+      const results = j?.quoteResponse?.result || [];
+      for (const r of results) {
+        quotes[r.symbol] = {
+          price: r.regularMarketPrice,
+          prev:  r.regularMarketPreviousClose ?? r.chartPreviousClose,
+        };
+      }
+    } catch(e) {
+      console.warn('Yahoo batch failed:', e);
+    }
+  }
+
+  // Get EUR/USD
+  _commFxRate = quotes['EURUSD=X']?.price ?? 1.08;
 
   // Group by contract
   const newData = {};
   for (const contract of COMM_CONTRACTS) newData[contract.id] = [];
 
-  for (const r of results) {
-    if (r.status !== 'fulfilled' || !r.value?.quote) continue;
-    const { contract, symbol, month, quote } = r.value;
+  for (const [sym, meta] of Object.entries(symbolMeta)) {
+    const q = quotes[sym];
+    if (!q?.price || q.price <= 0) continue;
+    const { contract, month } = meta;
     const monthLabel = month.toLocaleDateString('en-AU', { month:'short', year:'2-digit' });
 
-    // TTF: convert EUR/MWh to USD/MMBtu (1 MWh = 3.41 MMBtu)
-    let price = quote.price;
-    let prev  = quote.prev;
+    let price = q.price;
+    let prev  = q.prev;
     let unit  = contract.unit;
+
     if (contract.id === 'ttf' && _commFxRate) {
       price = price * _commFxRate / 3.41214;
-      prev  = prev  ? prev * _commFxRate / 3.41214 : null;
+      prev  = prev ? prev * _commFxRate / 3.41214 : null;
       unit  = 'USD/MMBtu';
     }
 
     newData[contract.id].push({
-      symbol, monthLabel,
+      symbol: sym, monthLabel,
       month: month.getTime(),
       price: parseFloat(price.toFixed(3)),
       prev:  prev ? parseFloat(prev.toFixed(3)) : null,
@@ -5504,10 +5520,14 @@ async function fetchCommoditiesData(force = false) {
     });
   }
 
-  // Sort each by month
   for (const id in newData) newData[id].sort((a,b) => a.month - b.month);
   _commData = newData;
   _commFetchedAt = new Date();
+
+  // Update status line
+  const statusEl = document.getElementById('comm-status');
+  if (statusEl) statusEl.textContent = `Fetched ${_commFetchedAt.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})} · 15min delayed`;
+
   _renderCommTable();
   _drawCommChart();
 }

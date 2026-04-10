@@ -5410,13 +5410,13 @@ function _drawASXHistory(label) {
 const COMM_CONTRACTS = [
   { id:'wti',   label:'WTI',   root:'CL',  unit:'USD/bbl',   color:'#f39c12', months:18 },
   { id:'brent', label:'Brent', root:'CB',  unit:'USD/bbl',   color:'#e67e22', months:18 },
-  { id:'ttf',   label:'TTF',   root:'TG',  unit:'USD/MMBtu', color:'#3498db', months:12 },
-  { id:'newc',  label:'NEWC',  root:'LQ',  unit:'USD/t',     color:'#95a5a6', months:12 },
-  { id:'api2',  label:'API2',  root:'ITF', unit:'USD/t',     color:'#7f8c8d', months:12 },
   { id:'jkm',   label:'JKM',   root:'JKM', unit:'USD/MMBtu', color:'#9b59b6', months:12 },
+  { id:'ttf',   label:'TTF',   root:'INK', unit:'USD/MMBtu', color:'#3498db', months:12 },
+  { id:'newc',  label:'NEWC',  root:'LQ',  unit:'USD/t',     color:'#95a5a6', months:12 },
+  { id:'api2',  label:'API2',  root:'LU',  unit:'USD/t',     color:'#7f8c8d', months:12 },
 ];
 
-let _commSelected = 'brent';  // single-select — default Brent
+let _commSelected = 'brent';
 let _commData = {};
 let _commFetchedAt = null;
 let _commFxRate = 1.08;

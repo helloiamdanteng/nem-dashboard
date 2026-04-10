@@ -2563,7 +2563,32 @@ def _scrape_barchart_curve(root: str, num_contracts: int = 18) -> list:
     return results
 
 
-@app.get("/api/commodities")
+@app.get("/api/commodities-debug")
+async def commodities_debug():
+    """Return raw first contract from Barchart for CB (Brent) to inspect field names."""
+    try:
+        import requests as req_lib
+        s = _get_barchart_session()
+        xsrf = req_lib.utils.unquote(s.cookies.get("XSRF-TOKEN", ""))
+        url = "https://www.barchart.com/proxies/core-api/v1/quotes/get"
+        params = {
+            "symbols": "CB*1",
+            "fields": "symbol,contractName,lastPrice,priceChange,previousClose,volume,openInterest,tradeTimestamp,tradeTime,serverTimestamp,lastUpdate,sessionDateDisplayLong",
+            "raw": "1",
+        }
+        r = s.get(url, params=params, timeout=10, headers={
+            "Accept": "application/json",
+            "Referer": "https://www.barchart.com/futures/quotes/CB*0/futures-prices",
+            "X-XSRF-TOKEN": xsrf,
+        })
+        data = r.json()
+        items = data.get("data", [])
+        if items:
+            raw = items[0].get("raw", items[0])
+            return JSONResponse(content={"status": r.status_code, "raw": raw, "all_keys": list(raw.keys())})
+        return JSONResponse(content={"status": r.status_code, "data": data})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 async def commodities_data(refresh: bool = False):
     """Return forward curves for WTI, Brent, TTF, Newcastle coal, API2 coal, JKM. 1-hr cache."""
     from datetime import datetime, timezone, timedelta

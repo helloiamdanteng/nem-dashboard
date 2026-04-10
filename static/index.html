@@ -4951,14 +4951,18 @@ function renderASX() {
   }
   html += '</div>';
 
-  // Period buttons
-  html += '<div style="display:flex;gap:6px;margin-bottom:8px">';
+  // Period buttons — Cal/FY strips only exist for Base
+  html += '<div id="asx-period-btns" style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;align-items:center">';
   for (const [key, label] of [['quarter','Quarters'],['cal','Cal Years'],['fy','Fin Years']]) {
+    if (_asxProduct === 'cap' && key !== 'quarter') continue;
     const active = _asxPeriod === key;
     html += `<button id="asx-period-${key}" onclick="setASXPeriod('${key}')"
       style="font-family:var(--font-mono);font-size:10px;padding:5px 14px;border-radius:20px;cursor:pointer;
       border:1px solid ${active?'#ffffff':'#334155'};background:${active?'#ffffff22':'transparent'};
       color:${active?'#ffffff':'#64748b'};font-weight:${active?'700':'400'}">${label}</button>`;
+  }
+  if (_asxProduct === 'cap') {
+    html += `<span style="font-family:var(--font-mono);font-size:9px;color:#334155;line-height:28px;padding-left:4px">Cal/FY strips not listed</span>`;
   }
   html += '</div>';
 
@@ -5084,8 +5088,17 @@ function _renderASXTable() {
       const ask = d?.ask && parseFloat(d.ask) > 0 ? parseFloat(d.ask).toFixed(2) : null;
       const bs = d?.bid_size || null;
       const as_ = d?.ask_size || null;
-      const baCol = isSelected ? '#fbbf24' : '#94a3b8';
-      const sepCol = isSelected ? '#fbbf2488' : '#475569';
+      let baCol = isSelected ? '#fbbf24' : '#94a3b8';
+      if (!isSelected && bid && ask) {
+        const ref = d?.last && parseFloat(d.last) > 0 ? parseFloat(d.last)
+                  : d?.settle ? parseFloat(d.settle) : null;
+        if (ref !== null) {
+          const bidV = parseFloat(bid), askV = parseFloat(ask);
+          if (bidV <= ref && askV <= ref)      baCol = '#ff4757';
+          else if (bidV >= ref && askV >= ref) baCol = '#2ed573';
+        }
+      }
+      const sepCol = isSelected ? '#fbbf2488' : '#47474788';
       t += `<td style="text-align:right;padding:0 4px 6px;font-size:9px;white-space:nowrap">
         ${bid || ask ? `<span style="color:${baCol}">${bs?`${bs}×`:''}\$${bid||'—'}</span><span style="color:${sepCol}"> / </span><span style="color:${baCol}">\$${ask||'—'}${as_?`×${as_}`:''}</span>` : ''}
       </td>`;
@@ -5100,10 +5113,27 @@ function _renderASXTable() {
 
 function setASXProduct(p) {
   _asxProduct = p;
+  // Cap has no Cal/FY strips — force back to quarters
+  if (p === 'cap' && _asxPeriod !== 'quarter') _asxPeriod = 'quarter';
   _asxHistCode = null;
   _asxHistRegion = null;
   _asxHistData = null;
   _refreshASXButtons();
+  // Re-render period buttons since cap hides cal/fy options
+  const periodDiv = document.getElementById('asx-period-btns');
+  if (periodDiv) {
+    let pbHtml = '';
+    for (const [key, label] of [['quarter','Quarters'],['cal','Cal Years'],['fy','Fin Years']]) {
+      if (_asxProduct === 'cap' && key !== 'quarter') continue;
+      const active = _asxPeriod === key;
+      pbHtml += `<button id="asx-period-${key}" onclick="setASXPeriod('${key}')"
+        style="font-family:var(--font-mono);font-size:10px;padding:5px 14px;border-radius:20px;cursor:pointer;
+        border:1px solid ${active?'#ffffff':'#334155'};background:${active?'#ffffff22':'transparent'};
+        color:${active?'#ffffff':'#64748b'};font-weight:${active?'700':'400'}">${label}</button>`;
+    }
+    if (_asxProduct === 'cap') pbHtml += `<span style="font-family:var(--font-mono);font-size:9px;color:#334155;line-height:28px;padding-left:4px">Cal/FY strips not listed</span>`;
+    periodDiv.innerHTML = pbHtml;
+  }
   const tableDiv = document.getElementById('asx-table-container');
   if (tableDiv) tableDiv.innerHTML = _renderASXTable();
   const histDiv = document.getElementById('asx-history-container');

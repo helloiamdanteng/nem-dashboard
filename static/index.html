@@ -5411,7 +5411,7 @@ const COMM_MONTH_CODES = {1:'F',2:'G',3:'H',4:'J',5:'K',6:'M',7:'N',8:'Q',9:'U',
 
 const COMM_CONTRACTS = [
   { id:'wti',   label:'WTI Crude',  root:'CL', unit:'USD/bbl',  color:'#f39c12', months:18 },
-  { id:'brent', label:'Brent Crude',root:'BZ', unit:'USD/bbl',  color:'#e67e22', months:18 },
+  { id:'brent', label:'Brent Crude',root:'BB', unit:'USD/bbl',  color:'#e67e22', months:18 },
   { id:'ttf',   label:'TTF Gas',    root:'TG', unit:'EUR/MWh',  color:'#3498db', months:12 },
 ];
 
@@ -5452,84 +5452,63 @@ async function fetchCommoditiesData(force = false) {
   const container = document.getElementById('comm-content');
   if (!force && _commData && Object.keys(_commData).length > 0) {
     _renderCommTable();
+    _drawCommChart();
     return;
   }
   if (container) container.innerHTML = '<div class="state-msg"><div class="spinner-icon">📡</div><div style="margin-top:8px;font-family:var(--font-mono);font-size:10px;color:#475569">Fetching forward curves…</div></div>';
 
-  // Build all symbols
-  const allSymbols = ['EURUSD=X'];
-  const symbolMeta = {};
-  for (const contract of COMM_CONTRACTS) {
-    const syms = _commGenSymbols(contract.root, contract.months);
-    for (const s of syms) {
-      allSymbols.push(s.symbol);
-      symbolMeta[s.symbol] = { contract, month: s.month };
+  try {
+    const url = force ? '/api/commodities?refresh=true' : '/api/commodities';
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      if (container) container.innerHTML = `<div class="state-msg" style="color:#ff4757">Error: ${err.error || resp.status}</div>`;
+      return;
     }
-  }
+    const raw = await resp.json();
+    _commFxRate = raw.EURUSD || 1.08;
+    _commFetchedAt = raw.fetched_at ? new Date(raw.fetched_at) : new Date();
 
-  // Fetch in batches of 20 (Yahoo limit)
-  const quotes = {};
-  const batchSize = 20;
-  for (let i = 0; i < allSymbols.length; i += batchSize) {
-    const batch = allSymbols.slice(i, i + batchSize);
-    try {
-      const resp = await fetch(`/api/yahoo-batch?symbols=${encodeURIComponent(batch.join(','))}`);
-      const j = await resp.json();
-      const results = j?.quoteResponse?.result || [];
-      for (const r of results) {
-        quotes[r.symbol] = {
-          price: r.regularMarketPrice,
-          prev:  r.regularMarketPreviousClose ?? r.chartPreviousClose,
-        };
-      }
-    } catch(e) {
-      console.warn('Yahoo batch failed:', e);
-    }
-  }
-
-  // Get EUR/USD
-  _commFxRate = quotes['EURUSD=X']?.price ?? 1.08;
-
-  // Group by contract
-  const newData = {};
-  for (const contract of COMM_CONTRACTS) newData[contract.id] = [];
-
-  for (const [sym, meta] of Object.entries(symbolMeta)) {
-    const q = quotes[sym];
-    if (!q?.price || q.price <= 0) continue;
-    const { contract, month } = meta;
-    const monthLabel = month.toLocaleDateString('en-AU', { month:'short', year:'2-digit' });
-
-    let price = q.price;
-    let prev  = q.prev;
-    let unit  = contract.unit;
-
-    if (contract.id === 'ttf' && _commFxRate) {
-      price = price * _commFxRate / 3.41214;
-      prev  = prev ? prev * _commFxRate / 3.41214 : null;
-      unit  = 'USD/MMBtu';
+    const newData = {};
+    for (const contract of COMM_CONTRACTS) {
+      const src = raw[contract.root];
+      if (!src || !src.contracts) { newData[contract.id] = []; continue; }
+      newData[contract.id] = src.contracts
+        .filter(c => c.lastPrice > 0)
+        .map(c => {
+          let price = c.lastPrice;
+          let prev  = c.previousClose;
+          let unit  = contract.unit;
+          // TTF: EUR/MWh → USD/MMBtu
+          if (contract.id === 'ttf' && _commFxRate) {
+            price = price * _commFxRate / 3.41214;
+            prev  = prev  ? prev * _commFxRate / 3.41214 : null;
+            unit  = 'USD/MMBtu';
+          }
+          return {
+            symbol:       c.symbol,
+            monthLabel:   c.contractName || c.symbol,
+            price:        parseFloat(price.toFixed(2)),
+            prev:         prev ? parseFloat(prev.toFixed(2)) : null,
+            change:       prev ? parseFloat((price - prev).toFixed(2)) : (c.priceChange ? parseFloat(c.priceChange.toFixed(2)) : null),
+            unit,
+          };
+        });
     }
 
-    newData[contract.id].push({
-      symbol: sym, monthLabel,
-      month: month.getTime(),
-      price: parseFloat(price.toFixed(3)),
-      prev:  prev ? parseFloat(prev.toFixed(3)) : null,
-      change: prev ? parseFloat((price - prev).toFixed(3)) : null,
-      unit,
-    });
+    _commData = newData;
+
+    const statusEl = document.getElementById('comm-status');
+    if (statusEl) {
+      const t = _commFetchedAt.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',hour12:false});
+      statusEl.textContent = `Fetched ${t} · 10min delayed · Source: Barchart`;
+    }
+    _renderCommTable();
+    _drawCommChart();
+  } catch(e) {
+    console.error('fetchCommoditiesData:', e);
+    if (container) container.innerHTML = `<div class="state-msg" style="color:#ff4757">Failed to load: ${e.message}</div>`;
   }
-
-  for (const id in newData) newData[id].sort((a,b) => a.month - b.month);
-  _commData = newData;
-  _commFetchedAt = new Date();
-
-  // Update status line
-  const statusEl = document.getElementById('comm-status');
-  if (statusEl) statusEl.textContent = `Fetched ${_commFetchedAt.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})} · 15min delayed`;
-
-  _renderCommTable();
-  _drawCommChart();
 }
 
 function renderCommodities() {

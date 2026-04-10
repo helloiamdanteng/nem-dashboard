@@ -244,6 +244,9 @@ tr:last-child td { border-bottom:none; }
   <button class="nav-btn" onclick="showPanel('asx')" id="nav-asx">
     <span class="icon">📈</span><span class="label">ASX</span>
   </button>
+  <button class="nav-btn" onclick="showPanel('commodities')" id="nav-commodities">
+    <span class="icon">🛢️</span><span class="label">Commod</span>
+  </button>
   <button class="nav-btn" onclick="showPanel('outages')" id="nav-outages">
     <span class="icon">⚠️</span><span class="label">Outages</span>
   </button>
@@ -5402,6 +5405,242 @@ function _drawASXHistory(label) {
   }
 }
 
+// ── Commodities Forward Curves ────────────────────────────────────────────────
+
+const COMM_MONTH_CODES = {1:'F',2:'G',3:'H',4:'J',5:'K',6:'M',7:'N',8:'Q',9:'U',10:'V',11:'X',12:'Z'};
+
+const COMM_CONTRACTS = [
+  { id:'wti',   label:'WTI Crude',  root:'CL', unit:'USD/bbl',  color:'#f39c12', months:18 },
+  { id:'brent', label:'Brent Crude',root:'BZ', unit:'USD/bbl',  color:'#e67e22', months:18 },
+  { id:'ttf',   label:'TTF Gas',    root:'TG', unit:'EUR/MWh',  color:'#3498db', months:12 },
+];
+
+let _commData = {};          // id → [{symbol, month_label, price, prev_close, change}]
+let _commFetchedAt = null;
+let _commSelected = 'wti';   // currently shown on chart
+let _commFxRate = null;       // EUR/USD for TTF conversion
+
+function _commGenSymbols(root, months) {
+  const syms = [];
+  const now = new Date();
+  for (let i = 1; i <= months; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const code = COMM_MONTH_CODES[d.getMonth() + 1];
+    const yy = String(d.getFullYear()).slice(-2);
+    syms.push({ symbol: `${root}${code}${yy}`, month: d });
+  }
+  return syms;
+}
+
+async function _commFetchQuote(symbol) {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const j = await resp.json();
+    const meta = j?.chart?.result?.[0]?.meta;
+    if (!meta) return null;
+    const price = meta.regularMarketPrice ?? meta.previousClose;
+    const prev  = meta.chartPreviousClose ?? meta.previousClose;
+    if (!price || price <= 0) return null;
+    return { price, prev, change: price && prev ? price - prev : null };
+  } catch { return null; }
+}
+
+async function fetchCommoditiesData(force = false) {
+  const container = document.getElementById('comm-content');
+  if (!force && _commData && Object.keys(_commData).length > 0) {
+    _renderCommTable();
+    return;
+  }
+  if (container) container.innerHTML = '<div class="state-msg"><div class="spinner-icon">📡</div><div style="margin-top:8px;font-family:var(--font-mono);font-size:10px;color:#475569">Fetching forward curves…</div></div>';
+
+  // Fetch EUR/USD for TTF conversion
+  try {
+    const fx = await _commFetchQuote('EURUSD=X');
+    _commFxRate = fx?.price ?? 1.08;
+  } catch { _commFxRate = 1.08; }
+
+  // Fetch all contracts in parallel
+  const allFetches = [];
+  for (const contract of COMM_CONTRACTS) {
+    const syms = _commGenSymbols(contract.root, contract.months);
+    for (const s of syms) {
+      allFetches.push({ contract, ...s });
+    }
+  }
+
+  const results = await Promise.allSettled(
+    allFetches.map(item => _commFetchQuote(item.symbol).then(q => ({ ...item, quote: q })))
+  );
+
+  // Group by contract
+  const newData = {};
+  for (const contract of COMM_CONTRACTS) newData[contract.id] = [];
+
+  for (const r of results) {
+    if (r.status !== 'fulfilled' || !r.value?.quote) continue;
+    const { contract, symbol, month, quote } = r.value;
+    const monthLabel = month.toLocaleDateString('en-AU', { month:'short', year:'2-digit' });
+
+    // TTF: convert EUR/MWh to USD/MMBtu (1 MWh = 3.41 MMBtu)
+    let price = quote.price;
+    let prev  = quote.prev;
+    let unit  = contract.unit;
+    if (contract.id === 'ttf' && _commFxRate) {
+      price = price * _commFxRate / 3.41214;
+      prev  = prev  ? prev * _commFxRate / 3.41214 : null;
+      unit  = 'USD/MMBtu';
+    }
+
+    newData[contract.id].push({
+      symbol, monthLabel,
+      month: month.getTime(),
+      price: parseFloat(price.toFixed(3)),
+      prev:  prev ? parseFloat(prev.toFixed(3)) : null,
+      change: prev ? parseFloat((price - prev).toFixed(3)) : null,
+      unit,
+    });
+  }
+
+  // Sort each by month
+  for (const id in newData) newData[id].sort((a,b) => a.month - b.month);
+  _commData = newData;
+  _commFetchedAt = new Date();
+  _renderCommTable();
+  _drawCommChart();
+}
+
+function renderCommodities() {
+  let html = '<div class="section-title">Commodity Forward Curves</div>';
+  html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+    <div id="comm-status" style="font-family:var(--font-mono);font-size:9px;color:#475569">
+      ${_commFetchedAt ? `Fetched ${_commFetchedAt.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})} · 15min delayed` : '⚪ Loading…'}
+    </div>
+    <button onclick="fetchCommoditiesData(true)" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;cursor:pointer;border:1px solid #334155;background:transparent;color:#64748b">↻ Refresh</button>
+  </div>
+  <div style="font-family:var(--font-mono);font-size:9px;color:#f59e0b;margin-bottom:10px">⚠ Data delayed ~15 min · Source: Yahoo Finance</div>`;
+
+  // Commodity selector buttons
+  html += '<div style="display:flex;gap:6px;margin-bottom:10px">';
+  for (const c of COMM_CONTRACTS) {
+    const active = _commSelected === c.id;
+    html += `<button onclick="selectComm('${c.id}')" id="comm-btn-${c.id}"
+      style="font-family:var(--font-mono);font-size:10px;padding:5px 12px;border-radius:20px;cursor:pointer;
+      border:1px solid ${active?'#ffffff':'#334155'};background:${active?'#ffffff22':'transparent'};
+      color:${active?'#ffffff':'#64748b'};font-weight:${active?'700':'400'}">${c.label}</button>`;
+  }
+  html += '</div>';
+
+  // Chart
+  html += '<div class="chart-card" style="padding:14px;margin-bottom:10px">';
+  html += '<div id="comm-chart-title" class="chart-title">Forward Curve</div>';
+  html += '<div style="position:relative;height:220px"><canvas id="commCurveChart"></canvas></div>';
+  html += '</div>';
+
+  // Table
+  html += '<div id="comm-content">';
+  html += _renderCommTable(true);
+  html += '</div>';
+
+  return html;
+}
+
+function _renderCommTable(returnHtml = false) {
+  const container = document.getElementById('comm-content');
+
+  let html = '';
+  for (const contract of COMM_CONTRACTS) {
+    const rows = _commData[contract.id] || [];
+    if (!rows.length) continue;
+
+    html += `<div class="chart-card" style="padding:0;overflow-x:auto;margin-bottom:8px">`;
+    html += `<div style="padding:10px 12px 4px;font-family:var(--font-mono);font-size:10px;font-weight:700;color:${contract.color}">${contract.label} <span style="color:#475569;font-weight:400">${rows[0]?.unit||contract.unit}</span></div>`;
+    html += `<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px">`;
+    html += `<thead><tr>
+      <th style="text-align:left;padding:4px 12px 6px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">Month</th>
+      <th style="text-align:right;padding:4px 8px 6px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">Price</th>
+      <th style="text-align:right;padding:4px 12px 6px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">Change</th>
+    </tr></thead><tbody>`;
+
+    for (const row of rows) {
+      const chg = row.change;
+      const chgStr = chg !== null ? `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}` : '—';
+      const chgCol = chg !== null ? (chg > 0 ? '#2ed573' : chg < 0 ? '#ff4757' : '#475569') : '#475569';
+      const priceCol = chg !== null ? (chg > 0 ? '#2ed573' : chg < 0 ? '#ff4757' : '#e2e8f0') : '#e2e8f0';
+      html += `<tr style="border-bottom:1px solid #1e2d4522">
+        <td style="padding:5px 12px;color:#94a3b8">${row.monthLabel}</td>
+        <td style="text-align:right;padding:5px 8px;color:${priceCol};font-weight:500">${row.price.toFixed(2)}</td>
+        <td style="text-align:right;padding:5px 12px;color:${chgCol}">${chgStr}</td>
+      </tr>`;
+    }
+    html += `</tbody></table></div>`;
+  }
+
+  if (!html) html = '<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:20px;text-align:center">Loading forward curve data…</div>';
+
+  if (returnHtml) return html;
+  if (container) container.innerHTML = html;
+}
+
+function selectComm(id) {
+  _commSelected = id;
+  for (const c of COMM_CONTRACTS) {
+    const btn = document.getElementById(`comm-btn-${c.id}`);
+    if (!btn) continue;
+    const active = c.id === id;
+    btn.style.borderColor = active ? '#ffffff' : '#334155';
+    btn.style.background  = active ? '#ffffff22' : 'transparent';
+    btn.style.color       = active ? '#ffffff' : '#64748b';
+    btn.style.fontWeight  = active ? '700' : '400';
+  }
+  _drawCommChart();
+}
+
+function _drawCommChart() {
+  const contract = COMM_CONTRACTS.find(c => c.id === _commSelected);
+  if (!contract) return;
+  const rows = _commData[contract.id] || [];
+
+  const titleEl = document.getElementById('comm-chart-title');
+  if (titleEl) titleEl.textContent = `${contract.label} Forward Curve — ${rows[0]?.unit || contract.unit}`;
+
+  destroyChart('commCurve');
+  const ctx = document.getElementById('commCurveChart');
+  if (!ctx || !rows.length) return;
+
+  const labels = rows.map(r => r.monthLabel);
+  const prices = rows.map(r => r.price);
+  const colors = rows.map(r => r.change !== null ? (r.change > 0 ? '#2ed573' : r.change < 0 ? '#ff4757' : contract.color) : contract.color);
+
+  charts.commCurve = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [{
+      label: contract.label, data: prices,
+      borderColor: contract.color,
+      backgroundColor: contract.color + '22',
+      borderWidth: 2, pointRadius: 4,
+      pointBackgroundColor: colors,
+      pointBorderColor: colors,
+      tension: 0, fill: true, spanGaps: true,
+    }]},
+    options: { ...CHART_DEFAULTS,
+      plugins: { ...CHART_DEFAULTS.plugins,
+        legend: { display: false },
+        tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
+          callbacks: {
+            label: c => ` ${c.raw?.toFixed(2)} ${rows[0]?.unit || contract.unit}`,
+          }
+        }
+      },
+      scales: {
+        x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:8},maxRotation:45,maxTicksLimit:18}, grid:{color:'#1e2d4433'} },
+        y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9}}, grid:{color:'#1e293b'} }
+      }
+    }
+  });
+}
+
 // ── Gas Page ──────────────────────────────────────────────────────────────────
 
 const GAS_HUBS = ['Adelaide', 'Brisbane', 'Sydney'];
@@ -7622,6 +7861,7 @@ function renderPanel(panel, data) {
     else if (panel === 'dminus1')    { html = renderDMinus1(data); }
     else if (panel === 'prices-hist') { html = renderPricesHist(); }
     else if (panel === 'asx')         { html = renderASX(); }
+    else if (panel === 'commodities') { html = renderCommodities(); }
     else if (panel === 'gas')         { html = renderGas(); }
 
     else if (panel === 'dayahead')   html = renderDayAhead(data);
@@ -7645,6 +7885,7 @@ function renderPanel(panel, data) {
       else if (panel === 'dminus1')    drawDMinus1Charts(data);
       else if (panel === 'prices-hist') { setTimeout(drawPricesHist, 0); }
       else if (panel === 'asx') { fetchASXData(); }
+      else if (panel === 'commodities') { fetchCommoditiesData(); }
       else if (panel === 'gas') {
         if (_gasData) {
           setTimeout(() => _drawGasCharts(_gasData), 50);

@@ -5434,7 +5434,8 @@ function _commGenSymbols(root, months) {
 
 async function _commFetchQuote(symbol) {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+    // Use server-side proxy to avoid CORS issues with Yahoo Finance
+    const url = `/api/yahoo/${encodeURIComponent(symbol)}`;
     const resp = await fetch(url);
     if (!resp.ok) return null;
     const j = await resp.json();

@@ -2525,7 +2525,7 @@ def _scrape_barchart_curve(root: str, num_contracts: int = 18) -> list:
     url = "https://www.barchart.com/proxies/core-api/v1/quotes/get"
     params = {
         "symbols": symbols,
-        "fields": "symbol,contractName,lastPrice,priceChange,previousClose,contractMonth,contractYear,expirationDate,volume,openInterest,tradeTime,tradeTimestamp",
+        "fields": "symbol,contractName,lastPrice,priceChange,previousClose,volume,openInterest,tradeTime,lastUpdate",
         "raw": "1",
     }
     r = s.get(url, params=params, timeout=12, headers={
@@ -2545,20 +2545,15 @@ def _scrape_barchart_curve(root: str, num_contracts: int = 18) -> list:
         prev  = raw.get("previousClose")
         if not price:
             continue
-        # Try both possible time field names
-        trade_time = raw.get("tradeTimestamp") or raw.get("tradeTime") or raw.get("lastUpdate")
         results.append({
             "symbol":        raw.get("symbol"),
             "contractName":  raw.get("contractName"),
             "lastPrice":     float(price),
             "priceChange":   float(raw.get("priceChange") or 0),
             "previousClose": float(prev) if prev else None,
-            "contractMonth": raw.get("contractMonth"),
-            "contractYear":  raw.get("contractYear"),
-            "expirationDate":raw.get("expirationDate"),
             "volume":        raw.get("volume"),
             "openInterest":  raw.get("openInterest"),
-            "tradeTime":     trade_time,
+            "lastUpdate":    raw.get("lastUpdate"),   # "2026-04-10 17:51:59" CT
         })
     return results
 

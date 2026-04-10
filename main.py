@@ -2560,7 +2560,7 @@ def _scrape_barchart_curve(root: str, num_contracts: int = 18) -> list:
 
 @app.get("/api/commodities")
 async def commodities_data(refresh: bool = False):
-    """Return forward curves for WTI (CL), Brent (BB), TTF (TG). 1-hr cache."""
+    """Return forward curves for WTI, Brent, TTF, Newcastle coal, API2 coal, JKM. 1-hr cache."""
     from datetime import datetime, timezone, timedelta
     cached = _barchart_cache.get("all")
     if not refresh and cached and cached.get("last_updated"):
@@ -2570,9 +2570,12 @@ async def commodities_data(refresh: bool = False):
         import time as time_lib
         results = {}
         for root, label, contracts in [
-            ("CL", "WTI Crude",   18),
-            ("BB", "Brent Crude", 18),
-            ("TG", "TTF Gas",     12),
+            ("CL",  "WTI Crude",      18),
+            ("CB",  "Brent Crude",    18),
+            ("TG",  "TTF Gas",        12),
+            ("LQ",  "Newcastle Coal", 12),
+            ("ITF", "API2 Coal",      12),
+            ("JKM", "JKM LNG",        12),
         ]:
             try:
                 curve = _scrape_barchart_curve(root, contracts)
@@ -2582,7 +2585,7 @@ async def commodities_data(refresh: bool = False):
                 logger.error(f"Barchart {root} failed: {e}")
                 results[root] = {"label": label, "contracts": [], "error": str(e)}
 
-        # Also fetch EUR/USD for TTF conversion
+        # EUR/USD for TTF conversion
         try:
             s = _get_barchart_session()
             import requests as req_lib

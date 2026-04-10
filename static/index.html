@@ -5416,13 +5416,15 @@ const COMM_CONTRACTS = [
   { id:'jkm',   label:'JKM',   root:'JKM', unit:'USD/MMBtu', color:'#9b59b6', months:12 },
 ];
 
-let _commVisible = { wti:true, brent:true, ttf:false, newc:false, api2:false, jkm:false };
+let _commSelected = 'brent';  // single-select — default Brent
 let _commData = {};
 let _commFetchedAt = null;
 let _commFxRate = 1.08;
 
 function renderCommodities() {
   let html = '<div class="section-title">Commodity Forward Curves</div>';
+
+  // Status + refresh
   html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
     <div id="comm-status" style="font-family:var(--font-mono);font-size:9px;color:#475569">
       ${_commFetchedAt ? `Fetched ${_commFetchedAt.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',hour12:false})} · Barchart 10min delay` : '\u25cc Loading\u2026'}
@@ -5430,24 +5432,24 @@ function renderCommodities() {
     <button onclick="fetchCommoditiesData(true)" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;cursor:pointer;border:1px solid #334155;background:transparent;color:#64748b">\u21bb Refresh</button>
   </div>`;
 
-  // Curve toggles
+  // Single-select commodity buttons
   html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px">';
   for (const c of COMM_CONTRACTS) {
-    const on = _commVisible[c.id];
-    html += `<button onclick="toggleCommCurve('${c.id}')" id="comm-vis-${c.id}"
+    const on = _commSelected === c.id;
+    html += `<button onclick="selectComm('${c.id}')" id="comm-btn-${c.id}"
       style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;cursor:pointer;
       border:2px solid ${c.color};background:${on ? c.color+'33' : 'transparent'};
-      color:${on ? '#ffffff' : '#64748b'}">${c.label}</button>`;
+      color:${on ? '#ffffff' : '#64748b'};font-weight:${on ? '700' : '400'}">${c.label}</button>`;
   }
   html += '</div>';
 
   // Chart
   html += `<div class="chart-card" style="padding:12px;margin-bottom:10px">
-    <div class="chart-title">Forward Curves</div>
+    <div class="chart-title" id="comm-chart-title">Forward Curve</div>
     <div style="position:relative;height:200px"><canvas id="commCurveChart"></canvas></div>
   </div>`;
 
-  // Tables
+  // Tables — all stacked vertically, selected one first then rest
   html += '<div id="comm-tables">';
   html += _buildCommTablesHtml();
   html += '</div>';
@@ -5456,37 +5458,42 @@ function renderCommodities() {
 }
 
 function _buildCommTablesHtml() {
-  let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
-  for (const contract of COMM_CONTRACTS) {
+  // Selected commodity first, then the others
+  const ordered = [
+    ...COMM_CONTRACTS.filter(c => c.id === _commSelected),
+    ...COMM_CONTRACTS.filter(c => c.id !== _commSelected),
+  ];
+  let html = '';
+  for (const contract of ordered) {
     const rows = _commData[contract.id] || [];
-    html += `<div class="chart-card" style="padding:0;overflow:hidden">
-      <div style="padding:8px 10px 4px;font-family:var(--font-mono);font-size:10px;font-weight:700;color:${contract.color}">
+    const isSelected = contract.id === _commSelected;
+    html += `<div class="chart-card" style="padding:0;overflow:hidden;margin-bottom:6px;${isSelected ? `border:1px solid ${contract.color}44` : ''}">
+      <div style="padding:8px 12px 4px;font-family:var(--font-mono);font-size:10px;font-weight:700;color:${contract.color}">
         ${contract.label} <span style="color:#475569;font-weight:400;font-size:9px">${contract.unit}</span>
         ${!rows.length ? '<span style="color:#334155;font-size:9px"> — no data</span>' : ''}
       </div>`;
     if (rows.length) {
-      html += `<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:9px">
+      html += `<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px">
         <thead><tr>
-          <th style="text-align:left;padding:3px 10px 4px;color:#334155;border-bottom:1px solid #1e2d45;font-weight:400">Month</th>
-          <th style="text-align:right;padding:3px 6px 4px;color:#334155;border-bottom:1px solid #1e2d45;font-weight:400">Price</th>
-          <th style="text-align:right;padding:3px 10px 4px;color:#334155;border-bottom:1px solid #1e2d45;font-weight:400">Chg</th>
+          <th style="text-align:left;padding:4px 12px 5px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">Month</th>
+          <th style="text-align:right;padding:4px 8px 5px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">Price</th>
+          <th style="text-align:right;padding:4px 12px 5px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">Chg</th>
         </tr></thead><tbody>`;
       for (const row of rows) {
         const chg = row.change;
         const chgStr = chg !== null ? `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}` : '\u2014';
-        const chgCol = chg > 0.001 ? '#2ed573' : chg < -0.001 ? '#ff4757' : '#475569';
+        const chgCol  = chg > 0.001 ? '#2ed573' : chg < -0.001 ? '#ff4757' : '#475569';
         const priceCol = chg > 0.001 ? '#2ed573' : chg < -0.001 ? '#ff4757' : '#e2e8f0';
-        html += `<tr style="border-bottom:1px solid #0f172a">
-          <td style="padding:3px 10px;color:#64748b">${row.monthLabel}</td>
-          <td style="text-align:right;padding:3px 6px;color:${priceCol};font-weight:500">${row.price.toFixed(2)}</td>
-          <td style="text-align:right;padding:3px 10px;color:${chgCol}">${chgStr}</td>
+        html += `<tr style="border-bottom:1px solid #0f172a22">
+          <td style="padding:4px 12px;color:#64748b">${row.monthLabel}</td>
+          <td style="text-align:right;padding:4px 8px;color:${priceCol};font-weight:500">${row.price.toFixed(2)}</td>
+          <td style="text-align:right;padding:4px 12px;color:${chgCol}">${chgStr}</td>
         </tr>`;
       }
       html += '</tbody></table>';
     }
     html += '</div>';
   }
-  html += '</div>';
   return html;
 }
 
@@ -5553,15 +5560,18 @@ function _renderCommTables() {
   if (el) el.innerHTML = _buildCommTablesHtml();
 }
 
-function toggleCommCurve(id) {
-  _commVisible[id] = !_commVisible[id];
-  const btn = document.getElementById(`comm-vis-${id}`);
-  const c = COMM_CONTRACTS.find(x => x.id === id);
-  if (btn && c) {
-    const on = _commVisible[id];
-    btn.style.background = on ? c.color + '33' : 'transparent';
-    btn.style.color = on ? '#ffffff' : '#64748b';
+function selectComm(id) {
+  _commSelected = id;
+  // Update button styles
+  for (const c of COMM_CONTRACTS) {
+    const btn = document.getElementById(`comm-btn-${c.id}`);
+    if (!btn) continue;
+    const on = c.id === id;
+    btn.style.background  = on ? c.color + '33' : 'transparent';
+    btn.style.color       = on ? '#ffffff' : '#64748b';
+    btn.style.fontWeight  = on ? '700' : '400';
   }
+  _renderCommTables();
   _drawCommChart();
 }
 
@@ -5570,52 +5580,46 @@ function _drawCommChart() {
   const ctx = document.getElementById('commCurveChart');
   if (!ctx) return;
 
-  const datasets = [];
-  let longestLen = 0, longestId = null;
-  for (const contract of COMM_CONTRACTS) {
-    if (!_commVisible[contract.id]) continue;
-    const rows = _commData[contract.id] || [];
-    if (!rows.length) continue;
-    if (rows.length > longestLen) { longestLen = rows.length; longestId = contract.id; }
-    datasets.push({
-      label: `${contract.label} (${contract.unit})`,
-      data: rows.map(r => r.price),
-      borderColor: contract.color,
-      backgroundColor: 'transparent',
-      borderWidth: 2,
-      pointRadius: 2,
-      tension: 0,
-      spanGaps: true,
-      yAxisID: (contract.id === 'ttf' || contract.id === 'jkm') ? 'y2' : 'y',
-    });
-  }
-  const labels = longestId ? (_commData[longestId]||[]).map(r => r.monthLabel) : [];
-  const oilCoalOn = ['wti','brent','newc','api2'].some(id => _commVisible[id] && (_commData[id]||[]).length);
-  const gasOn = ['ttf','jkm'].some(id => _commVisible[id] && (_commData[id]||[]).length);
+  const contract = COMM_CONTRACTS.find(c => c.id === _commSelected);
+  if (!contract) return;
+  const rows = _commData[contract.id] || [];
+
+  const titleEl = document.getElementById('comm-chart-title');
+  if (titleEl) titleEl.textContent = `${contract.label} Forward Curve — ${contract.unit}`;
+
+  if (!rows.length) return;
+
+  const labels = rows.map(r => r.monthLabel);
+  const prices = rows.map(r => r.price);
+  const pointColors = rows.map(r =>
+    r.change > 0.001 ? '#2ed573' : r.change < -0.001 ? '#ff4757' : contract.color
+  );
 
   charts.commCurve = new Chart(ctx, {
     type: 'line',
-    data: { labels, datasets },
+    data: { labels, datasets: [{
+      label: `${contract.label} (${contract.unit})`,
+      data: prices,
+      borderColor: contract.color,
+      backgroundColor: contract.color + '18',
+      borderWidth: 2,
+      pointRadius: 3,
+      pointBackgroundColor: pointColors,
+      pointBorderColor: pointColors,
+      tension: 0,
+      fill: true,
+      spanGaps: true,
+    }]},
     options: { ...CHART_DEFAULTS,
       plugins: { ...CHART_DEFAULTS.plugins,
-        legend: { display: true, position: 'top',
-          labels: { color:'#64748b', font:{family:'Space Mono',size:8}, boxWidth:10, padding:6 }
+        legend: { display: false },
+        tooltip: { ...CHART_DEFAULTS.plugins?.tooltip,
+          callbacks: { label: c => ` ${c.raw.toFixed(2)} ${contract.unit}` }
         },
       },
       scales: {
         x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:8},maxRotation:45,maxTicksLimit:14}, grid:{color:'#1e2d4433'} },
-        y: {
-          display: oilCoalOn, position: 'left',
-          ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9}},
-          grid:{color:'#1e293b'},
-          title:{display:true,text:'USD/bbl & USD/t',color:'#334155',font:{size:8}}
-        },
-        y2: {
-          display: gasOn, position: 'right',
-          ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9}},
-          grid:{drawOnChartArea:false},
-          title:{display:true,text:'USD/MMBtu',color:'#334155',font:{size:8}}
-        },
+        y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9}}, grid:{color:'#1e293b'} },
       }
     }
   });

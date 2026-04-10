@@ -1696,36 +1696,35 @@ async def rescrape():
 
 @app.get("/api/asx-debug")
 async def asx_debug():
-    """Debug: check for R* cap strip codes in intraday feed."""
+    """Debug: check historical data response structure for date verification."""
     import os, httpx
     token = os.environ.get("ASX_API_KEY", "")
     if not token:
         return {"error": "ASX_API_KEY not set"}
     async with httpx.AsyncClient(timeout=15) as client:
-        # Check intraday
-        r1 = await client.get(
-            "https://asxenergy.com.au/api/intraday?futures=au_electricity",
-            headers={"Authorization": f"Bearer {token}"}
-        )
-        # Also check EOD data directly for R codes
-        r2 = await client.get(
-            "https://asxenergy.com.au/api/data?futures=au_electricity",
-            headers={"Authorization": f"Bearer {token}"}
-        )
-    intraday_r = [r["code"] for r in r1.json().get("data",[]) if r.get("code","").startswith("R")]
-    eod_r = [r["code"] for r in r2.json().get("data",[]) if r.get("code","").startswith("R")]
-    # Also try fetching RNZ directly
-    async with httpx.AsyncClient(timeout=15) as client:
-        r3 = await client.get(
-            "https://asxenergy.com.au/api/intraday?futures=RNZ2027",
-            headers={"Authorization": f"Bearer {token}"}
-        )
-    direct = r3.json()
-    return {
-        "intraday_R_codes": intraday_r,
-        "eod_R_codes": eod_r,
-        "direct_RNZ2027": direct
-    }
+        # Fetch a known recent date and a date from 6 months ago
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo("Australia/Brisbane"))
+        recent = (now - timedelta(days=3)).strftime("%Y%m%d")
+        old = (now - timedelta(days=120)).strftime("%Y%m%d")
+        very_old = (now - timedelta(days=200)).strftime("%Y%m%d")
+
+        results = {}
+        for label, dt in [("recent", recent), ("120d_ago", old), ("200d_ago", very_old)]:
+            r = await client.get(
+                f"https://asxenergy.com.au/api/data?futures=BNM2027&date={dt}",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            j = r.json()
+            results[label] = {
+                "requested": dt,
+                "response_date": j.get("date"),
+                "match": j.get("date") == dt,
+                "settle": j.get("data", [{}])[0].get("settle") if j.get("data") else None,
+                "volume": j.get("data", [{}])[0].get("volume") if j.get("data") else None,
+            }
+    return results
     """Debug: fetch PREDISPATCHSCENARIODEMAND to see what S1-S6 mean."""
     from scraper import _list_hrefs, _read_zip, _parse_aemo, _fetch_predispatch, NEMWEB_BASE
     import csv, io

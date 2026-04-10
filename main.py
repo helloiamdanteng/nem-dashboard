@@ -2516,17 +2516,16 @@ def _get_barchart_session():
 def _scrape_barchart_curve(root: str, num_contracts: int = 18) -> list:
     """
     Scrape forward curve for a futures root from Barchart internal API.
-    Returns list of {symbol, contractName, lastPrice, priceChange, previousClose, expirationDate}
+    Returns list of {symbol, contractName, lastPrice, priceChange, previousClose, volume, tradeTime}
     """
     import requests as req_lib
     s = _get_barchart_session()
     xsrf = req_lib.utils.unquote(s.cookies.get("XSRF-TOKEN", ""))
-    # Use *1, *2, ... notation for nearby contracts
     symbols = ",".join([f"{root}*{i}" for i in range(1, num_contracts + 1)])
     url = "https://www.barchart.com/proxies/core-api/v1/quotes/get"
     params = {
         "symbols": symbols,
-        "fields": "symbol,contractName,lastPrice,priceChange,previousClose,contractMonth,contractYear,expirationDate,volume",
+        "fields": "symbol,contractName,lastPrice,priceChange,previousClose,contractMonth,contractYear,expirationDate,volume,tradeTime",
         "raw": "1",
     }
     r = s.get(url, params=params, timeout=12, headers={
@@ -2554,6 +2553,7 @@ def _scrape_barchart_curve(root: str, num_contracts: int = 18) -> list:
             "contractYear": raw.get("contractYear"),
             "expirationDate": raw.get("expirationDate"),
             "volume":       raw.get("volume"),
+            "tradeTime":    raw.get("tradeTime"),
         })
     return results
 
@@ -2572,10 +2572,10 @@ async def commodities_data(refresh: bool = False):
         for root, label, contracts in [
             ("CL",  "WTI Crude",      18),
             ("CB",  "Brent Crude",    18),
-            ("TG",  "TTF Gas",        12),
-            ("LQ",  "Newcastle Coal", 12),
-            ("ITF", "API2 Coal",      12),
             ("JKM", "JKM LNG",        12),
+            ("INK", "TTF Gas",        12),
+            ("LQ",  "Newcastle Coal", 12),
+            ("LU",  "API2 Coal",      12),
         ]:
             try:
                 curve = _scrape_barchart_curve(root, contracts)

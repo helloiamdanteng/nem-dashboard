@@ -2485,81 +2485,126 @@ async def gas_data(refresh: bool = False):
 _asx_cache: dict = {"data": None, "last_updated": None}
 _asx_history_cache: dict = {}  # code → {history, last_updated}
 
-# ── Yahoo Finance proxy for commodity forward curves ──────────────────────────
-_yahoo_cache: dict = {}  # symbol → {data, last_updated}
+# ── Barchart.com scraper for commodity forward curves ─────────────────────────
+_barchart_cache: dict = {}   # root → {data, last_updated}
+_barchart_session = None
+_barchart_session_time = None
 
-@app.get("/api/yahoo-batch")
-async def yahoo_batch(symbols: str):
-    """Fetch multiple Yahoo Finance quotes in one call. symbols=CL=F,CLM26,... 15-min cache."""
+def _get_barchart_session():
+    """Return a requests session with valid Barchart cookies (XSRF token)."""
+    import requests as req_lib, time as time_lib
+    global _barchart_session, _barchart_session_time
     from datetime import datetime, timezone, timedelta
-    import requests as req_lib, time
+    # Reuse session if under 30 minutes old
+    if _barchart_session and _barchart_session_time:
+        if datetime.now(timezone.utc) - _barchart_session_time < timedelta(minutes=30):
+            return _barchart_session
+    s = req_lib.Session()
+    s.headers.update({
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    })
+    s.get("https://www.barchart.com/futures/quotes/CL*0/futures-prices", timeout=10, headers={
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    })
+    time_lib.sleep(0.5)
+    _barchart_session = s
+    _barchart_session_time = datetime.now(timezone.utc)
+    logger.info(f"Barchart session refreshed, cookies: {list(s.cookies.keys())}")
+    return s
 
-    cache_key = symbols[:200]
-    cached = _yahoo_cache.get(cache_key)
-    if cached and cached.get("last_updated"):
-        age = datetime.now(timezone.utc) - cached["last_updated"]
-        if age < timedelta(minutes=15):
+def _scrape_barchart_curve(root: str, num_contracts: int = 18) -> list:
+    """
+    Scrape forward curve for a futures root from Barchart internal API.
+    Returns list of {symbol, contractName, lastPrice, priceChange, previousClose, expirationDate}
+    """
+    import requests as req_lib
+    s = _get_barchart_session()
+    xsrf = req_lib.utils.unquote(s.cookies.get("XSRF-TOKEN", ""))
+    # Use *1, *2, ... notation for nearby contracts
+    symbols = ",".join([f"{root}*{i}" for i in range(1, num_contracts + 1)])
+    url = "https://www.barchart.com/proxies/core-api/v1/quotes/get"
+    params = {
+        "symbols": symbols,
+        "fields": "symbol,contractName,lastPrice,priceChange,previousClose,contractMonth,contractYear,expirationDate,volume",
+        "raw": "1",
+    }
+    r = s.get(url, params=params, timeout=12, headers={
+        "Accept": "application/json",
+        "Referer": f"https://www.barchart.com/futures/quotes/{root}*0/futures-prices",
+        "X-XSRF-TOKEN": xsrf,
+    })
+    logger.info(f"Barchart {root}: HTTP {r.status_code}")
+    r.raise_for_status()
+    data = r.json()
+    results = []
+    for item in data.get("data", []):
+        raw = item.get("raw", item)
+        price = raw.get("lastPrice")
+        prev  = raw.get("previousClose")
+        if not price:
+            continue
+        results.append({
+            "symbol":       raw.get("symbol"),
+            "contractName": raw.get("contractName"),
+            "lastPrice":    float(price),
+            "priceChange":  float(raw.get("priceChange") or 0),
+            "previousClose":float(prev) if prev else None,
+            "contractMonth":raw.get("contractMonth"),
+            "contractYear": raw.get("contractYear"),
+            "expirationDate": raw.get("expirationDate"),
+            "volume":       raw.get("volume"),
+        })
+    return results
+
+
+@app.get("/api/commodities")
+async def commodities_data(refresh: bool = False):
+    """Return forward curves for WTI (CL), Brent (BB), TTF (TG). 1-hr cache."""
+    from datetime import datetime, timezone, timedelta
+    cached = _barchart_cache.get("all")
+    if not refresh and cached and cached.get("last_updated"):
+        if datetime.now(timezone.utc) - cached["last_updated"] < timedelta(hours=1):
             return JSONResponse(content=cached["data"])
     try:
-        session = req_lib.Session()
-        # Get cookie first
-        session.get("https://finance.yahoo.com/", timeout=8, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        })
-        time.sleep(0.3)
-        # Batch quote endpoint
-        url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbols}&fields=regularMarketPrice,regularMarketPreviousClose,chartPreviousClose"
-        r = session.get(url, timeout=12, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-            "Accept": "application/json,text/plain,*/*",
-            "Referer": "https://finance.yahoo.com/",
-            "Origin": "https://finance.yahoo.com",
-        })
-        logger.info(f"yahoo_batch: {r.status_code} for {len(symbols.split(','))} symbols")
-        if r.status_code != 200:
-            return JSONResponse(status_code=r.status_code, content={"error": f"Yahoo returned {r.status_code}", "detail": r.text[:200]})
-        data = r.json()
-        _yahoo_cache[cache_key] = {"data": data, "last_updated": datetime.now(timezone.utc)}
-        return JSONResponse(content=data)
-    except Exception as e:
-        logger.error(f"yahoo_batch error: {e}")
-        if cached:
-            return JSONResponse(content=cached["data"])
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        import time as time_lib
+        results = {}
+        for root, label, contracts in [
+            ("CL", "WTI Crude",   18),
+            ("BB", "Brent Crude", 18),
+            ("TG", "TTF Gas",     12),
+        ]:
+            try:
+                curve = _scrape_barchart_curve(root, contracts)
+                results[root] = {"label": label, "contracts": curve}
+                time_lib.sleep(0.3)
+            except Exception as e:
+                logger.error(f"Barchart {root} failed: {e}")
+                results[root] = {"label": label, "contracts": [], "error": str(e)}
 
+        # Also fetch EUR/USD for TTF conversion
+        try:
+            s = _get_barchart_session()
+            import requests as req_lib
+            xsrf = req_lib.utils.unquote(s.cookies.get("XSRF-TOKEN", ""))
+            r = s.get("https://www.barchart.com/proxies/core-api/v1/quotes/get",
+                params={"symbols": "^EURUSD", "fields": "lastPrice", "raw": "1"},
+                timeout=8, headers={"Accept": "application/json",
+                    "Referer": "https://www.barchart.com/",
+                    "X-XSRF-TOKEN": xsrf})
+            if r.status_code == 200:
+                items = r.json().get("data", [])
+                if items:
+                    results["EURUSD"] = float(items[0].get("raw", {}).get("lastPrice", 1.08))
+        except Exception as e:
+            logger.warning(f"EUR/USD fetch failed: {e}")
+            results["EURUSD"] = 1.08
 
-@app.get("/api/yahoo/{symbol:path}")
-async def yahoo_proxy(symbol: str):
-    """Proxy single Yahoo Finance chart API call. 15-min cache."""
-    from datetime import datetime, timezone, timedelta
-    cached = _yahoo_cache.get(symbol)
-    if cached and cached.get("last_updated"):
-        age = datetime.now(timezone.utc) - cached["last_updated"]
-        if age < timedelta(minutes=15):
-            return JSONResponse(content=cached["data"])
-    try:
-        import requests as req_lib, time
-        session = req_lib.Session()
-        session.get("https://finance.yahoo.com/", timeout=8, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        })
-        time.sleep(0.3)
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
-        r = session.get(url, timeout=8, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-            "Accept": "application/json,text/plain,*/*",
-            "Referer": "https://finance.yahoo.com/",
-            "Origin": "https://finance.yahoo.com",
-        })
-        if r.status_code != 200:
-            return JSONResponse(status_code=r.status_code, content={"error": f"Yahoo returned {r.status_code}"})
-        data = r.json()
-        _yahoo_cache[symbol] = {"data": data, "last_updated": datetime.now(timezone.utc)}
-        return JSONResponse(content=data)
+        results["fetched_at"] = datetime.now(timezone.utc).isoformat()
+        _barchart_cache["all"] = {"data": results, "last_updated": datetime.now(timezone.utc)}
+        return JSONResponse(content=results)
     except Exception as e:
-        logger.error(f"yahoo_proxy {symbol}: {e}")
+        logger.error(f"commodities_data error: {e}")
         if cached:
             return JSONResponse(content=cached["data"])
         return JSONResponse(status_code=500, content={"error": str(e)})

@@ -2575,12 +2575,12 @@ async def commodities_data(refresh: bool = False):
         import time as time_lib
         results = {}
         for root, label, contracts in [
-            ("CL",  "WTI Crude",      18),
-            ("CB",  "Brent Crude",    18),
-            ("JKM", "JKM LNG",        12),
-            ("INK", "TTF Gas",        12),
-            ("LQ",  "Newcastle Coal", 12),
-            ("LU",  "API2 Coal",      12),
+            ("CL",  "WTI Crude",      24),
+            ("CB",  "Brent Crude",    24),
+            ("JKM", "JKM LNG",        24),
+            ("INK", "TTF Gas",        24),
+            ("LQ",  "Newcastle Coal", 24),
+            ("LU",  "API2 Coal",      24),
         ]:
             try:
                 curve = _scrape_barchart_curve(root, contracts)

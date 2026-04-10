@@ -5408,8 +5408,8 @@ function _drawASXHistory(label) {
 // ── Commodities Forward Curves ────────────────────────────────────────────────
 
 const COMM_CONTRACTS = [
-  { id:'wti',   label:'WTI',   root:'CL',  unit:'USD/bbl',   color:'#f39c12', months:18 },
   { id:'brent', label:'Brent', root:'CB',  unit:'USD/bbl',   color:'#e67e22', months:18 },
+  { id:'wti',   label:'WTI',   root:'CL',  unit:'USD/bbl',   color:'#f39c12', months:18 },
   { id:'jkm',   label:'JKM',   root:'JKM', unit:'USD/MMBtu', color:'#9b59b6', months:12 },
   { id:'ttf',   label:'TTF',   root:'INK', unit:'USD/MMBtu', color:'#3498db', months:12 },
   { id:'newc',  label:'NEWC',  root:'LQ',  unit:'USD/t',     color:'#95a5a6', months:12 },
@@ -5458,7 +5458,6 @@ function renderCommodities() {
 }
 
 function _buildCommTablesHtml() {
-  // Selected commodity first, then the others
   const ordered = [
     ...COMM_CONTRACTS.filter(c => c.id === _commSelected),
     ...COMM_CONTRACTS.filter(c => c.id !== _commSelected),
@@ -5467,34 +5466,53 @@ function _buildCommTablesHtml() {
   for (const contract of ordered) {
     const rows = _commData[contract.id] || [];
     const isSelected = contract.id === _commSelected;
-    html += `<div class="chart-card" style="padding:0;overflow:hidden;margin-bottom:6px;${isSelected ? `border:1px solid ${contract.color}44` : ''}">
+    html += `<div class="chart-card" style="padding:0;overflow:hidden;margin-bottom:6px;${isSelected ? `border:1px solid ${contract.color}55` : ''}">
       <div style="padding:8px 12px 4px;font-family:var(--font-mono);font-size:10px;font-weight:700;color:${contract.color}">
         ${contract.label} <span style="color:#475569;font-weight:400;font-size:9px">${contract.unit}</span>
         ${!rows.length ? '<span style="color:#334155;font-size:9px"> — no data</span>' : ''}
       </div>`;
     if (rows.length) {
-      html += `<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px">
+      html += `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px">
         <thead><tr>
-          <th style="text-align:left;padding:4px 12px 5px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">Month</th>
+          <th style="text-align:left;padding:4px 10px 5px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400;white-space:nowrap">Contract</th>
           <th style="text-align:right;padding:4px 8px 5px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">Price</th>
-          <th style="text-align:right;padding:4px 12px 5px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">Chg</th>
+          <th style="text-align:right;padding:4px 8px 5px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">Chg</th>
+          <th style="text-align:right;padding:4px 8px 5px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">Vol</th>
+          <th style="text-align:right;padding:4px 10px 5px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400;white-space:nowrap">Last Trade</th>
         </tr></thead><tbody>`;
       for (const row of rows) {
         const chg = row.change;
-        const chgStr = chg !== null ? `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}` : '\u2014';
-        const chgCol  = chg > 0.001 ? '#2ed573' : chg < -0.001 ? '#ff4757' : '#475569';
+        const chgStr   = chg !== null ? `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}` : '\u2014';
+        const chgCol   = chg > 0.001 ? '#2ed573' : chg < -0.001 ? '#ff4757' : '#475569';
         const priceCol = chg > 0.001 ? '#2ed573' : chg < -0.001 ? '#ff4757' : '#e2e8f0';
+        const volStr   = row.volume != null && row.volume > 0 ? Number(row.volume).toLocaleString() : '\u2014';
+        const timeStr  = _fmtTradeTime(row.tradeTime);
         html += `<tr style="border-bottom:1px solid #0f172a22">
-          <td style="padding:4px 12px;color:#64748b">${row.monthLabel}</td>
+          <td style="padding:4px 10px;color:#64748b;white-space:nowrap">${row.monthLabel}</td>
           <td style="text-align:right;padding:4px 8px;color:${priceCol};font-weight:500">${row.price.toFixed(2)}</td>
-          <td style="text-align:right;padding:4px 12px;color:${chgCol}">${chgStr}</td>
+          <td style="text-align:right;padding:4px 8px;color:${chgCol}">${chgStr}</td>
+          <td style="text-align:right;padding:4px 8px;color:#475569">${volStr}</td>
+          <td style="text-align:right;padding:4px 10px;color:#334155;font-size:9px;white-space:nowrap">${timeStr}</td>
         </tr>`;
       }
-      html += '</tbody></table>';
+      html += '</tbody></table></div>';
     }
     html += '</div>';
   }
   return html;
+}
+
+function _fmtTradeTime(t) {
+  if (!t) return '\u2014';
+  try {
+    const d = new Date(t);
+    if (isNaN(d.getTime())) return '\u2014';
+    return d.toLocaleString('en-AU', {
+      month:'short', day:'numeric',
+      hour:'2-digit', minute:'2-digit',
+      hour12:false, timeZone:'Australia/Brisbane'
+    }) + ' AEST';
+  } catch { return '\u2014'; }
 }
 
 async function fetchCommoditiesData(force = false) {
@@ -5526,17 +5544,23 @@ async function fetchCommoditiesData(force = false) {
         .map(c => {
           let price = c.lastPrice;
           let prev  = c.previousClose;
-          if (contract.id === 'ttf' && _commFxRate) {
-            price = price * _commFxRate / 3.41214;
-            prev  = prev ? prev * _commFxRate / 3.41214 : null;
-          }
           const change = prev != null ? parseFloat((price - prev).toFixed(2))
                        : (c.priceChange ? parseFloat(c.priceChange.toFixed(2)) : null);
+          // Build "CBM26 (Jun '26)" style label from symbol + contractName
+          const ticker = c.symbol || '';
+          const fullName = c.contractName || '';
+          // contractName is like "Crude Oil Brent Jun '26" — grab last 2 words
+          const parts = fullName.trim().split(/\s+/);
+          const shortName = parts.length >= 2 ? parts.slice(-2).join('\u00a0') : fullName;
+          const monthLabel = ticker ? `${ticker}\u00a0(${shortName})` : shortName;
           return {
-            monthLabel: c.contractName || c.symbol,
-            price: parseFloat(price.toFixed(2)),
-            prev:  prev ? parseFloat(prev.toFixed(2)) : null,
+            symbol:     ticker,
+            monthLabel,
+            price:      parseFloat(price.toFixed(2)),
+            prev:       prev ? parseFloat(prev.toFixed(2)) : null,
             change,
+            volume:     c.volume != null ? Number(c.volume) : null,
+            tradeTime:  c.tradeTime || null,
           };
         });
     }

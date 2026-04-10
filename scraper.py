@@ -4531,7 +4531,13 @@ def scrape_asx_history(token: str, code: str) -> list:
                 timeout=10,
             )
             r.raise_for_status()
-            data = r.json().get("data", [])
+            resp_json = r.json()
+            # Verify the response is actually for the requested date
+            returned_date = resp_json.get("date", "")
+            if returned_date and returned_date != dt:
+                # API returned a different date (fallback) — skip
+                return None
+            data = resp_json.get("data", [])
             if data:
                 row = data[0]
                 settle = row.get("settle")

@@ -2548,7 +2548,9 @@ async def asx_history(code: str):
             loop.run_in_executor(None, scrape_asx_history, token, code),
             timeout=180.0
         )
-        _asx_history_cache[code] = {"history": data, "last_updated": datetime.now(timezone.utc)}
+        # Only cache if we got a reasonable result (>20 pts = not a timeout/fail)
+        if len(data) > 20:
+            _asx_history_cache[code] = {"history": data, "last_updated": datetime.now(timezone.utc)}
         return JSONResponse(content={"code": code, "history": data})
     except Exception as e:
         logger.error(f"asx_history error: {e}")

@@ -4523,40 +4523,42 @@ def scrape_asx_history(token: str, code: str) -> list:
             dates.append(d.strftime("%Y%m%d"))
 
     def _fetch_date(dt: str) -> dict | None:
-        try:
-            r = requests.get(
-                f"{ASX_API_BASE}/data",
-                params={"futures": code, "date": dt},
-                headers=_asx_headers(token),
-                timeout=10,
-            )
-            r.raise_for_status()
-            resp_json = r.json()
-            # Verify the response is actually for the requested date
-            returned_date = resp_json.get("date", "")
-            if returned_date and returned_date != dt:
-                # API returned a different date (fallback) — skip
-                return None
-            data = resp_json.get("data", [])
-            if data:
-                row = data[0]
-                settle = row.get("settle")
-                if not settle or float(settle) == 0:
-                    return None
-                return {
-                    "date":          dt,
-                    "settle":        settle,
-                    "last":          None,
-                    "volume":        row.get("volume"),
-                    "open_interest": row.get("open_interest"),
-                    "is_today":      False,
-                }
-        except Exception as e:
-            logger.warning(f"scrape_asx_history {code} {dt}: {e}")
+        for attempt in range(3):  # up to 3 attempts
+            try:
+                r = requests.get(
+                    f"{ASX_API_BASE}/data",
+                    params={"futures": code, "date": dt},
+                    headers=_asx_headers(token),
+                    timeout=12,
+                )
+                r.raise_for_status()
+                resp_json = r.json()
+                # Verify the response date matches what we requested
+                returned_date = resp_json.get("date", "")
+                if returned_date and returned_date != dt:
+                    return None  # API returned fallback date — no data for this date
+                data = resp_json.get("data", [])
+                if data:
+                    row = data[0]
+                    settle = row.get("settle")
+                    if not settle or float(settle) == 0:
+                        return None
+                    return {
+                        "date":          dt,
+                        "settle":        settle,
+                        "last":          None,
+                        "volume":        row.get("volume"),
+                        "open_interest": row.get("open_interest"),
+                        "is_today":      False,
+                    }
+                return None  # empty data array = no trading that day
+            except Exception as e:
+                if attempt == 2:
+                    logger.warning(f"scrape_asx_history {code} {dt} (attempt {attempt+1}): {e}")
         return None
 
     history = []
-    with ThreadPoolExecutor(max_workers=10) as ex:
+    with ThreadPoolExecutor(max_workers=20) as ex:
         futures_map = {ex.submit(_fetch_date, d): d for d in dates}
         for fut in as_completed(futures_map):
             result = fut.result()

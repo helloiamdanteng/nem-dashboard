@@ -2525,7 +2525,7 @@ def _scrape_barchart_curve(root: str, num_contracts: int = 18) -> list:
     url = "https://www.barchart.com/proxies/core-api/v1/quotes/get"
     params = {
         "symbols": symbols,
-        "fields": "symbol,contractName,lastPrice,priceChange,previousClose,contractMonth,contractYear,expirationDate,volume,tradeTime",
+        "fields": "symbol,contractName,lastPrice,priceChange,previousClose,contractMonth,contractYear,expirationDate,volume,tradeTimestamp",
         "raw": "1",
     }
     r = s.get(url, params=params, timeout=12, headers={
@@ -2553,7 +2553,7 @@ def _scrape_barchart_curve(root: str, num_contracts: int = 18) -> list:
             "contractYear": raw.get("contractYear"),
             "expirationDate": raw.get("expirationDate"),
             "volume":       raw.get("volume"),
-            "tradeTime":    raw.get("tradeTime"),
+            "tradeTime":    raw.get("tradeTimestamp"),
         })
     return results
 

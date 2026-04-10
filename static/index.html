@@ -5507,14 +5507,11 @@ function _buildCommTablesHtml() {
 
 function _fmtTradeTime(t) {
   if (!t) return '\u2014';
+  // lastUpdate from Barchart is "2026-04-10 17:51:59" already in CT — just show as-is (trim seconds)
   try {
-    const d = new Date(t);
-    if (isNaN(d.getTime())) return '\u2014';
-    return d.toLocaleString('en-US', {
-      month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-      hour12: false, timeZone: 'America/Chicago'
-    }) + ' CT';
+    const s = String(t);
+    // "2026-04-10 17:51:59" → "2026-04-10 17:51 CT"
+    return s.slice(0, 16) + ' CT';
   } catch { return '\u2014'; }
 }
 
@@ -5545,28 +5542,22 @@ async function fetchCommoditiesData(force = false) {
       newData[contract.id] = src.contracts
         .filter(c => c.lastPrice > 0)
         .map(c => {
-          let price = c.lastPrice;
-          let prev  = c.previousClose;
-          const change = prev != null ? parseFloat((price - prev).toFixed(2))
-                       : (c.priceChange ? parseFloat(c.priceChange.toFixed(2)) : null);
-          // Build "CBM26 (Jun '26)" style label from symbol + contractName
-          const ticker = c.symbol || '';
-          const fullName = c.contractName || '';
-          // contractName from Barchart: "Crude Oil Brent Jun '26" — last 2 words are month+year
-          // Strip any existing parentheses first to avoid double-wrapping
-          const stripped = fullName.replace(/[()]/g, '').trim();
-          const parts = stripped.split(/\s+/);
-          const shortName = parts.length >= 2 ? parts.slice(-2).join('\u00a0') : stripped;
-          const monthLabel = ticker ? `${ticker}\u00a0(${shortName})` : shortName;
+          // contractName is "Crude Oil Brent (Jun '26)" — extract just the part in parens
+          const ticker     = c.symbol || '';
+          const fullName   = c.contractName || '';
+          const parenMatch = fullName.match(/\(([^)]+)\)/);
+          const shortName  = parenMatch ? parenMatch[1] : fullName.split(' ').slice(-2).join(' ');
+          const monthLabel = ticker ? `${ticker} (${shortName})` : shortName;
+          // previousClose not returned — use priceChange directly
+          const change = c.priceChange != null ? parseFloat(parseFloat(c.priceChange).toFixed(2)) : null;
           return {
             symbol:       ticker,
             monthLabel,
-            price:        parseFloat(price.toFixed(2)),
-            prev:         prev ? parseFloat(prev.toFixed(2)) : null,
+            price:        parseFloat(parseFloat(c.lastPrice).toFixed(2)),
             change,
             volume:       c.volume != null ? Number(c.volume) : null,
             openInterest: c.openInterest != null ? Number(c.openInterest) : null,
-            tradeTime:    c.tradeTime || null,
+            tradeTime:    c.lastUpdate || null,
           };
         });
     }

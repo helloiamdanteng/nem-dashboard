@@ -4522,21 +4522,28 @@ def scrape_asx_history(token: str, code: str) -> list:
         if d.weekday() < 5:
             dates.append(d.strftime("%Y%m%d"))
 
+    # Use a session for connection pooling across all requests
+    session = requests.Session()
+    session.headers.update(_asx_headers(token))
+
     def _fetch_date(dt: str) -> dict | None:
-        for attempt in range(3):  # up to 3 attempts
+        for attempt in range(3):
             try:
-                r = requests.get(
+                r = session.get(
                     f"{ASX_API_BASE}/data",
                     params={"futures": code, "date": dt},
-                    headers=_asx_headers(token),
-                    timeout=12,
+                    timeout=15,
                 )
+                if r.status_code == 429:
+                    # Rate limited — wait and retry
+                    import time
+                    time.sleep(2 ** attempt)
+                    continue
                 r.raise_for_status()
                 resp_json = r.json()
-                # Verify the response date matches what we requested
                 returned_date = resp_json.get("date", "")
                 if returned_date and returned_date != dt:
-                    return None  # API returned fallback date — no data for this date
+                    return None
                 data = resp_json.get("data", [])
                 if data:
                     row = data[0]
@@ -4551,19 +4558,26 @@ def scrape_asx_history(token: str, code: str) -> list:
                         "open_interest": row.get("open_interest"),
                         "is_today":      False,
                     }
-                return None  # empty data array = no trading that day
+                return None
             except Exception as e:
                 if attempt == 2:
                     logger.warning(f"scrape_asx_history {code} {dt} (attempt {attempt+1}): {e}")
         return None
 
     history = []
-    with ThreadPoolExecutor(max_workers=20) as ex:
-        futures_map = {ex.submit(_fetch_date, d): d for d in dates}
-        for fut in as_completed(futures_map):
-            result = fut.result()
-            if result:
-                history.append(result)
+    # Process in batches of 15 with a small pause between batches to avoid rate limiting
+    import time
+    batch_size = 15
+    for i in range(0, len(dates), batch_size):
+        batch = dates[i:i+batch_size]
+        with ThreadPoolExecutor(max_workers=batch_size) as ex:
+            futures_map = {ex.submit(_fetch_date, d): d for d in batch}
+            for fut in as_completed(futures_map):
+                result = fut.result()
+                if result:
+                    history.append(result)
+        if i + batch_size < len(dates):
+            time.sleep(0.3)  # 300ms between batches
 
     history.sort(key=lambda x: x["date"])
 

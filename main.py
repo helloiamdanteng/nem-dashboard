@@ -1696,34 +1696,32 @@ async def rescrape():
 
 @app.get("/api/asx-debug")
 async def asx_debug():
-    """Debug: check historical data response structure for date verification."""
+    """Debug: show raw /api/data responses for specific dates."""
     import os, httpx
     token = os.environ.get("ASX_API_KEY", "")
     if not token:
         return {"error": "ASX_API_KEY not set"}
-    async with httpx.AsyncClient(timeout=15) as client:
-        # Fetch a known recent date and a date from 6 months ago
-        from datetime import datetime, timedelta
-        from zoneinfo import ZoneInfo
-        now = datetime.now(ZoneInfo("Australia/Brisbane"))
-        recent = (now - timedelta(days=3)).strftime("%Y%m%d")
-        old = (now - timedelta(days=120)).strftime("%Y%m%d")
-        very_old = (now - timedelta(days=200)).strftime("%Y%m%d")
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    now = datetime.now(ZoneInfo("Australia/Brisbane"))
+    test_dates = []
+    # Last 10 trading days
+    d = now - timedelta(days=1)
+    while len(test_dates) < 10:
+        if d.weekday() < 5:
+            test_dates.append(d.strftime("%Y%m%d"))
+        d -= timedelta(days=1)
 
-        results = {}
-        for label, dt in [("recent", recent), ("120d_ago", old), ("200d_ago", very_old)]:
+    results = {}
+    async with httpx.AsyncClient(timeout=15) as client:
+        for dt in test_dates:
             r = await client.get(
                 f"https://asxenergy.com.au/api/data?futures=BNM2027&date={dt}",
                 headers={"Authorization": f"Bearer {token}"}
             )
             j = r.json()
-            results[label] = {
-                "requested": dt,
-                "response_date": j.get("date"),
-                "match": j.get("date") == dt,
-                "settle": j.get("data", [{}])[0].get("settle") if j.get("data") else None,
-                "volume": j.get("data", [{}])[0].get("volume") if j.get("data") else None,
-            }
+            row = j.get("data", [{}])[0] if j.get("data") else {}
+            results[dt] = {"settle": row.get("settle"), "volume": row.get("volume"), "keys": list(j.keys())}
     return results
     """Debug: fetch PREDISPATCHSCENARIODEMAND to see what S1-S6 mean."""
     from scraper import _list_hrefs, _read_zip, _parse_aemo, _fetch_predispatch, NEMWEB_BASE

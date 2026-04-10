@@ -2525,7 +2525,7 @@ def _scrape_barchart_curve(root: str, num_contracts: int = 18) -> list:
     url = "https://www.barchart.com/proxies/core-api/v1/quotes/get"
     params = {
         "symbols": symbols,
-        "fields": "symbol,contractName,lastPrice,priceChange,previousClose,contractMonth,contractYear,expirationDate,volume,tradeTimestamp",
+        "fields": "symbol,contractName,lastPrice,priceChange,previousClose,contractMonth,contractYear,expirationDate,volume,openInterest,tradeTime,tradeTimestamp",
         "raw": "1",
     }
     r = s.get(url, params=params, timeout=12, headers={
@@ -2537,23 +2537,28 @@ def _scrape_barchart_curve(root: str, num_contracts: int = 18) -> list:
     r.raise_for_status()
     data = r.json()
     results = []
-    for item in data.get("data", []):
+    for i, item in enumerate(data.get("data", [])):
         raw = item.get("raw", item)
+        if i == 0:
+            logger.info(f"Barchart {root} raw keys: {list(raw.keys())}")
         price = raw.get("lastPrice")
         prev  = raw.get("previousClose")
         if not price:
             continue
+        # Try both possible time field names
+        trade_time = raw.get("tradeTimestamp") or raw.get("tradeTime") or raw.get("lastUpdate")
         results.append({
-            "symbol":       raw.get("symbol"),
-            "contractName": raw.get("contractName"),
-            "lastPrice":    float(price),
-            "priceChange":  float(raw.get("priceChange") or 0),
-            "previousClose":float(prev) if prev else None,
-            "contractMonth":raw.get("contractMonth"),
-            "contractYear": raw.get("contractYear"),
-            "expirationDate": raw.get("expirationDate"),
-            "volume":       raw.get("volume"),
-            "tradeTime":    raw.get("tradeTimestamp"),
+            "symbol":        raw.get("symbol"),
+            "contractName":  raw.get("contractName"),
+            "lastPrice":     float(price),
+            "priceChange":   float(raw.get("priceChange") or 0),
+            "previousClose": float(prev) if prev else None,
+            "contractMonth": raw.get("contractMonth"),
+            "contractYear":  raw.get("contractYear"),
+            "expirationDate":raw.get("expirationDate"),
+            "volume":        raw.get("volume"),
+            "openInterest":  raw.get("openInterest"),
+            "tradeTime":     trade_time,
         })
     return results
 

@@ -1696,7 +1696,7 @@ async def rescrape():
 
 @app.get("/api/asx-debug")
 async def asx_debug():
-    """Debug: show raw /api/data responses for specific dates."""
+    """Debug: check date field and test old dates for BNM2027."""
     import os, httpx
     token = os.environ.get("ASX_API_KEY", "")
     if not token:
@@ -1704,24 +1704,30 @@ async def asx_debug():
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
     now = datetime.now(ZoneInfo("Australia/Brisbane"))
+
+    # Test a spread of dates — recent, 30d, 90d, 150d, 200d ago
     test_dates = []
-    # Last 10 trading days
-    d = now - timedelta(days=1)
-    while len(test_dates) < 10:
-        if d.weekday() < 5:
-            test_dates.append(d.strftime("%Y%m%d"))
-        d -= timedelta(days=1)
+    for days_back in [2, 30, 90, 150, 200]:
+        d = now - timedelta(days=days_back)
+        while d.weekday() >= 5:
+            d -= timedelta(days=1)
+        test_dates.append((f"{days_back}d_ago", d.strftime("%Y%m%d")))
 
     results = {}
     async with httpx.AsyncClient(timeout=15) as client:
-        for dt in test_dates:
+        for label, dt in test_dates:
             r = await client.get(
                 f"https://asxenergy.com.au/api/data?futures=BNM2027&date={dt}",
                 headers={"Authorization": f"Bearer {token}"}
             )
             j = r.json()
             row = j.get("data", [{}])[0] if j.get("data") else {}
-            results[dt] = {"settle": row.get("settle"), "volume": row.get("volume"), "keys": list(j.keys())}
+            results[label] = {
+                "requested": dt,
+                "top_level_date": j.get("date"),
+                "settle": row.get("settle"),
+                "volume": row.get("volume"),
+            }
     return results
     """Debug: fetch PREDISPATCHSCENARIODEMAND to see what S1-S6 mean."""
     from scraper import _list_hrefs, _read_zip, _parse_aemo, _fetch_predispatch, NEMWEB_BASE

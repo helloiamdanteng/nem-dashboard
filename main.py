@@ -2488,9 +2488,50 @@ _asx_history_cache: dict = {}  # code → {history, last_updated}
 # ── Yahoo Finance proxy for commodity forward curves ──────────────────────────
 _yahoo_cache: dict = {}  # symbol → {data, last_updated}
 
+@app.get("/api/yahoo-batch")
+async def yahoo_batch(symbols: str):
+    """Fetch multiple Yahoo Finance quotes in one call. symbols=CL=F,CLM26,... 15-min cache."""
+    from datetime import datetime, timezone, timedelta
+    import requests as req_lib, time
+
+    cache_key = symbols[:200]
+    cached = _yahoo_cache.get(cache_key)
+    if cached and cached.get("last_updated"):
+        age = datetime.now(timezone.utc) - cached["last_updated"]
+        if age < timedelta(minutes=15):
+            return JSONResponse(content=cached["data"])
+    try:
+        session = req_lib.Session()
+        # Get cookie first
+        session.get("https://finance.yahoo.com/", timeout=8, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        })
+        time.sleep(0.3)
+        # Batch quote endpoint
+        url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbols}&fields=regularMarketPrice,regularMarketPreviousClose,chartPreviousClose"
+        r = session.get(url, timeout=12, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Accept": "application/json,text/plain,*/*",
+            "Referer": "https://finance.yahoo.com/",
+            "Origin": "https://finance.yahoo.com",
+        })
+        logger.info(f"yahoo_batch: {r.status_code} for {len(symbols.split(','))} symbols")
+        if r.status_code != 200:
+            return JSONResponse(status_code=r.status_code, content={"error": f"Yahoo returned {r.status_code}", "detail": r.text[:200]})
+        data = r.json()
+        _yahoo_cache[cache_key] = {"data": data, "last_updated": datetime.now(timezone.utc)}
+        return JSONResponse(content=data)
+    except Exception as e:
+        logger.error(f"yahoo_batch error: {e}")
+        if cached:
+            return JSONResponse(content=cached["data"])
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @app.get("/api/yahoo/{symbol:path}")
 async def yahoo_proxy(symbol: str):
-    """Proxy Yahoo Finance chart API — avoids browser CORS issues. 15-min cache."""
+    """Proxy single Yahoo Finance chart API call. 15-min cache."""
     from datetime import datetime, timezone, timedelta
     cached = _yahoo_cache.get(symbol)
     if cached and cached.get("last_updated"):
@@ -2498,12 +2539,19 @@ async def yahoo_proxy(symbol: str):
         if age < timedelta(minutes=15):
             return JSONResponse(content=cached["data"])
     try:
-        import requests as req_lib
+        import requests as req_lib, time
+        session = req_lib.Session()
+        session.get("https://finance.yahoo.com/", timeout=8, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        })
+        time.sleep(0.3)
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
-        r = req_lib.get(url, timeout=8, headers={
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/json",
+        r = session.get(url, timeout=8, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Accept": "application/json,text/plain,*/*",
             "Referer": "https://finance.yahoo.com/",
+            "Origin": "https://finance.yahoo.com",
         })
         if r.status_code != 200:
             return JSONResponse(status_code=r.status_code, content={"error": f"Yahoo returned {r.status_code}"})

@@ -5478,6 +5478,7 @@ function _buildCommTablesHtml() {
           <th style="text-align:right;padding:4px 8px 5px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">Price</th>
           <th style="text-align:right;padding:4px 8px 5px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">Chg</th>
           <th style="text-align:right;padding:4px 8px 5px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">Vol</th>
+          <th style="text-align:right;padding:4px 8px 5px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">OI</th>
           <th style="text-align:right;padding:4px 10px 5px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400;white-space:nowrap">Last Trade</th>
         </tr></thead><tbody>`;
       for (const row of rows) {
@@ -5486,12 +5487,14 @@ function _buildCommTablesHtml() {
         const chgCol   = chg > 0.001 ? '#2ed573' : chg < -0.001 ? '#ff4757' : '#475569';
         const priceCol = chg > 0.001 ? '#2ed573' : chg < -0.001 ? '#ff4757' : '#e2e8f0';
         const volStr   = row.volume != null && row.volume > 0 ? Number(row.volume).toLocaleString() : '\u2014';
+        const oiStr    = row.openInterest != null && row.openInterest > 0 ? Number(row.openInterest).toLocaleString() : '\u2014';
         const timeStr  = _fmtTradeTime(row.tradeTime);
         html += `<tr style="border-bottom:1px solid #0f172a22">
           <td style="padding:4px 10px;color:#64748b;white-space:nowrap">${row.monthLabel}</td>
           <td style="text-align:right;padding:4px 8px;color:${priceCol};font-weight:500">${row.price.toFixed(2)}</td>
           <td style="text-align:right;padding:4px 8px;color:${chgCol}">${chgStr}</td>
           <td style="text-align:right;padding:4px 8px;color:#475569">${volStr}</td>
+          <td style="text-align:right;padding:4px 8px;color:#475569">${oiStr}</td>
           <td style="text-align:right;padding:4px 10px;color:#334155;font-size:9px;white-space:nowrap">${timeStr}</td>
         </tr>`;
       }
@@ -5549,18 +5552,21 @@ async function fetchCommoditiesData(force = false) {
           // Build "CBM26 (Jun '26)" style label from symbol + contractName
           const ticker = c.symbol || '';
           const fullName = c.contractName || '';
-          // contractName is like "Crude Oil Brent Jun '26" — grab last 2 words
-          const parts = fullName.trim().split(/\s+/);
-          const shortName = parts.length >= 2 ? parts.slice(-2).join('\u00a0') : fullName;
+          // contractName from Barchart: "Crude Oil Brent Jun '26" — last 2 words are month+year
+          // Strip any existing parentheses first to avoid double-wrapping
+          const stripped = fullName.replace(/[()]/g, '').trim();
+          const parts = stripped.split(/\s+/);
+          const shortName = parts.length >= 2 ? parts.slice(-2).join('\u00a0') : stripped;
           const monthLabel = ticker ? `${ticker}\u00a0(${shortName})` : shortName;
           return {
-            symbol:     ticker,
+            symbol:       ticker,
             monthLabel,
-            price:      parseFloat(price.toFixed(2)),
-            prev:       prev ? parseFloat(prev.toFixed(2)) : null,
+            price:        parseFloat(price.toFixed(2)),
+            prev:         prev ? parseFloat(prev.toFixed(2)) : null,
             change,
-            volume:     c.volume != null ? Number(c.volume) : null,
-            tradeTime:  c.tradeTime || null,
+            volume:       c.volume != null ? Number(c.volume) : null,
+            openInterest: c.openInterest != null ? Number(c.openInterest) : null,
+            tradeTime:    c.tradeTime || null,
           };
         });
     }

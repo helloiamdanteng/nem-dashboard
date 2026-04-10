@@ -5407,62 +5407,103 @@ function _drawASXHistory(label) {
 
 // ── Commodities Forward Curves ────────────────────────────────────────────────
 
-const COMM_MONTH_CODES = {1:'F',2:'G',3:'H',4:'J',5:'K',6:'M',7:'N',8:'Q',9:'U',10:'V',11:'X',12:'Z'};
-
 const COMM_CONTRACTS = [
-  { id:'wti',   label:'WTI Crude',  root:'CL', unit:'USD/bbl',  color:'#f39c12', months:18 },
-  { id:'brent', label:'Brent Crude',root:'BB', unit:'USD/bbl',  color:'#e67e22', months:18 },
-  { id:'ttf',   label:'TTF Gas',    root:'TG', unit:'EUR/MWh',  color:'#3498db', months:12 },
+  { id:'wti',   label:'WTI',   root:'CL',  unit:'USD/bbl',   color:'#f39c12', months:18 },
+  { id:'brent', label:'Brent', root:'CB',  unit:'USD/bbl',   color:'#e67e22', months:18 },
+  { id:'ttf',   label:'TTF',   root:'TG',  unit:'USD/MMBtu', color:'#3498db', months:12 },
+  { id:'newc',  label:'NEWC',  root:'LQ',  unit:'USD/t',     color:'#95a5a6', months:12 },
+  { id:'api2',  label:'API2',  root:'ITF', unit:'USD/t',     color:'#7f8c8d', months:12 },
+  { id:'jkm',   label:'JKM',   root:'JKM', unit:'USD/MMBtu', color:'#9b59b6', months:12 },
 ];
 
-let _commData = {};          // id → [{symbol, month_label, price, prev_close, change}]
+let _commVisible = { wti:true, brent:true, ttf:false, newc:false, api2:false, jkm:false };
+let _commData = {};
 let _commFetchedAt = null;
-let _commSelected = 'wti';   // currently shown on chart
-let _commFxRate = null;       // EUR/USD for TTF conversion
+let _commFxRate = 1.08;
 
-function _commGenSymbols(root, months) {
-  const syms = [];
-  const now = new Date();
-  for (let i = 1; i <= months; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-    const code = COMM_MONTH_CODES[d.getMonth() + 1];
-    const yy = String(d.getFullYear()).slice(-2);
-    syms.push({ symbol: `${root}${code}${yy}`, month: d });
+function renderCommodities() {
+  let html = '<div class="section-title">Commodity Forward Curves</div>';
+  html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+    <div id="comm-status" style="font-family:var(--font-mono);font-size:9px;color:#475569">
+      ${_commFetchedAt ? `Fetched ${_commFetchedAt.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',hour12:false})} · Barchart 10min delay` : '\u25cc Loading\u2026'}
+    </div>
+    <button onclick="fetchCommoditiesData(true)" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;cursor:pointer;border:1px solid #334155;background:transparent;color:#64748b">\u21bb Refresh</button>
+  </div>`;
+
+  // Curve toggles
+  html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px">';
+  for (const c of COMM_CONTRACTS) {
+    const on = _commVisible[c.id];
+    html += `<button onclick="toggleCommCurve('${c.id}')" id="comm-vis-${c.id}"
+      style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;cursor:pointer;
+      border:2px solid ${c.color};background:${on ? c.color+'33' : 'transparent'};
+      color:${on ? '#ffffff' : '#64748b'}">${c.label}</button>`;
   }
-  return syms;
+  html += '</div>';
+
+  // Chart
+  html += `<div class="chart-card" style="padding:12px;margin-bottom:10px">
+    <div class="chart-title">Forward Curves</div>
+    <div style="position:relative;height:200px"><canvas id="commCurveChart"></canvas></div>
+  </div>`;
+
+  // Tables
+  html += '<div id="comm-tables">';
+  html += _buildCommTablesHtml();
+  html += '</div>';
+
+  return html;
 }
 
-async function _commFetchQuote(symbol) {
-  try {
-    // Use server-side proxy to avoid CORS issues with Yahoo Finance
-    const url = `/api/yahoo/${encodeURIComponent(symbol)}`;
-    const resp = await fetch(url);
-    if (!resp.ok) return null;
-    const j = await resp.json();
-    const meta = j?.chart?.result?.[0]?.meta;
-    if (!meta) return null;
-    const price = meta.regularMarketPrice ?? meta.previousClose;
-    const prev  = meta.chartPreviousClose ?? meta.previousClose;
-    if (!price || price <= 0) return null;
-    return { price, prev, change: price && prev ? price - prev : null };
-  } catch { return null; }
+function _buildCommTablesHtml() {
+  let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+  for (const contract of COMM_CONTRACTS) {
+    const rows = _commData[contract.id] || [];
+    html += `<div class="chart-card" style="padding:0;overflow:hidden">
+      <div style="padding:8px 10px 4px;font-family:var(--font-mono);font-size:10px;font-weight:700;color:${contract.color}">
+        ${contract.label} <span style="color:#475569;font-weight:400;font-size:9px">${contract.unit}</span>
+        ${!rows.length ? '<span style="color:#334155;font-size:9px"> — no data</span>' : ''}
+      </div>`;
+    if (rows.length) {
+      html += `<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:9px">
+        <thead><tr>
+          <th style="text-align:left;padding:3px 10px 4px;color:#334155;border-bottom:1px solid #1e2d45;font-weight:400">Month</th>
+          <th style="text-align:right;padding:3px 6px 4px;color:#334155;border-bottom:1px solid #1e2d45;font-weight:400">Price</th>
+          <th style="text-align:right;padding:3px 10px 4px;color:#334155;border-bottom:1px solid #1e2d45;font-weight:400">Chg</th>
+        </tr></thead><tbody>`;
+      for (const row of rows) {
+        const chg = row.change;
+        const chgStr = chg !== null ? `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}` : '\u2014';
+        const chgCol = chg > 0.001 ? '#2ed573' : chg < -0.001 ? '#ff4757' : '#475569';
+        const priceCol = chg > 0.001 ? '#2ed573' : chg < -0.001 ? '#ff4757' : '#e2e8f0';
+        html += `<tr style="border-bottom:1px solid #0f172a">
+          <td style="padding:3px 10px;color:#64748b">${row.monthLabel}</td>
+          <td style="text-align:right;padding:3px 6px;color:${priceCol};font-weight:500">${row.price.toFixed(2)}</td>
+          <td style="text-align:right;padding:3px 10px;color:${chgCol}">${chgStr}</td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
 }
 
 async function fetchCommoditiesData(force = false) {
-  const container = document.getElementById('comm-content');
+  const tablesEl = document.getElementById('comm-tables');
   if (!force && _commData && Object.keys(_commData).length > 0) {
-    _renderCommTable();
+    _renderCommTables();
     _drawCommChart();
     return;
   }
-  if (container) container.innerHTML = '<div class="state-msg"><div class="spinner-icon">📡</div><div style="margin-top:8px;font-family:var(--font-mono);font-size:10px;color:#475569">Fetching forward curves…</div></div>';
+  if (tablesEl) tablesEl.innerHTML = '<div class="state-msg"><div class="spinner-icon">\ud83d\udce1</div><div style="margin-top:8px;font-family:var(--font-mono);font-size:10px;color:#475569">Fetching forward curves\u2026</div></div>';
 
   try {
-    const url = force ? '/api/commodities?refresh=true' : '/api/commodities';
-    const resp = await fetch(url);
+    const resp = await fetch(force ? '/api/commodities?refresh=true' : '/api/commodities');
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      if (container) container.innerHTML = `<div class="state-msg" style="color:#ff4757">Error: ${err.error || resp.status}</div>`;
+      if (tablesEl) tablesEl.innerHTML = `<div class="state-msg" style="color:#ff4757">Error: ${err.error || resp.status}</div>`;
       return;
     }
     const raw = await resp.json();
@@ -5478,168 +5519,108 @@ async function fetchCommoditiesData(force = false) {
         .map(c => {
           let price = c.lastPrice;
           let prev  = c.previousClose;
-          let unit  = contract.unit;
-          // TTF: EUR/MWh → USD/MMBtu
           if (contract.id === 'ttf' && _commFxRate) {
             price = price * _commFxRate / 3.41214;
-            prev  = prev  ? prev * _commFxRate / 3.41214 : null;
-            unit  = 'USD/MMBtu';
+            prev  = prev ? prev * _commFxRate / 3.41214 : null;
           }
+          const change = prev != null ? parseFloat((price - prev).toFixed(2))
+                       : (c.priceChange ? parseFloat(c.priceChange.toFixed(2)) : null);
           return {
-            symbol:       c.symbol,
-            monthLabel:   c.contractName || c.symbol,
-            price:        parseFloat(price.toFixed(2)),
-            prev:         prev ? parseFloat(prev.toFixed(2)) : null,
-            change:       prev ? parseFloat((price - prev).toFixed(2)) : (c.priceChange ? parseFloat(c.priceChange.toFixed(2)) : null),
-            unit,
+            monthLabel: c.contractName || c.symbol,
+            price: parseFloat(price.toFixed(2)),
+            prev:  prev ? parseFloat(prev.toFixed(2)) : null,
+            change,
           };
         });
     }
-
     _commData = newData;
 
     const statusEl = document.getElementById('comm-status');
     if (statusEl) {
       const t = _commFetchedAt.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',hour12:false});
-      statusEl.textContent = `Fetched ${t} · 10min delayed · Source: Barchart`;
+      statusEl.textContent = `Fetched ${t} \u00b7 Barchart 10min delay`;
     }
-    _renderCommTable();
+    _renderCommTables();
     _drawCommChart();
   } catch(e) {
     console.error('fetchCommoditiesData:', e);
-    if (container) container.innerHTML = `<div class="state-msg" style="color:#ff4757">Failed to load: ${e.message}</div>`;
+    if (tablesEl) tablesEl.innerHTML = `<div class="state-msg" style="color:#ff4757">Failed: ${e.message}</div>`;
   }
 }
 
-function renderCommodities() {
-  let html = '<div class="section-title">Commodity Forward Curves</div>';
-  html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-    <div id="comm-status" style="font-family:var(--font-mono);font-size:9px;color:#475569">
-      ${_commFetchedAt ? `Fetched ${_commFetchedAt.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})} · 15min delayed` : '⚪ Loading…'}
-    </div>
-    <button onclick="fetchCommoditiesData(true)" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;cursor:pointer;border:1px solid #334155;background:transparent;color:#64748b">↻ Refresh</button>
-  </div>
-  <div style="font-family:var(--font-mono);font-size:9px;color:#f59e0b;margin-bottom:10px">⚠ Data delayed ~15 min · Source: Yahoo Finance</div>`;
-
-  // Commodity selector buttons
-  html += '<div style="display:flex;gap:6px;margin-bottom:10px">';
-  for (const c of COMM_CONTRACTS) {
-    const active = _commSelected === c.id;
-    html += `<button onclick="selectComm('${c.id}')" id="comm-btn-${c.id}"
-      style="font-family:var(--font-mono);font-size:10px;padding:5px 12px;border-radius:20px;cursor:pointer;
-      border:1px solid ${active?'#ffffff':'#334155'};background:${active?'#ffffff22':'transparent'};
-      color:${active?'#ffffff':'#64748b'};font-weight:${active?'700':'400'}">${c.label}</button>`;
-  }
-  html += '</div>';
-
-  // Chart
-  html += '<div class="chart-card" style="padding:14px;margin-bottom:10px">';
-  html += '<div id="comm-chart-title" class="chart-title">Forward Curve</div>';
-  html += '<div style="position:relative;height:220px"><canvas id="commCurveChart"></canvas></div>';
-  html += '</div>';
-
-  // Table
-  html += '<div id="comm-content">';
-  html += _renderCommTable(true);
-  html += '</div>';
-
-  return html;
+function _renderCommTables() {
+  const el = document.getElementById('comm-tables');
+  if (el) el.innerHTML = _buildCommTablesHtml();
 }
 
-function _renderCommTable(returnHtml = false) {
-  const container = document.getElementById('comm-content');
-
-  let html = '';
-  for (const contract of COMM_CONTRACTS) {
-    const rows = _commData[contract.id] || [];
-    if (!rows.length) continue;
-
-    html += `<div class="chart-card" style="padding:0;overflow-x:auto;margin-bottom:8px">`;
-    html += `<div style="padding:10px 12px 4px;font-family:var(--font-mono);font-size:10px;font-weight:700;color:${contract.color}">${contract.label} <span style="color:#475569;font-weight:400">${rows[0]?.unit||contract.unit}</span></div>`;
-    html += `<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px">`;
-    html += `<thead><tr>
-      <th style="text-align:left;padding:4px 12px 6px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">Month</th>
-      <th style="text-align:right;padding:4px 8px 6px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">Price</th>
-      <th style="text-align:right;padding:4px 12px 6px;color:#475569;border-bottom:1px solid #1e2d45;font-weight:400">Change</th>
-    </tr></thead><tbody>`;
-
-    for (const row of rows) {
-      const chg = row.change;
-      const chgStr = chg !== null ? `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}` : '—';
-      const chgCol = chg !== null ? (chg > 0 ? '#2ed573' : chg < 0 ? '#ff4757' : '#475569') : '#475569';
-      const priceCol = chg !== null ? (chg > 0 ? '#2ed573' : chg < 0 ? '#ff4757' : '#e2e8f0') : '#e2e8f0';
-      html += `<tr style="border-bottom:1px solid #1e2d4522">
-        <td style="padding:5px 12px;color:#94a3b8">${row.monthLabel}</td>
-        <td style="text-align:right;padding:5px 8px;color:${priceCol};font-weight:500">${row.price.toFixed(2)}</td>
-        <td style="text-align:right;padding:5px 12px;color:${chgCol}">${chgStr}</td>
-      </tr>`;
-    }
-    html += `</tbody></table></div>`;
-  }
-
-  if (!html) html = '<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:20px;text-align:center">Loading forward curve data…</div>';
-
-  if (returnHtml) return html;
-  if (container) container.innerHTML = html;
-}
-
-function selectComm(id) {
-  _commSelected = id;
-  for (const c of COMM_CONTRACTS) {
-    const btn = document.getElementById(`comm-btn-${c.id}`);
-    if (!btn) continue;
-    const active = c.id === id;
-    btn.style.borderColor = active ? '#ffffff' : '#334155';
-    btn.style.background  = active ? '#ffffff22' : 'transparent';
-    btn.style.color       = active ? '#ffffff' : '#64748b';
-    btn.style.fontWeight  = active ? '700' : '400';
+function toggleCommCurve(id) {
+  _commVisible[id] = !_commVisible[id];
+  const btn = document.getElementById(`comm-vis-${id}`);
+  const c = COMM_CONTRACTS.find(x => x.id === id);
+  if (btn && c) {
+    const on = _commVisible[id];
+    btn.style.background = on ? c.color + '33' : 'transparent';
+    btn.style.color = on ? '#ffffff' : '#64748b';
   }
   _drawCommChart();
 }
 
 function _drawCommChart() {
-  const contract = COMM_CONTRACTS.find(c => c.id === _commSelected);
-  if (!contract) return;
-  const rows = _commData[contract.id] || [];
-
-  const titleEl = document.getElementById('comm-chart-title');
-  if (titleEl) titleEl.textContent = `${contract.label} Forward Curve — ${rows[0]?.unit || contract.unit}`;
-
   destroyChart('commCurve');
   const ctx = document.getElementById('commCurveChart');
-  if (!ctx || !rows.length) return;
+  if (!ctx) return;
 
-  const labels = rows.map(r => r.monthLabel);
-  const prices = rows.map(r => r.price);
-  const colors = rows.map(r => r.change !== null ? (r.change > 0 ? '#2ed573' : r.change < 0 ? '#ff4757' : contract.color) : contract.color);
+  const datasets = [];
+  let longestLen = 0, longestId = null;
+  for (const contract of COMM_CONTRACTS) {
+    if (!_commVisible[contract.id]) continue;
+    const rows = _commData[contract.id] || [];
+    if (!rows.length) continue;
+    if (rows.length > longestLen) { longestLen = rows.length; longestId = contract.id; }
+    datasets.push({
+      label: `${contract.label} (${contract.unit})`,
+      data: rows.map(r => r.price),
+      borderColor: contract.color,
+      backgroundColor: 'transparent',
+      borderWidth: 2,
+      pointRadius: 2,
+      tension: 0,
+      spanGaps: true,
+      yAxisID: (contract.id === 'ttf' || contract.id === 'jkm') ? 'y2' : 'y',
+    });
+  }
+  const labels = longestId ? (_commData[longestId]||[]).map(r => r.monthLabel) : [];
+  const oilCoalOn = ['wti','brent','newc','api2'].some(id => _commVisible[id] && (_commData[id]||[]).length);
+  const gasOn = ['ttf','jkm'].some(id => _commVisible[id] && (_commData[id]||[]).length);
 
   charts.commCurve = new Chart(ctx, {
     type: 'line',
-    data: { labels, datasets: [{
-      label: contract.label, data: prices,
-      borderColor: contract.color,
-      backgroundColor: contract.color + '22',
-      borderWidth: 2, pointRadius: 4,
-      pointBackgroundColor: colors,
-      pointBorderColor: colors,
-      tension: 0, fill: true, spanGaps: true,
-    }]},
+    data: { labels, datasets },
     options: { ...CHART_DEFAULTS,
       plugins: { ...CHART_DEFAULTS.plugins,
-        legend: { display: false },
-        tooltip: { ...CHART_DEFAULTS.plugins.tooltip,
-          callbacks: {
-            label: c => ` ${c.raw?.toFixed(2)} ${rows[0]?.unit || contract.unit}`,
-          }
-        }
+        legend: { display: true, position: 'top',
+          labels: { color:'#64748b', font:{family:'Space Mono',size:8}, boxWidth:10, padding:6 }
+        },
       },
       scales: {
-        x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:8},maxRotation:45,maxTicksLimit:18}, grid:{color:'#1e2d4433'} },
-        y: { ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9}}, grid:{color:'#1e293b'} }
+        x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:8},maxRotation:45,maxTicksLimit:14}, grid:{color:'#1e2d4433'} },
+        y: {
+          display: oilCoalOn, position: 'left',
+          ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9}},
+          grid:{color:'#1e293b'},
+          title:{display:true,text:'USD/bbl & USD/t',color:'#334155',font:{size:8}}
+        },
+        y2: {
+          display: gasOn, position: 'right',
+          ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9}},
+          grid:{drawOnChartArea:false},
+          title:{display:true,text:'USD/MMBtu',color:'#334155',font:{size:8}}
+        },
       }
     }
   });
 }
+
 
 // ── Gas Page ──────────────────────────────────────────────────────────────────
 
@@ -8947,4 +8928,218 @@ function drawCoalCalendar() {
 
 </script>
 </body>
-</html>
+</html>// ── Commodities Forward Curves ────────────────────────────────────────────────
+
+const COMM_CONTRACTS = [
+  { id:'wti',   label:'WTI',   root:'CL',  unit:'USD/bbl',   color:'#f39c12', months:18 },
+  { id:'brent', label:'Brent', root:'CB',  unit:'USD/bbl',   color:'#e67e22', months:18 },
+  { id:'ttf',   label:'TTF',   root:'TG',  unit:'USD/MMBtu', color:'#3498db', months:12 },
+  { id:'newc',  label:'NEWC',  root:'LQ',  unit:'USD/t',     color:'#95a5a6', months:12 },
+  { id:'api2',  label:'API2',  root:'ITF', unit:'USD/t',     color:'#7f8c8d', months:12 },
+  { id:'jkm',   label:'JKM',   root:'JKM', unit:'USD/MMBtu', color:'#9b59b6', months:12 },
+];
+
+let _commVisible = { wti:true, brent:true, ttf:false, newc:false, api2:false, jkm:false };
+let _commData = {};
+let _commFetchedAt = null;
+let _commFxRate = 1.08;
+
+function renderCommodities() {
+  let html = '<div class="section-title">Commodity Forward Curves</div>';
+  html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+    <div id="comm-status" style="font-family:var(--font-mono);font-size:9px;color:#475569">
+      ${_commFetchedAt ? `Fetched ${_commFetchedAt.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',hour12:false})} · Barchart 10min delay` : '\u25cc Loading\u2026'}
+    </div>
+    <button onclick="fetchCommoditiesData(true)" style="font-family:var(--font-mono);font-size:10px;padding:4px 12px;border-radius:20px;cursor:pointer;border:1px solid #334155;background:transparent;color:#64748b">\u21bb Refresh</button>
+  </div>`;
+
+  // Curve toggles
+  html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px">';
+  for (const c of COMM_CONTRACTS) {
+    const on = _commVisible[c.id];
+    html += `<button onclick="toggleCommCurve('${c.id}')" id="comm-vis-${c.id}"
+      style="font-family:var(--font-mono);font-size:10px;padding:4px 10px;border-radius:20px;cursor:pointer;
+      border:2px solid ${c.color};background:${on ? c.color+'33' : 'transparent'};
+      color:${on ? '#ffffff' : '#64748b'}">${c.label}</button>`;
+  }
+  html += '</div>';
+
+  // Chart
+  html += `<div class="chart-card" style="padding:12px;margin-bottom:10px">
+    <div class="chart-title">Forward Curves</div>
+    <div style="position:relative;height:200px"><canvas id="commCurveChart"></canvas></div>
+  </div>`;
+
+  // Tables
+  html += '<div id="comm-tables">';
+  html += _buildCommTablesHtml();
+  html += '</div>';
+
+  return html;
+}
+
+function _buildCommTablesHtml() {
+  let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+  for (const contract of COMM_CONTRACTS) {
+    const rows = _commData[contract.id] || [];
+    html += `<div class="chart-card" style="padding:0;overflow:hidden">
+      <div style="padding:8px 10px 4px;font-family:var(--font-mono);font-size:10px;font-weight:700;color:${contract.color}">
+        ${contract.label} <span style="color:#475569;font-weight:400;font-size:9px">${contract.unit}</span>
+        ${!rows.length ? '<span style="color:#334155;font-size:9px"> — no data</span>' : ''}
+      </div>`;
+    if (rows.length) {
+      html += `<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:9px">
+        <thead><tr>
+          <th style="text-align:left;padding:3px 10px 4px;color:#334155;border-bottom:1px solid #1e2d45;font-weight:400">Month</th>
+          <th style="text-align:right;padding:3px 6px 4px;color:#334155;border-bottom:1px solid #1e2d45;font-weight:400">Price</th>
+          <th style="text-align:right;padding:3px 10px 4px;color:#334155;border-bottom:1px solid #1e2d45;font-weight:400">Chg</th>
+        </tr></thead><tbody>`;
+      for (const row of rows) {
+        const chg = row.change;
+        const chgStr = chg !== null ? `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}` : '\u2014';
+        const chgCol = chg > 0.001 ? '#2ed573' : chg < -0.001 ? '#ff4757' : '#475569';
+        const priceCol = chg > 0.001 ? '#2ed573' : chg < -0.001 ? '#ff4757' : '#e2e8f0';
+        html += `<tr style="border-bottom:1px solid #0f172a">
+          <td style="padding:3px 10px;color:#64748b">${row.monthLabel}</td>
+          <td style="text-align:right;padding:3px 6px;color:${priceCol};font-weight:500">${row.price.toFixed(2)}</td>
+          <td style="text-align:right;padding:3px 10px;color:${chgCol}">${chgStr}</td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+async function fetchCommoditiesData(force = false) {
+  const tablesEl = document.getElementById('comm-tables');
+  if (!force && _commData && Object.keys(_commData).length > 0) {
+    _renderCommTables();
+    _drawCommChart();
+    return;
+  }
+  if (tablesEl) tablesEl.innerHTML = '<div class="state-msg"><div class="spinner-icon">\ud83d\udce1</div><div style="margin-top:8px;font-family:var(--font-mono);font-size:10px;color:#475569">Fetching forward curves\u2026</div></div>';
+
+  try {
+    const resp = await fetch(force ? '/api/commodities?refresh=true' : '/api/commodities');
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      if (tablesEl) tablesEl.innerHTML = `<div class="state-msg" style="color:#ff4757">Error: ${err.error || resp.status}</div>`;
+      return;
+    }
+    const raw = await resp.json();
+    _commFxRate = raw.EURUSD || 1.08;
+    _commFetchedAt = raw.fetched_at ? new Date(raw.fetched_at) : new Date();
+
+    const newData = {};
+    for (const contract of COMM_CONTRACTS) {
+      const src = raw[contract.root];
+      if (!src || !src.contracts) { newData[contract.id] = []; continue; }
+      newData[contract.id] = src.contracts
+        .filter(c => c.lastPrice > 0)
+        .map(c => {
+          let price = c.lastPrice;
+          let prev  = c.previousClose;
+          if (contract.id === 'ttf' && _commFxRate) {
+            price = price * _commFxRate / 3.41214;
+            prev  = prev ? prev * _commFxRate / 3.41214 : null;
+          }
+          const change = prev != null ? parseFloat((price - prev).toFixed(2))
+                       : (c.priceChange ? parseFloat(c.priceChange.toFixed(2)) : null);
+          return {
+            monthLabel: c.contractName || c.symbol,
+            price: parseFloat(price.toFixed(2)),
+            prev:  prev ? parseFloat(prev.toFixed(2)) : null,
+            change,
+          };
+        });
+    }
+    _commData = newData;
+
+    const statusEl = document.getElementById('comm-status');
+    if (statusEl) {
+      const t = _commFetchedAt.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',hour12:false});
+      statusEl.textContent = `Fetched ${t} \u00b7 Barchart 10min delay`;
+    }
+    _renderCommTables();
+    _drawCommChart();
+  } catch(e) {
+    console.error('fetchCommoditiesData:', e);
+    if (tablesEl) tablesEl.innerHTML = `<div class="state-msg" style="color:#ff4757">Failed: ${e.message}</div>`;
+  }
+}
+
+function _renderCommTables() {
+  const el = document.getElementById('comm-tables');
+  if (el) el.innerHTML = _buildCommTablesHtml();
+}
+
+function toggleCommCurve(id) {
+  _commVisible[id] = !_commVisible[id];
+  const btn = document.getElementById(`comm-vis-${id}`);
+  const c = COMM_CONTRACTS.find(x => x.id === id);
+  if (btn && c) {
+    const on = _commVisible[id];
+    btn.style.background = on ? c.color + '33' : 'transparent';
+    btn.style.color = on ? '#ffffff' : '#64748b';
+  }
+  _drawCommChart();
+}
+
+function _drawCommChart() {
+  destroyChart('commCurve');
+  const ctx = document.getElementById('commCurveChart');
+  if (!ctx) return;
+
+  const datasets = [];
+  let longestLen = 0, longestId = null;
+  for (const contract of COMM_CONTRACTS) {
+    if (!_commVisible[contract.id]) continue;
+    const rows = _commData[contract.id] || [];
+    if (!rows.length) continue;
+    if (rows.length > longestLen) { longestLen = rows.length; longestId = contract.id; }
+    datasets.push({
+      label: `${contract.label} (${contract.unit})`,
+      data: rows.map(r => r.price),
+      borderColor: contract.color,
+      backgroundColor: 'transparent',
+      borderWidth: 2,
+      pointRadius: 2,
+      tension: 0,
+      spanGaps: true,
+      yAxisID: (contract.id === 'ttf' || contract.id === 'jkm') ? 'y2' : 'y',
+    });
+  }
+  const labels = longestId ? (_commData[longestId]||[]).map(r => r.monthLabel) : [];
+  const oilCoalOn = ['wti','brent','newc','api2'].some(id => _commVisible[id] && (_commData[id]||[]).length);
+  const gasOn = ['ttf','jkm'].some(id => _commVisible[id] && (_commData[id]||[]).length);
+
+  charts.commCurve = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: { ...CHART_DEFAULTS,
+      plugins: { ...CHART_DEFAULTS.plugins,
+        legend: { display: true, position: 'top',
+          labels: { color:'#64748b', font:{family:'Space Mono',size:8}, boxWidth:10, padding:6 }
+        },
+      },
+      scales: {
+        x: { ticks:{color:'#64748b',font:{family:'Space Mono',size:8},maxRotation:45,maxTicksLimit:14}, grid:{color:'#1e2d4433'} },
+        y: {
+          display: oilCoalOn, position: 'left',
+          ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9}},
+          grid:{color:'#1e293b'},
+          title:{display:true,text:'USD/bbl & USD/t',color:'#334155',font:{size:8}}
+        },
+        y2: {
+          display: gasOn, position: 'right',
+          ticks:{color:'#94a3b8',font:{family:'Space Mono',size:9}},
+          grid:{drawOnChartArea:false},
+          title:{display:true,text:'USD/MMBtu',color:'#334155',font:{size:8}}
+        },
+      }
+    }
+  });
+}

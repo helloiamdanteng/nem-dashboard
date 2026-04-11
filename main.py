@@ -508,7 +508,22 @@ async def health():
     }
 
 
-@app.get("/api/debug")
+@app.get("/api/price-debug")
+async def price_debug():
+    """Show what historical, dispatch_5min, and predispatch prices look like for NSW1."""
+    d = fast_cache.get("data") or {}
+    r = "NSW1"
+    hist  = d.get("historical_prices", {}).get(r, [])
+    disp5 = d.get("dispatch_prices_5min", {}).get(r, [])
+    pd    = d.get("predispatch_prices", {}).get(r, [])
+    return JSONResponse(content={
+        "region": r,
+        "historical_prices":    {"count": len(hist),  "first": hist[:2],  "last": hist[-2:]},
+        "dispatch_prices_5min": {"count": len(disp5), "first": disp5[:2], "last": disp5[-2:]},
+        "predispatch_prices":   {"count": len(pd),    "first": pd[:2],    "last": pd[-2:]},
+    })
+
+
 async def debug():
     import csv, io
     from scraper import _list_hrefs, _read_zip, _parse_aemo, DISPATCH_IS_URL, PREDISPATCH_URL, TRADING_CURRENT, ST_PASA_URL

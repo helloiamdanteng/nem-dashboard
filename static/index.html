@@ -454,36 +454,60 @@ function showPanel(name) {
 // ── Prices ────────────────────────────────────────────────────────────────────
 
 function _renderDailyAvgSummary(data) {
-  // Use same methodology as Avg page:
-  // - 5-min dispatch actuals: simple mean (each interval = 1 weight)
-  // - 30-min PD intervals: each also = 1 weight (matches Avg page blending)
-  // This gives equal weight per dispatch interval regardless of duration,
-  // matching the NEM settlement convention used on the Avg page.
-  const disp5 = data.dispatch_prices_5min || {};
-  const pd    = data.predispatch_prices   || {};
+  // Use identical methodology to the Avg page:
+  // dp.avg × (dp.count/6) for actuals + weight-1 per PD interval
+  // If _priceHistData (from Avg page) is already loaded, use it directly.
+  // Otherwise fall back to computing from dispatch_prices_5min.
 
-  // Current AEST time string for filtering PD
+  const pd = data.predispatch_prices || {};
   const nowUTC  = new Date();
   const nowAEST = new Date(nowUTC.getTime() + 10 * 3600 * 1000);
+  const todayStr = nowAEST.getUTCFullYear() + '-' +
+    String(nowAEST.getUTCMonth()+1).padStart(2,'0') + '-' +
+    String(nowAEST.getUTCDate()).padStart(2,'0');
   const nowTime = String(nowAEST.getUTCHours()).padStart(2,'0') + ':' +
                   String(nowAEST.getUTCMinutes()).padStart(2,'0');
+
+  const CAP = 300;
+  const avgs = {};
+
+  for (const r of REGIONS) {
+    const pdPrices = (pd[r] || []).filter(p => p.interval > nowTime).map(p => p.rrp);
+
+    let totW = 0, sumAvg = 0;
+
+    // Try to use pre-loaded Avg page data (most accurate, matches Avg page exactly)
+    const histDay = window._priceHistData?.[r]?.[todayStr];
+    if (histDay && histDay.count) {
+      const effW = histDay.count > 100 ? histDay.count / 6 : histDay.count;
+      totW   += effW;
+      sumAvg += histDay.avg * effW;
+    } else {
+      // Fallback: compute from live dispatch_prices_5min
+      const pts = (data.dispatch_prices_5min?.[r] || []);
+      if (pts.length) {
+        const mean = pts.reduce((s, p) => s + p.rrp, 0) / pts.length;
+        const effW = pts.length / 6;
+        totW   += effW;
+        sumAvg += mean * effW;
+      }
+    }
+
+    // Add PD future intervals (weight 1 each = one 30-min equivalent)
+    for (const p of pdPrices) {
+      totW   += 1;
+      sumAvg += p;
+    }
+
+    avgs[r] = totW > 0 ? Math.round(sumAvg / totW * 100) / 100 : null;
+  }
 
   let html = '<div class="chart-card" style="padding:10px 12px;margin-bottom:2px">';
   html += '<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-bottom:8px;letter-spacing:0.05em">ESTIMATED DAILY AVERAGE POOL PRICE $/MWh</div>';
   html += '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">';
 
   for (const r of REGIONS) {
-    const actualPrices = (disp5[r] || []).map(p => p.rrp);
-    // PD: future intervals only (strictly after current time)
-    const pdPrices = (pd[r] || [])
-      .filter(p => p.interval > nowTime)
-      .map(p => p.rrp);
-
-    const allPrices = [...actualPrices, ...pdPrices];
-    const avgDay = allPrices.length > 0
-      ? allPrices.reduce((s, v) => s + v, 0) / allPrices.length
-      : null;
-
+    const v = avgs[r];
     const col = REGION_COLORS[r];
     const fmtAvg = v => {
       if (v === null) return '\u2014';
@@ -491,26 +515,21 @@ function _renderDailyAvgSummary(data) {
       if (v < 0) return '-$' + Math.abs(v).toFixed(2);
       return '$' + v.toFixed(2);
     };
-
     html += `<div style="text-align:center">
       <div style="font-family:var(--font-mono);font-size:9px;color:${col};font-weight:700;margin-bottom:4px">${REGION_SHORT[r]}</div>
-      <div style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:#e2e8f0">${fmtAvg(avgDay)}</div>
+      <div style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:#e2e8f0">${fmtAvg(v)}</div>
     </div>`;
   }
 
   html += '</div>';
 
-  // Footer context
-  const sampleR = REGIONS.find(r => (disp5[r]||[]).length > 0);
-  if (sampleR) {
-    const nAct = (disp5[sampleR]||[]).length;
-    const nPD  = (pd[sampleR]||[]).filter(p => p.interval > nowTime).length;
-    const total = nAct + nPD;
-    const pct   = total > 0 ? Math.round(nAct / total * 100) : 0;
-    html += `<div style="font-family:var(--font-mono);font-size:8px;color:#334155;margin-top:8px">
-      ${pct}% actual (${nAct}\u00d75min) \u00b7 ${100-pct}% PD forecast (${nPD}\u00d730min)
-    </div>`;
-  }
+  // Footer: show data source
+  const usingCache = !!window._priceHistData?.[REGIONS[0]]?.[todayStr];
+  const sampleR = REGIONS.find(r => (data.dispatch_prices_5min?.[r]||[]).length > 0);
+  const nPD = sampleR ? (pd[sampleR]||[]).filter(p => p.interval > nowTime).length : 0;
+  html += `<div style="font-family:var(--font-mono);font-size:8px;color:#334155;margin-top:8px">
+    ${usingCache ? 'Avg page data' : 'live cache'} + ${nPD} PD intervals \u00b7 same calc as Avg page
+  </div>`;
 
   html += '</div>';
   return html;

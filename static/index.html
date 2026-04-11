@@ -245,7 +245,7 @@ tr:last-child td { border-bottom:none; }
     <span class="icon">📈</span><span class="label">ASX</span>
   </button>
   <button class="nav-btn" onclick="showPanel('commodities')" id="nav-commodities">
-    <span class="icon">🛢️</span><span class="label">Commod</span>
+    <span class="icon">🛢️</span><span class="label">Intl Prices</span>
   </button>
   <button class="nav-btn" onclick="showPanel('outages')" id="nav-outages">
     <span class="icon">⚠️</span><span class="label">Outages</span>
@@ -253,6 +253,9 @@ tr:last-child td { border-bottom:none; }
 
   <button class="nav-btn" onclick="showPanel('coalcal')" id="nav-coalcal">
     <span class="icon">📊</span><span class="label">MTPASA</span>
+  </button>
+  <button class="nav-btn" onclick="showPanel('prices-hist')" id="nav-prices-hist">
+    <span class="icon">$</span><span class="label">Avg</span>
   </button>
   <button class="nav-btn" onclick="showPanel('gas')" id="nav-gas">
     <span class="icon">⚡</span><span class="label">Gas</span>
@@ -503,7 +506,7 @@ function _renderDailyAvgSummary(data) {
   }
 
   let html = '<div class="chart-card" style="padding:10px 12px;margin-bottom:2px">';
-  html += '<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-bottom:8px;letter-spacing:0.05em">ESTIMATED DAILY AVERAGE POOL PRICE $/MWh</div>';
+  html += '<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-bottom:8px;letter-spacing:0.05em">ESTIMATED DAILY AVERAGE POOL PRICE $/MWh — ACTUALS + PREDISPATCH</div>';
   html += '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">';
 
   for (const r of REGIONS) {
@@ -520,16 +523,6 @@ function _renderDailyAvgSummary(data) {
       <div style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:#e2e8f0">${fmtAvg(v)}</div>
     </div>`;
   }
-
-  html += '</div>';
-
-  // Footer: show data source
-  const usingCache = !!window._priceHistData?.[REGIONS[0]]?.[todayStr];
-  const sampleR = REGIONS.find(r => (data.dispatch_prices_5min?.[r]||[]).length > 0);
-  const nPD = sampleR ? (pd[sampleR]||[]).filter(p => p.interval > nowTime).length : 0;
-  html += `<div style="font-family:var(--font-mono);font-size:8px;color:#334155;margin-top:8px">
-    ${usingCache ? 'Avg page data' : 'live cache'} + ${nPD} PD intervals \u00b7 same calc as Avg page
-  </div>`;
 
   html += '</div>';
   return html;

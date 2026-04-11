@@ -2584,6 +2584,8 @@ async def commodities_debug():
         return JSONResponse(content={"status": r.status_code, "data": data})
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/commodities")
 async def commodities_data(refresh: bool = False):
     """Return forward curves for WTI, Brent, TTF, Newcastle coal, API2 coal, JKM. 1-hr cache."""
     from datetime import datetime, timezone, timedelta

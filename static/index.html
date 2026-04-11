@@ -454,27 +454,34 @@ function showPanel(name) {
 // ── Prices ────────────────────────────────────────────────────────────────────
 
 function _renderDailyAvgSummary(data) {
-  const disp5 = data.dispatch_prices_5min || {};  // 5-min actuals up to now
-  const pd    = data.predispatch_prices   || {};  // 30-min PD forecast
+  // Use same methodology as Avg page:
+  // - 5-min dispatch actuals: simple mean (each interval = 1 weight)
+  // - 30-min PD intervals: each also = 1 weight (matches Avg page blending)
+  // This gives equal weight per dispatch interval regardless of duration,
+  // matching the NEM settlement convention used on the Avg page.
+  const disp5 = data.dispatch_prices_5min || {};
+  const pd    = data.predispatch_prices   || {};
+
+  // Current AEST time string for filtering PD
+  const nowUTC  = new Date();
+  const nowAEST = new Date(nowUTC.getTime() + 10 * 3600 * 1000);
+  const nowTime = String(nowAEST.getUTCHours()).padStart(2,'0') + ':' +
+                  String(nowAEST.getUTCMinutes()).padStart(2,'0');
 
   let html = '<div class="chart-card" style="padding:10px 12px;margin-bottom:2px">';
   html += '<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-bottom:8px;letter-spacing:0.05em">ESTIMATED DAILY AVERAGE POOL PRICE $/MWh</div>';
   html += '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">';
 
   for (const r of REGIONS) {
-    // Actuals: all 5-min dispatch intervals
-    const actualPts = (disp5[r] || []).map(p => ({ rrp: p.rrp, mins: 5 }));
+    const actualPrices = (disp5[r] || []).map(p => p.rrp);
+    // PD: future intervals only (strictly after current time)
+    const pdPrices = (pd[r] || [])
+      .filter(p => p.interval > nowTime)
+      .map(p => p.rrp);
 
-    // PD: 30-min intervals strictly after the last actual interval
-    const lastActualTime = (disp5[r] || []).reduce((max, p) => p.interval > max ? p.interval : max, '');
-    const pdPts = (pd[r] || [])
-      .filter(p => p.interval > lastActualTime)
-      .map(p => ({ rrp: p.rrp, mins: 30 }));
-
-    const allPts = [...actualPts, ...pdPts];
-    const totalMins = allPts.reduce((s, p) => s + p.mins, 0);
-    const avgDay = totalMins > 0
-      ? allPts.reduce((s, p) => s + p.rrp * p.mins, 0) / totalMins
+    const allPrices = [...actualPrices, ...pdPrices];
+    const avgDay = allPrices.length > 0
+      ? allPrices.reduce((s, v) => s + v, 0) / allPrices.length
       : null;
 
     const col = REGION_COLORS[r];
@@ -493,17 +500,15 @@ function _renderDailyAvgSummary(data) {
 
   html += '</div>';
 
+  // Footer context
   const sampleR = REGIONS.find(r => (disp5[r]||[]).length > 0);
   if (sampleR) {
-    const lastActual = (disp5[sampleR]||[]).reduce((max, p) => p.interval > max ? p.interval : max, '');
     const nAct = (disp5[sampleR]||[]).length;
-    const nPD  = (pd[sampleR]||[]).filter(p => p.interval > lastActual).length;
-    const actualMins = nAct * 5;
-    const pdMins     = nPD * 30;
-    const totalMins  = actualMins + pdMins;
-    const pctActual  = totalMins > 0 ? Math.round(actualMins / totalMins * 100) : 0;
+    const nPD  = (pd[sampleR]||[]).filter(p => p.interval > nowTime).length;
+    const total = nAct + nPD;
+    const pct   = total > 0 ? Math.round(nAct / total * 100) : 0;
     html += `<div style="font-family:var(--font-mono);font-size:8px;color:#334155;margin-top:8px">
-      ${pctActual}% actual (${nAct}\u00d75min) \u00b7 ${100-pctActual}% PD forecast (${nPD}\u00d730min)
+      ${pct}% actual (${nAct}\u00d75min) \u00b7 ${100-pct}% PD forecast (${nPD}\u00d730min)
     </div>`;
   }
 

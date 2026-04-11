@@ -1468,7 +1468,6 @@ async def outage_debug():
     loop = asyncio.get_running_loop()
     def _fetch():
         results = scrape_mtpasa_outages()
-        # Show all outages, flag is_current
         return [{
             "duid": r["duid"],
             "station": r["station"],
@@ -1480,6 +1479,47 @@ async def outage_debug():
             "outage_start": r.get("outage_start"),
         } for r in results[:30]]
     return await loop.run_in_executor(None, _fetch)
+
+@app.get("/api/mp1-debug")
+async def mp1_debug():
+    """Check what PDPASA, STPASA and MTPASA report for MP1 / MTPIPER1."""
+    import asyncio
+    from scraper import (scrape_pasa_duid_availability, _list_hrefs, _read_zip,
+                         _parse_aemo, NEM_UNITS, MTPASA_DUID_URL)
+    loop = asyncio.get_running_loop()
+    def _fetch():
+        target_duids = {"MP1", "MP2", "MTPIPER1", "MTPIPER2"}
+        result = {}
+
+        # PDPASA
+        pd = scrape_pasa_duid_availability("PDPASA")
+        slots = pd.get("slots", pd) if isinstance(pd, dict) and "slots" in pd else pd
+        for d in target_duids:
+            if d in slots:
+                s = sorted(slots[d].items())
+                result[f"PDPASA_{d}"] = {"first": s[:3], "last": s[-3:], "count": len(s)}
+
+        # STPASA
+        st = scrape_pasa_duid_availability("STPASA")
+        slots_st = st.get("slots", st) if isinstance(st, dict) and "slots" in st else st
+        for d in target_duids:
+            if d in slots_st:
+                s = sorted(slots_st[d].items())
+                result[f"STPASA_{d}"] = {"first": s[:3], "last": s[-3:], "count": len(s)}
+
+        # MTPASA
+        files = _list_hrefs(MTPASA_DUID_URL)
+        if files:
+            text = _read_zip(sorted(files)[-1])
+            mt_rows = [r for r in _parse_aemo(text, "MTPASA_DUIDAVAILABILITY")
+                       if r.get("DUID","").strip() in target_duids]
+            result["MTPASA_rows"] = mt_rows[:10]
+
+        # Check NEM_UNITS
+        result["nem_units"] = {d: NEM_UNITS.get(d) for d in target_duids}
+        return result
+    return await loop.run_in_executor(None, _fetch)
+
 
 @app.get("/api/stpasa-snapshot")
 async def stpasa_snapshot():

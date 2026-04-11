@@ -242,7 +242,7 @@ tr:last-child td { border-bottom:none; }
     <span class="icon">📈</span><span class="label">ASX</span>
   </button>
   <button class="nav-btn" onclick="showPanel('commodities')" id="nav-commodities">
-    <span class="icon">🛢️</span><span class="label">Intl Prices</span>
+    <span class="icon">🛢️</span><span class="label">Intl</span>
   </button>
   <button class="nav-btn" onclick="showPanel('outages')" id="nav-outages">
     <span class="icon">⚠️</span><span class="label">Outages</span>
@@ -543,9 +543,6 @@ function renderPrices(data) {
   }
   html += '</div>';
 
-  // ── Daily average summary ──────────────────────────────────────────────────
-  html += _renderDailyAvgSummary(data);
-
   html += '<div class="section-title">Price History + Predispatch</div>';
   html += '<div class="chart-card"><div class="chart-title">Spot Prices — Actual (solid) · Predispatch (dashed)</div>';
   html += '<div class="chart-container" style="height:250px"><canvas id="priceHistChart"></canvas></div>';
@@ -565,6 +562,10 @@ function renderPrices(data) {
     ${priceLogScale ? '✓ ' : ''}Log
   </button>`;
   html += '</div></div>';
+
+  // ── Daily average summary ──────────────────────────────────────────────────
+  html += _renderDailyAvgSummary(data);
+
   html += '<div class="section-title">Demand + Non-Sched Gen (MW)</div><div class="demand-grid">';
   for (const r of REGIONS) {
     const d = (data.op_demand || {})[r] ?? demand[r];

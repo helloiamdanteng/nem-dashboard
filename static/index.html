@@ -484,14 +484,14 @@ function _renderDailyAvgSummary(data) {
     const col = REGION_COLORS[r];
     const fmtAvg = v => {
       if (v === null) return '—';
-      if (v >= 10000) return '$' + Math.round(v/1000) + 'k';
-      if (v < 0) return '-$' + Math.round(Math.abs(v));
-      return '$' + Math.round(v);
+      if (v >= 10000) return '$' + (v/1000).toFixed(1) + 'k';
+      if (v < 0) return '-$' + Math.abs(v).toFixed(2);
+      return '$' + v.toFixed(2);
     };
 
     html += `<div style="text-align:center">
       <div style="font-family:var(--font-mono);font-size:9px;color:${col};font-weight:700;margin-bottom:4px">${REGION_SHORT[r]}</div>
-      <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:#e2e8f0">${fmtAvg(avgDay)}</div>
+      <div style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:#e2e8f0">${fmtAvg(avgDay)}</div>
     </div>`;
   }
 

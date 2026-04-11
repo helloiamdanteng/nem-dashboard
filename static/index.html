@@ -454,59 +454,61 @@ function showPanel(name) {
 // ── Prices ────────────────────────────────────────────────────────────────────
 
 function _renderDailyAvgSummary(data) {
-  const hist = data.historical_prices || {};
-  const pd   = data.predispatch_prices || {};
+  const trading = data.historical_prices    || {};  // 30-min settled intervals
+  const disp5   = data.dispatch_prices_5min || {};  // 5-min recent actuals
+  const pd      = data.predispatch_prices   || {};  // 30-min PD forecast
 
-  // For each region compute: avg so far (actual), avg PD (remaining), combined day avg
   let html = '<div class="chart-card" style="padding:10px 12px;margin-bottom:2px">';
-  html += '<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-bottom:8px;letter-spacing:0.05em">DAILY AVERAGE POOL PRICE $/MWh</div>';
+  html += '<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-bottom:8px;letter-spacing:0.05em">ESTIMATED DAILY AVERAGE POOL PRICE $/MWh</div>';
   html += '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">';
 
   for (const r of REGIONS) {
-    const histPts = (hist[r] || []).map(p => p.rrp).filter(v => typeof v === 'number');
-    const pdPts   = (pd[r]   || []).map(p => p.rrp).filter(v => typeof v === 'number');
+    // 30-min trading intervals (each represents 30 min)
+    const tradingPts = (trading[r] || []).map(p => ({ rrp: p.rrp, mins: 30 }));
 
-    const avgActual = histPts.length ? histPts.reduce((a,b)=>a+b,0)/histPts.length : null;
-    const avgPD     = pdPts.length   ? pdPts.reduce((a,b)=>a+b,0)/pdPts.length     : null;
+    // 5-min dispatch — each represents 5 min; skip any that overlap with trading intervals
+    // trading covers up to ~1hr ago; dispatch_5min covers ~last 1hr
+    const tradingTimes = new Set((trading[r] || []).map(p => p.interval));
+    const disp5Pts = (disp5[r] || [])
+      .filter(p => !tradingTimes.has(p.interval))
+      .map(p => ({ rrp: p.rrp, mins: 5 }));
 
-    // Combined day estimate: weight by interval counts
-    const totalPts = histPts.length + pdPts.length;
-    const avgDay   = totalPts > 0
-      ? ((avgActual||0)*histPts.length + (avgPD||0)*pdPts.length) / totalPts
-      : null;
+    // 30-min PD forecast intervals
+    const pdPts = (pd[r] || []).map(p => ({ rrp: p.rrp, mins: 30 }));
+
+    const allPts = [...tradingPts, ...disp5Pts, ...pdPts];
+    const totalMins = allPts.reduce((s, p) => s + p.mins, 0);
+    const weightedSum = allPts.reduce((s, p) => s + p.rrp * p.mins, 0);
+    const avgDay = totalMins > 0 ? weightedSum / totalMins : null;
 
     const col = REGION_COLORS[r];
-    const fmtAvg = v => v !== null ? (v >= 1000 ? '$'+Math.round(v/1000)+'k' : '$'+Math.round(v)) : '—';
+    const fmtAvg = v => {
+      if (v === null) return '—';
+      if (v >= 10000) return '$' + Math.round(v/1000) + 'k';
+      if (v < 0) return '-$' + Math.round(Math.abs(v));
+      return '$' + Math.round(v);
+    };
 
     html += `<div style="text-align:center">
       <div style="font-family:var(--font-mono);font-size:9px;color:${col};font-weight:700;margin-bottom:4px">${REGION_SHORT[r]}</div>
-      <div style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:#e2e8f0">${fmtAvg(avgDay)}</div>
-      <div style="font-family:var(--font-mono);font-size:8px;color:#475569;margin-top:2px">day est.</div>
-      <div style="display:flex;gap:4px;justify-content:center;margin-top:5px">
-        <div style="text-align:center">
-          <div style="font-family:var(--font-mono);font-size:10px;color:#94a3b8">${fmtAvg(avgActual)}</div>
-          <div style="font-family:var(--font-mono);font-size:7px;color:#334155">actual</div>
-        </div>
-        <div style="color:#334155;font-size:10px;line-height:2">·</div>
-        <div style="text-align:center">
-          <div style="font-family:var(--font-mono);font-size:10px;color:#64748b">${fmtAvg(avgPD)}</div>
-          <div style="font-family:var(--font-mono);font-size:7px;color:#334155">PD fcst</div>
-        </div>
-      </div>
+      <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:#e2e8f0">${fmtAvg(avgDay)}</div>
     </div>`;
   }
 
   html += '</div>';
 
-  // Interval counts as context
-  const sampleRegion = REGIONS.find(r => (hist[r]||[]).length > 0);
-  if (sampleRegion) {
-    const nAct = (hist[sampleRegion]||[]).length;
-    const nPD  = (pd[sampleRegion]||[]).length;
-    const minsAct = nAct * 5;
-    const hAct = Math.floor(minsAct/60), mAct = minsAct%60;
-    html += `<div style="font-family:var(--font-mono);font-size:8px;color:#334155;margin-top:6px;text-align:right">
-      ${nAct} actual intervals (${hAct}h${mAct > 0 ? mAct+'m' : ''}) · ${nPD} PD intervals remaining
+  // Context: how much of the day is actual vs forecast
+  const sampleR = REGIONS.find(r => (trading[r]||[]).length + (disp5[r]||[]).length > 0);
+  if (sampleR) {
+    const nTrading = (trading[sampleR]||[]).length;
+    const n5min    = (disp5[sampleR]||[]).length;
+    const nPD      = (pd[sampleR]||[]).length;
+    const actualMins = nTrading * 30 + n5min * 5;
+    const pdMins     = nPD * 30;
+    const totalMins  = actualMins + pdMins;
+    const pctActual  = totalMins > 0 ? Math.round(actualMins / totalMins * 100) : 0;
+    html += `<div style="font-family:var(--font-mono);font-size:8px;color:#334155;margin-top:8px">
+      ${pctActual}% actual · ${100-pctActual}% PD forecast
     </div>`;
   }
 

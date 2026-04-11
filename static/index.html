@@ -454,36 +454,32 @@ function showPanel(name) {
 // ── Prices ────────────────────────────────────────────────────────────────────
 
 function _renderDailyAvgSummary(data) {
-  const trading = data.historical_prices    || {};  // 30-min settled intervals
-  const disp5   = data.dispatch_prices_5min || {};  // 5-min recent actuals
-  const pd      = data.predispatch_prices   || {};  // 30-min PD forecast
+  const disp5 = data.dispatch_prices_5min || {};  // 5-min actuals up to now
+  const pd    = data.predispatch_prices   || {};  // 30-min PD forecast
 
   let html = '<div class="chart-card" style="padding:10px 12px;margin-bottom:2px">';
   html += '<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-bottom:8px;letter-spacing:0.05em">ESTIMATED DAILY AVERAGE POOL PRICE $/MWh</div>';
   html += '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">';
 
   for (const r of REGIONS) {
-    // 30-min trading intervals (each represents 30 min)
-    const tradingPts = (trading[r] || []).map(p => ({ rrp: p.rrp, mins: 30 }));
+    // Actuals: all 5-min dispatch intervals
+    const actualPts = (disp5[r] || []).map(p => ({ rrp: p.rrp, mins: 5 }));
 
-    // 5-min dispatch — each represents 5 min; skip any that overlap with trading intervals
-    // trading covers up to ~1hr ago; dispatch_5min covers ~last 1hr
-    const tradingTimes = new Set((trading[r] || []).map(p => p.interval));
-    const disp5Pts = (disp5[r] || [])
-      .filter(p => !tradingTimes.has(p.interval))
-      .map(p => ({ rrp: p.rrp, mins: 5 }));
+    // PD: 30-min intervals strictly after the last actual interval
+    const lastActualTime = (disp5[r] || []).reduce((max, p) => p.interval > max ? p.interval : max, '');
+    const pdPts = (pd[r] || [])
+      .filter(p => p.interval > lastActualTime)
+      .map(p => ({ rrp: p.rrp, mins: 30 }));
 
-    // 30-min PD forecast intervals
-    const pdPts = (pd[r] || []).map(p => ({ rrp: p.rrp, mins: 30 }));
-
-    const allPts = [...tradingPts, ...disp5Pts, ...pdPts];
+    const allPts = [...actualPts, ...pdPts];
     const totalMins = allPts.reduce((s, p) => s + p.mins, 0);
-    const weightedSum = allPts.reduce((s, p) => s + p.rrp * p.mins, 0);
-    const avgDay = totalMins > 0 ? weightedSum / totalMins : null;
+    const avgDay = totalMins > 0
+      ? allPts.reduce((s, p) => s + p.rrp * p.mins, 0) / totalMins
+      : null;
 
     const col = REGION_COLORS[r];
     const fmtAvg = v => {
-      if (v === null) return '—';
+      if (v === null) return '\u2014';
       if (v >= 10000) return '$' + (v/1000).toFixed(1) + 'k';
       if (v < 0) return '-$' + Math.abs(v).toFixed(2);
       return '$' + v.toFixed(2);
@@ -497,24 +493,24 @@ function _renderDailyAvgSummary(data) {
 
   html += '</div>';
 
-  // Context: how much of the day is actual vs forecast
-  const sampleR = REGIONS.find(r => (trading[r]||[]).length + (disp5[r]||[]).length > 0);
+  const sampleR = REGIONS.find(r => (disp5[r]||[]).length > 0);
   if (sampleR) {
-    const nTrading = (trading[sampleR]||[]).length;
-    const n5min    = (disp5[sampleR]||[]).length;
-    const nPD      = (pd[sampleR]||[]).length;
-    const actualMins = nTrading * 30 + n5min * 5;
+    const lastActual = (disp5[sampleR]||[]).reduce((max, p) => p.interval > max ? p.interval : max, '');
+    const nAct = (disp5[sampleR]||[]).length;
+    const nPD  = (pd[sampleR]||[]).filter(p => p.interval > lastActual).length;
+    const actualMins = nAct * 5;
     const pdMins     = nPD * 30;
     const totalMins  = actualMins + pdMins;
     const pctActual  = totalMins > 0 ? Math.round(actualMins / totalMins * 100) : 0;
     html += `<div style="font-family:var(--font-mono);font-size:8px;color:#334155;margin-top:8px">
-      ${pctActual}% actual · ${100-pctActual}% PD forecast
+      ${pctActual}% actual (${nAct}\u00d75min) \u00b7 ${100-pctActual}% PD forecast (${nPD}\u00d730min)
     </div>`;
   }
 
   html += '</div>';
   return html;
 }
+
 
 function renderPrices(data) {
   const prices = data.prices || {};

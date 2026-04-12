@@ -2600,6 +2600,20 @@ def _scrape_barchart_curve(root: str, num_contracts: int = 18) -> list:
         prev  = raw.get("previousClose")
         if not price:
             continue
+        # Convert lastUpdate from CT to AEST/AEDT using zoneinfo
+        last_update_ct = raw.get("lastUpdate")
+        last_update_aest = None
+        if last_update_ct:
+            try:
+                from zoneinfo import ZoneInfo
+                ct  = ZoneInfo("America/Chicago")
+                syd = ZoneInfo("Australia/Sydney")
+                dt_ct   = datetime.strptime(str(last_update_ct)[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=ct)
+                dt_syd  = dt_ct.astimezone(syd)
+                abbr    = dt_syd.strftime("%Z")  # AEST or AEDT
+                last_update_aest = dt_syd.strftime("%-d %b %H:%M") + f" {abbr}"
+            except Exception:
+                last_update_aest = str(last_update_ct)[:16]
         results.append({
             "symbol":        raw.get("symbol"),
             "contractName":  raw.get("contractName"),
@@ -2608,7 +2622,7 @@ def _scrape_barchart_curve(root: str, num_contracts: int = 18) -> list:
             "previousClose": float(prev) if prev else None,
             "volume":        raw.get("volume"),
             "openInterest":  raw.get("openInterest"),
-            "lastUpdate":    raw.get("lastUpdate"),   # "2026-04-10 17:51:59" CT
+            "lastUpdate":    last_update_aest,
         })
     return results
 

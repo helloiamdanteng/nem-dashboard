@@ -5585,11 +5585,48 @@ function _buildCommTablesHtml() {
 
 function _fmtTradeTime(t) {
   if (!t) return '\u2014';
-  // lastUpdate from Barchart is "2026-04-10 17:51:59" already in CT — just show as-is (trim seconds)
+  // Barchart lastUpdate: "YYYY-MM-DD HH:MM:SS" in America/Chicago (CT)
+  // Convert to Australia/Sydney (handles AEDT/AEST DST automatically)
   try {
-    const s = String(t);
-    // "2026-04-10 17:51:59" → "2026-04-10 17:51 CT"
-    return s.slice(0, 16) + ' CT';
+    const s = String(t).trim().slice(0, 19); // "2026-04-10 17:51:59"
+    const [datePart, timePart] = s.split(' ');
+    const [yr, mo, dy] = datePart.split('-').map(Number);
+    const [hr, mn, sc] = timePart.split(':').map(Number);
+
+    // Determine the UTC offset for America/Chicago at this moment.
+    // We do this by formatting a candidate UTC time and checking if CT agrees.
+    // Start with UTC = input - 6h (CST guess), then check and correct.
+    const guess = Date.UTC(yr, mo - 1, dy, hr + 6, mn, sc);
+    const ctFmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Chicago',
+      hour: 'numeric', minute: '2-digit', hour12: false,
+    });
+    // Format guess as CT and compare to input
+    const guessDate = new Date(guess);
+    const ctParts = ctFmt.formatToParts(guessDate);
+    const ctHour = parseInt(ctParts.find(p => p.type === 'hour').value);
+    const ctMin  = parseInt(ctParts.find(p => p.type === 'minute').value);
+    // Compute error in minutes and correct
+    const inputMinutes = hr * 60 + mn;
+    const ctMinutes    = ctHour * 60 + ctMin;
+    let diff = inputMinutes - ctMinutes; // should be 0 if offset guess correct
+    if (diff > 720) diff -= 1440;
+    if (diff < -720) diff += 1440;
+    const utcMs = guess - diff * 60000;
+    const utcDate = new Date(utcMs);
+
+    // Format as AEST/AEDT
+    const aestStr = utcDate.toLocaleString('en-AU', {
+      timeZone: 'Australia/Sydney',
+      day: 'numeric', month: 'short',
+      hour: '2-digit', minute: '2-digit',
+      hour12: false,
+    });
+    // Get timezone abbreviation (AEST or AEDT)
+    const tzName = utcDate.toLocaleString('en-AU', {
+      timeZone: 'Australia/Sydney', timeZoneName: 'short'
+    }).split(' ').pop();
+    return `${aestStr} ${tzName}`;
   } catch { return '\u2014'; }
 }
 

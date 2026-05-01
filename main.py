@@ -374,6 +374,32 @@ async def _run_gen():
         gen_cache["error"] = str(e)
 
 
+async def _check_fuel_history_gaps() -> bool:
+    """
+    Returns True if _fuel_history has a gap > 15 min in the last 3 hours.
+    Uses NSW1 as representative region.
+    """
+    from scraper import _fuel_history
+    from datetime import datetime as dt_
+    series = _fuel_history.get("NSW1", {})
+    if len(series) < 3:
+        return True
+    now_str = dt_.now().strftime("%H:%M")
+    # All labels up to now, sorted
+    labels = sorted(k for k in series if k <= now_str)
+    if not labels:
+        return True
+    # Only check last 3 hours worth
+    cutoff_dt = dt_.strptime(labels[-1], "%H:%M")
+    recent = [l for l in labels if (cutoff_dt - dt_.strptime(l, "%H:%M")).seconds <= 10800]
+    for i in range(1, len(recent)):
+        gap = (dt_.strptime(recent[i], "%H:%M") - dt_.strptime(recent[i-1], "%H:%M")).seconds // 60
+        if gap > 15:
+            logger.warning(f"Fuel history gap: {recent[i-1]}→{recent[i]} ({gap}min)")
+            return True
+    return False
+
+
 async def gen_loop():
     await asyncio.sleep(5)   # let fast scrape finish first
     # Backfill 24hr SCADA history once at startup so chart is immediately populated
@@ -386,12 +412,27 @@ async def gen_loop():
         logger.info("SCADA history backfill complete")
     except Exception as e:
         logger.warning(f"SCADA history backfill failed: {e}")
+    _consecutive_failures = 0
     while True:
         try:
             await _run_gen()
+            _consecutive_failures = 0
+            # After every successful scrape, check for gaps in fuel history
+            # (e.g. from a previous run of failures). Re-backfill if needed.
+            if await _check_fuel_history_gaps():
+                logger.info("Fuel history gap detected — triggering re-backfill")
+                try:
+                    loop = asyncio.get_running_loop()
+                    await asyncio.wait_for(
+                        loop.run_in_executor(None, scrape_scada_history), timeout=180
+                    )
+                    logger.info("Gap re-backfill complete")
+                except Exception as e:
+                    logger.warning(f"Gap re-backfill failed: {e}")
         except Exception as e:
             logger.error(f"Gen loop error: {e}")
             gen_cache["error"] = str(e)
+            _consecutive_failures += 1
         await asyncio.sleep(GEN_INTERVAL)
 
 

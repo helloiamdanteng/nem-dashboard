@@ -407,7 +407,7 @@ async def gen_loop():
         loop = asyncio.get_running_loop()
         logger.info("Starting SCADA history backfill…")
         await asyncio.wait_for(
-            loop.run_in_executor(None, scrape_scada_history), timeout=120
+            loop.run_in_executor(None, scrape_scada_history), timeout=300
         )
         logger.info("SCADA history backfill complete")
     except Exception as e:
@@ -424,7 +424,7 @@ async def gen_loop():
                 try:
                     loop = asyncio.get_running_loop()
                     await asyncio.wait_for(
-                        loop.run_in_executor(None, scrape_scada_history), timeout=180
+                        loop.run_in_executor(None, scrape_scada_history), timeout=300
                     )
                     logger.info("Gap re-backfill complete")
                 except Exception as e:

@@ -458,22 +458,21 @@ ORIGIN_DISPLAY_NAMES: dict = {
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": "NEM-Dashboard/1.0"})
 # Match pool size to max_workers to avoid overflow warnings
-_adapter = requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=4)
+_adapter = requests.adapters.HTTPAdapter(pool_connections=2, pool_maxsize=2)
 SESSION.mount("https://", _adapter)
 SESSION.mount("http://", _adapter)
 
-def _get(url: str, timeout: int = 15, retries: int = 3) -> Optional[requests.Response]:
+def _get(url: str, timeout: int = 15, retries: int = 2) -> Optional[requests.Response]:
     import time as _time
     for attempt in range(retries + 1):
         try:
             r = SESSION.get(url, timeout=timeout)
             if r.status_code == 403:
-                wait = 2.0 * (attempt + 1)  # 2s, 4s, 6s, 8s
+                wait = 3.0 * (attempt + 1)  # 3s, 6s
                 logger.warning(f"GET 403 (rate-limited?) {url} — retrying in {wait:.0f}s")
                 if attempt < retries:
                     _time.sleep(wait)
                     continue
-                # Exhausted retries — return None rather than raise
                 logger.warning(f"GET 403 giving up after {retries} retries: {url}")
                 return None
             r.raise_for_status()
@@ -719,7 +718,7 @@ def scrape_trading_history() -> dict:
 
     def fetch_one(url):
         import time as _time, random
-        _time.sleep(random.uniform(0, 0.3))  # jitter to avoid burst
+        _time.sleep(random.uniform(0.2, 0.8))  # spread requests, reduce burst
         try:
             text = _read_zip(url)
             if not text:
@@ -752,7 +751,7 @@ def scrape_trading_history() -> dict:
             logger.warning(f"fetch_one failed {url}: {e}")
             return [], "fail"
 
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=2) as ex:
         futures = {ex.submit(fetch_one, u): u for u in today_zips}
         for fut in as_completed(futures):
             pts, status = fut.result()
@@ -920,7 +919,7 @@ def scrape_dispatch_history() -> dict:
             logger.warning(f"dispatch_history fetch_one failed {url}: {e}")
             return [], "fail"
 
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=2) as ex:
         futures = {ex.submit(fetch_one, u): u for u in today_zips}
         for fut in as_completed(futures):
             pts, status = fut.result()
@@ -1656,7 +1655,7 @@ def scrape_all() -> dict:
     logger.info("scrape_all starting...")
 
     # Run all IO-bound fetches concurrently with per-future timeout
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=2) as ex:
         f_dispatch_is   = ex.submit(_fetch_dispatch_is)
         f_predispatch   = ex.submit(_fetch_predispatch)
         f_trading       = ex.submit(scrape_trading_history)
@@ -2390,7 +2389,7 @@ def scrape_scada_history() -> None:
 
     # Parallel fetch
     all_snapshots = {}  # { HH:MM -> { duid: mw } }
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=2) as ex:
         futures = {ex.submit(fetch_one, u): u for u in today_urls}
         for fut in as_completed(futures):
             result = fut.result()
@@ -2683,9 +2682,11 @@ def scrape_historical_day(date_str: str) -> dict:
     except Exception:
         pass
 
-    # ── Step 2: Demand from DispatchIS REGIONSUM ──────────────────────────────
-    demand:    dict = {r: {} for r in NEM_REGIONS}  # { region: { HH:MM: mw } }
+    # ── Step 2: Demand, IC flows, and battery from DispatchIS REGIONSUM ─────────
+    demand:    dict = {r: {} for r in NEM_REGIONS}
     op_demand: dict = {r: {} for r in NEM_REGIONS}
+    ic_flows:  dict = {}   # { ic_id: { HH:MM: flow } }
+    bdu:       dict = {r: {} for r in NEM_REGIONS}  # { region: { HH:MM: {net_mw,gen,load,storage} } }
 
     try:
         dispatch_files = _list_hrefs(DISPATCH_IS_URL)
@@ -2696,6 +2697,8 @@ def scrape_historical_day(date_str: str) -> dict:
             try:
                 text = _read_zip(url)
                 if not text: continue
+
+                # Demand
                 for row in _parse_aemo(text, "DISPATCH_REGIONSUM"):
                     region = row.get("REGIONID", "").strip()
                     if region not in NEM_REGIONS: continue
@@ -2711,6 +2714,50 @@ def scrape_historical_day(date_str: str) -> dict:
                         if op_str:  op_demand[region][label] = round(float(op_str), 1)
                     except (ValueError, TypeError):
                         continue
+
+                # IC flows
+                for row in _parse_aemo(text, "DISPATCH_INTERCONNECTORRES"):
+                    ic_id = row.get("INTERCONNECTORID", "").strip()
+                    dt_str2 = row.get("SETTLEMENTDATE", "")
+                    flow_str = row.get("MWFLOW", "")
+                    if not ic_id or not dt_str2 or not flow_str: continue
+                    try:
+                        dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - _td(minutes=5)
+                        if dt.date() != req_date: continue
+                        label = dt.strftime("%H:%M")
+                        if ic_id not in ic_flows: ic_flows[ic_id] = {}
+                        ic_flows[ic_id][label] = round(float(flow_str), 1)
+                    except (ValueError, TypeError):
+                        continue
+
+                # Battery (BDU) from DISPATCH_UNIT_SOLUTION
+                for row in _parse_aemo(text, "DISPATCH_UNIT_SOLUTION"):
+                    duid = row.get("DUID", "").strip().upper()
+                    dt_str2 = row.get("SETTLEMENTDATE", "")
+                    bdu_gen  = row.get("BDU_CLEAREDMW_GEN", "")
+                    bdu_load = row.get("BDU_CLEAREDMW_LOAD", "")
+                    bdu_soc  = row.get("BDU_ENERGY_STORAGE", "")
+                    if not (bdu_gen or bdu_load) or not dt_str2: continue
+                    info = NEM_UNITS.get(duid, {})
+                    region = info.get("region", "")
+                    if region not in NEM_REGIONS: continue
+                    try:
+                        dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - _td(minutes=5)
+                        if dt.date() != req_date: continue
+                        label = dt.strftime("%H:%M")
+                        g = round(float(bdu_gen  or 0), 1)
+                        l = round(float(bdu_load or 0), 1)
+                        s = round(float(bdu_soc), 1) if bdu_soc else None
+                        existing = bdu[region].get(label, {"net_mw": 0, "gen": 0, "load": 0, "storage": None})
+                        bdu[region][label] = {
+                            "net_mw":  round(existing["net_mw"] + g - l, 1),
+                            "gen":     round(existing["gen"]  + g, 1),
+                            "load":    round(existing["load"] + l, 1),
+                            "storage": s if s is not None else existing["storage"],
+                        }
+                    except (ValueError, TypeError):
+                        continue
+
             except Exception as e:
                 logger.debug(f"scrape_historical_day: DispatchIS error {url}: {e}")
     except Exception as e:
@@ -2781,6 +2828,10 @@ def scrape_historical_day(date_str: str) -> dict:
         "demand_history":      _to_series(demand),
         "op_demand_history":   _to_series(op_demand),
         "fuel_history":        _to_list(fuel_history),
+        "ic_history":          {ic_id: [{"interval": k, "flow": v} for k, v in sorted(s.items())]
+                                for ic_id, s in ic_flows.items() if s},
+        "bdu_history":         {r: [{"interval": k, **v} for k, v in sorted(s.items())]
+                                for r, s in bdu.items() if s},
     }
 
 

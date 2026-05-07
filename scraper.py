@@ -468,17 +468,19 @@ def _get(url: str, timeout: int = 15, retries: int = 3) -> Optional[requests.Res
         try:
             r = SESSION.get(url, timeout=timeout)
             if r.status_code == 403:
-                # AEMO rate-limiting — back off longer before retry
                 wait = 2.0 * (attempt + 1)  # 2s, 4s, 6s, 8s
                 logger.warning(f"GET 403 (rate-limited?) {url} — retrying in {wait:.0f}s")
                 if attempt < retries:
                     _time.sleep(wait)
                     continue
-                raise requests.HTTPError(f"403 after {retries} retries", response=r)
+                # Exhausted retries — return None rather than raise
+                logger.warning(f"GET 403 giving up after {retries} retries: {url}")
+                return None
             r.raise_for_status()
             return r
         except requests.HTTPError:
-            raise
+            logger.warning(f"GET failed {url}: HTTP error")
+            return None
         except Exception as e:
             if attempt < retries:
                 _time.sleep(0.5 * (attempt + 1))

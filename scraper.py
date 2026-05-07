@@ -26,9 +26,9 @@ AEST = ZoneInfo("Australia/Brisbane")  # UTC+10 fixed - AEMO never uses daylight
 NEMWEB_BASE       = "https://www.nemweb.com.au"
 DISPATCH_IS_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/DispatchIS_Reports/"
 PREDISPATCH_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/PredispatchIS_Reports/"
+
 SCADA_URL         = f"{NEMWEB_BASE}/REPORTS/CURRENT/Dispatch_SCADA/"
 TRADING_IS_URL    = f"{NEMWEB_BASE}/REPORTS/CURRENT/TradingIS_Reports/"
-TRADING_CURRENT   = f"{NEMWEB_BASE}/REPORTS/CURRENT/TradingIS_Reports/"
 TRADING_ARCHIVE   = f"{NEMWEB_BASE}/REPORTS/ARCHIVE/TradingIS_Reports/"
 MTPASA_DUID_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/MTPASA_DUIDAvailability/"
 PDPASA_DUID_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/PDPASA_DUIDAvailability/"
@@ -166,7 +166,7 @@ _DUID_FUEL_PATTERNS = [
 
     # ── Battery ───────────────────────────────────────────────────────────────
     (re.compile(r"(BATT|BATTERY|_BAT\d?|BAT_|HPR\d|HORNSDALE.?P|BYP|"
-                r"BESS|_BESS|BARCABAT|GANNAWARRA|LAKELANDS|WANDOAN)", re.I), "Battery"),
+                r"BESS|_BESS|BARCABAT|GANNAWARRA|LAKELANDS|WANDOAN|^MLB\d)", re.I), "Battery"),
 
     # ── Liquid (diesel/oil) ───────────────────────────────────────────────────
     (re.compile(r"(DIESEL|DISTILLATE|LIQUID|FUEL.?OIL)", re.I), "Liquid"),
@@ -334,6 +334,15 @@ def _load_nem_units() -> dict:
 NEM_UNITS: dict = _load_nem_units()
 logger.info(f"NEM_UNITS loaded: {len(NEM_UNITS)} DUIDs")
 
+# ── Newly commissioned DUIDs not yet in nem_units.json ───────────────────────
+# Add here until the next AEMO registration list update picks them up
+# Use force=True for DUIDs where nem_units.json has wrong data
+_NEW_DUIDS = {
+    "MLB01": {"station": "Mortlake Battery", "fuel": "Battery", "region": "VIC1", "capacity": 300},
+}
+for _duid, _info in _NEW_DUIDS.items():
+    NEM_UNITS[_duid] = _info  # always override — nem_units.json may have stale data
+
 # Pump-load DUIDs: registered as scheduled LOAD in AEMO - SCADA reports positive MW
 # when consuming (pumping). We negate so they display as negative generation.
 PUMP_LOAD_DUIDS: set = {
@@ -374,7 +383,7 @@ ORIGIN_DUIDS: set = {
     # QLD
     "DDPS1", "MSTUART1", "MSTUART2", "MSTUART3", "ROMA_7",
     "CLARESF1", "DDSF1", "DAYDSF1",
-    "SNB01",
+    "SNB01", "SNB02",
     # NSW
     "ER01", "ER02", "ER03", "ER04",
     "URANQ1", "URANQ2", "URANQ3", "URANQ4",
@@ -385,6 +394,7 @@ ORIGIN_DUIDS: set = {
     "ERB01",
     # VIC
     "MORTLK11", "MORTLK12",
+    "MLB01",
     "STOCKYD1",
     # SA
     "OSB-AG",
@@ -398,6 +408,7 @@ ORIGIN_DUIDS: set = {
 # Only needed where AEMO's registered name differs from what Origin calls it.
 ORIGIN_DISPLAY_NAMES: dict = {
     "SNB01":    "Supernode Battery",
+    "SNB02":     "Supernode Battery",
     "OSB-AG":   "Osborne Cogen",
     "ROMA_7":   "Roma Gas",
     "BNGSF1":   "Bungala Solar 1",
@@ -425,6 +436,7 @@ ORIGIN_DISPLAY_NAMES: dict = {
     # Mortlake
     "MORTLK11": "Mortlake",
     "MORTLK12": "Mortlake",
+    "MLB01":    "Mortlake Battery",
     # Stockyard Hill
     "STOCKYD1": "Stockyard Hill",
     # Ladbroke Grove
@@ -457,89 +469,36 @@ ORIGIN_DISPLAY_NAMES: dict = {
 
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": "NEM-Dashboard/1.0"})
-# Main session for live scrapes — 4 connections
-_adapter = requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=4)
+# Cap connection pool to avoid overwhelming NEMWeb with concurrent requests
+_adapter = requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=8)
 SESSION.mount("https://", _adapter)
 SESSION.mount("http://", _adapter)
-
-# Separate session for bulk/historical fetches (D-1, backfill)
-# Uses fewer connections so it doesn't starve the live scrape
-BULK_SESSION = requests.Session()
-BULK_SESSION.headers.update({"User-Agent": "NEM-Dashboard/1.0"})
-_bulk_adapter = requests.adapters.HTTPAdapter(pool_connections=2, pool_maxsize=2)
-BULK_SESSION.mount("https://", _bulk_adapter)
-BULK_SESSION.mount("http://", _bulk_adapter)
 
 def _get(url: str, timeout: int = 15, retries: int = 2) -> Optional[requests.Response]:
     import time as _time
     for attempt in range(retries + 1):
         try:
             r = SESSION.get(url, timeout=timeout)
-            if r.status_code == 403:
-                wait = 1.0 * (attempt + 1)  # 1s, 2s — fail fast on live scrape
-                logger.warning(f"GET 403 (rate-limited?) {url} — retrying in {wait:.0f}s")
-                if attempt < retries:
-                    _time.sleep(wait)
-                    continue
-                logger.warning(f"GET 403 giving up after {retries} retries: {url}")
-                return None
             r.raise_for_status()
             return r
-        except requests.HTTPError:
-            logger.warning(f"GET failed {url}: HTTP error")
-            return None
         except Exception as e:
             if attempt < retries:
-                _time.sleep(0.5 * (attempt + 1))
+                _time.sleep(0.5 * (attempt + 1))  # 0.5s, 1.0s backoff
                 logger.debug(f"GET retry {attempt+1} {url}: {e}")
             else:
                 logger.warning(f"GET failed {url}: {e}")
     return None
 
 
-def _get_bulk(url: str, timeout: int = 30, retries: int = 2) -> Optional[requests.Response]:
-    """Like _get but uses BULK_SESSION — for historical/backfill fetches."""
-    import time as _time
-    for attempt in range(retries + 1):
-        try:
-            r = BULK_SESSION.get(url, timeout=timeout)
-            if r.status_code == 403:
-                wait = 3.0 * (attempt + 1)
-                logger.warning(f"BULK 403 {url} — retrying in {wait:.0f}s")
-                if attempt < retries:
-                    _time.sleep(wait)
-                    continue
-                return None
-            r.raise_for_status()
-            return r
-        except requests.HTTPError:
-            return None
-        except Exception as e:
-            if attempt < retries:
-                _time.sleep(0.5 * (attempt + 1))
-            else:
-                logger.warning(f"BULK GET failed {url}: {e}")
-    return None
-
-
-def _read_zip_bulk(url: str) -> str:
-    """Like _read_zip but uses BULK_SESSION."""
-    r = _get_bulk(url)
-    if not r:
-        return ""
-    try:
-        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
-            csvs = [n for n in z.namelist() if n.lower().endswith(".csv")]
-            if not csvs:
-                return ""
-            with z.open(csvs[0]) as f:
-                return f.read().decode("utf-8", errors="replace")
-    except Exception as e:
-        logger.warning(f"BULK ZIP read failed {url}: {e}")
-        return ""
-
+_list_hrefs_cache: dict[str, tuple[float, list]] = {}  # url → (timestamp, result)
+_LIST_HREFS_TTL = 60  # seconds
 
 def _list_hrefs(url: str) -> list[str]:
+    import time as _time
+    now = _time.monotonic()
+    cached = _list_hrefs_cache.get(url)
+    if cached and (now - cached[0]) < _LIST_HREFS_TTL:
+        return cached[1]
     r = _get(url, timeout=10)
     if not r:
         return []
@@ -547,19 +506,19 @@ def _list_hrefs(url: str) -> list[str]:
     for m in re.finditer(r'href="([^"]+\.zip)"', r.text, re.IGNORECASE):
         href = m.group(1)
         if href.startswith("http"):
-            # Normalise any absolute URL to use www. and uppercase /REPORTS/
             href = re.sub(r'https?://(?:www\.)?nemweb\.com\.au', NEMWEB_BASE, href, flags=re.I)
             href = re.sub(r'/[Rr]eports/[Cc]urrent/', '/REPORTS/CURRENT/', href)
             href = re.sub(r'/[Rr]eports/[Aa]rchive/', '/REPORTS/ARCHIVE/', href)
             found.append(href)
         elif href.startswith("/"):
-            # Normalise path casing
             href = re.sub(r'/[Rr]eports/[Cc]urrent/', '/REPORTS/CURRENT/', href)
             href = re.sub(r'/[Rr]eports/[Aa]rchive/', '/REPORTS/ARCHIVE/', href)
             found.append(f"{NEMWEB_BASE}{href}")
         else:
             found.append(url.rstrip("/") + "/" + href)
-    return sorted(set(found))
+    result = sorted(set(found))
+    _list_hrefs_cache[url] = (now, result)
+    return result
 
 
 def _read_zip(url: str) -> str:
@@ -575,6 +534,54 @@ def _read_zip(url: str) -> str:
                 return f.read().decode("utf-8", errors="replace")
     except Exception as e:
         logger.warning(f"ZIP read failed {url}: {e}")
+        return ""
+
+
+def _read_zip_all(url: str) -> str:
+    """Read ALL CSVs from a ZIP and concatenate — for multi-file archive ZIPs."""
+    r = _get(url, timeout=60)
+    if not r:
+        return ""
+    try:
+        parts = []
+        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+            csvs = sorted(n for n in z.namelist() if n.lower().endswith(".csv"))
+            if not csvs:
+                return ""
+            for name in csvs:
+                with z.open(name) as f:
+                    parts.append(f.read().decode("utf-8", errors="replace"))
+        return "\n".join(parts)
+    except Exception as e:
+        logger.warning(f"ZIP read all failed {url}: {e}")
+        return ""
+
+
+def _read_zip_of_zips(url: str) -> str:
+    """
+    Read a ZIP that contains inner ZIPs (each containing one CSV).
+    Used for TradingIS weekly archive files.
+    """
+    r = _get(url, timeout=60)
+    if not r:
+        return ""
+    try:
+        parts = []
+        with zipfile.ZipFile(io.BytesIO(r.content)) as outer:
+            inner_zips = sorted(n for n in outer.namelist() if n.lower().endswith(".zip"))
+            for name in inner_zips:
+                try:
+                    inner_bytes = outer.read(name)
+                    with zipfile.ZipFile(io.BytesIO(inner_bytes)) as inner:
+                        csvs = [n for n in inner.namelist() if n.lower().endswith(".csv")]
+                        if csvs:
+                            with inner.open(csvs[0]) as f:
+                                parts.append(f.read().decode("utf-8", errors="replace"))
+                except Exception:
+                    continue
+        return "\n".join(parts)
+    except Exception as e:
+        logger.warning(f"ZIP of ZIPs read failed {url}: {e}")
         return ""
 
 
@@ -739,7 +746,7 @@ def scrape_trading_history() -> dict:
     now_aest = datetime.now(AEST)
     today_str = now_aest.strftime("%Y%m%d")
 
-    all_zips = _list_hrefs(TRADING_CURRENT)
+    all_zips = _list_hrefs(TRADING_IS_URL)
     today_zips = sorted([u for u in all_zips if today_str in u])
     if not today_zips:
         today_zips = sorted(all_zips)[-48:]
@@ -767,7 +774,7 @@ def scrape_trading_history() -> dict:
 
     def fetch_one(url):
         import time as _time, random
-        _time.sleep(random.uniform(0.2, 0.8))  # spread requests, reduce burst
+        _time.sleep(random.uniform(0, 0.1))  # small jitter to avoid burst
         try:
             text = _read_zip(url)
             if not text:
@@ -800,7 +807,7 @@ def scrape_trading_history() -> dict:
             logger.warning(f"fetch_one failed {url}: {e}")
             return [], "fail"
 
-    with ThreadPoolExecutor(max_workers=2) as ex:
+    with ThreadPoolExecutor(max_workers=4) as ex:
         futures = {ex.submit(fetch_one, u): u for u in today_zips}
         for fut in as_completed(futures):
             pts, status = fut.result()
@@ -968,7 +975,7 @@ def scrape_dispatch_history() -> dict:
             logger.warning(f"dispatch_history fetch_one failed {url}: {e}")
             return [], "fail"
 
-    with ThreadPoolExecutor(max_workers=2) as ex:
+    with ThreadPoolExecutor(max_workers=4) as ex:
         futures = {ex.submit(fetch_one, u): u for u in today_zips}
         for fut in as_completed(futures):
             pts, status = fut.result()
@@ -1046,104 +1053,6 @@ def scrape_dispatch_history() -> dict:
 
 
 # Keep old name as alias for compatibility
-def scrape_dispatch_demand_history() -> dict:
-    return scrape_dispatch_history()["demand"]
-
-
-# ---------------------------------------------------------------------------
-# Predispatch
-# ---------------------------------------------------------------------------
-
-def scrape_historical_dispatch_prices(date_str: str) -> dict:
-    """
-    Fetch 5-min dispatch prices for a given date (YYYYMMDD).
-    Returns { region: [ {interval: "HH:MM", rrp: float} ] }
-
-    Sources (in priority order):
-    1. DispatchIS CURRENT — last ~3 days, table PRICE, filter INTERVENTION=0
-    2. TradingIS CURRENT  — last ~15 days, table PRICE, uses PERIODID for time
-    """
-    from datetime import datetime as _dt, timedelta as _td
-    now_aest = datetime.now(AEST)
-    today    = now_aest.date()
-
-    try:
-        req_date = _dt.strptime(date_str, "%Y%m%d").date()
-    except ValueError:
-        return {}
-
-    prices: dict = {r: {} for r in NEM_REGIONS}
-
-    # ── Source 1: DispatchIS CURRENT (last ~3 days, 5-min, INTERVENTION filter) ──
-    try:
-        dispatch_files = _list_hrefs(DISPATCH_IS_URL)
-        date_files = sorted([f for f in dispatch_files if date_str in f and "PUBLIC_DISPATCHIS" in f.upper()])
-        logger.info(f"scrape_historical_dispatch_prices: {len(date_files)} DispatchIS files for {date_str}")
-        for url in date_files:
-            try:
-                text = _read_zip(url)
-                if not text: continue
-                for row in _parse_aemo(text, "PRICE"):
-                    if row.get("INTERVENTION", "0").strip() != "0":
-                        continue
-                    region = row.get("REGIONID", "").strip()
-                    if region not in NEM_REGIONS: continue
-                    dt_str2 = row.get("SETTLEMENTDATE", "")
-                    rrp_str = row.get("RRP", "")
-                    if not dt_str2 or not rrp_str: continue
-                    try:
-                        dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - _td(minutes=5)
-                        if dt.date() != req_date: continue
-                        label = dt.strftime("%H:%M")
-                        prices[region][label] = round(float(rrp_str), 2)
-                    except (ValueError, TypeError):
-                        continue
-            except Exception as e:
-                logger.debug(f"scrape_historical_dispatch_prices: DispatchIS file error {url}: {e}")
-    except Exception as e:
-        logger.warning(f"scrape_historical_dispatch_prices: DispatchIS listing failed: {e}")
-
-    # If we got data from DispatchIS, return it
-    if any(prices.values()):
-        return {r: [{"interval": k, "rrp": v} for k, v in sorted(pts.items())]
-                for r, pts in prices.items() if pts}
-
-    # ── Source 2: TradingIS CURRENT (last ~15 days, 5-min via PERIODID) ──
-    try:
-        trading_files = _list_hrefs(TRADING_IS_URL)
-        date_files = sorted([f for f in trading_files if date_str in f and "PUBLIC_TRADINGIS" in f.upper()])
-        logger.info(f"scrape_historical_dispatch_prices: {len(date_files)} TradingIS files for {date_str}")
-        for url in date_files:
-            try:
-                text = _read_zip(url)
-                if not text: continue
-                for row in _parse_aemo(text, "PRICE"):
-                    region = row.get("REGIONID", "").strip()
-                    if region not in NEM_REGIONS: continue
-                    period_str = row.get("PERIODID", "")
-                    rrp_str    = row.get("RRP", "")
-                    if not period_str or not rrp_str: continue
-                    try:
-                        # PERIODID 1-288, each = 5 min from midnight
-                        period = int(float(period_str))
-                        total_min = (period - 1) * 5
-                        hh, mm = divmod(total_min, 60)
-                        label = f"{hh:02d}:{mm:02d}"
-                        prices[region][label] = round(float(rrp_str), 2)
-                    except (ValueError, TypeError):
-                        continue
-            except Exception as e:
-                logger.debug(f"scrape_historical_dispatch_prices: TradingIS file error {url}: {e}")
-    except Exception as e:
-        logger.warning(f"scrape_historical_dispatch_prices: TradingIS listing failed: {e}")
-
-    if not any(prices.values()):
-        logger.warning(f"scrape_historical_dispatch_prices: no data found for {date_str}")
-
-    return {r: [{"interval": k, "rrp": v} for k, v in sorted(pts.items())]
-            for r, pts in prices.items() if pts}
-
-
 def _fetch_predispatch() -> str:
     url = get_latest_file_url(PREDISPATCH_URL, "PUBLIC_PREDISPATCHIS")
     return _read_zip(url) if url else ""
@@ -1153,7 +1062,7 @@ def scrape_predispatch_prices(text: str) -> dict:
     now_aest = datetime.now(AEST).replace(tzinfo=None)
     today    = now_aest.date()
     region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-    for tk in ["PREDISPATCH_REGION_PRICES", "PREDISPATCH_PRICE", "PREDISPATCH_REGIONPRICE"]:
+    for tk in ["PREDISPATCH_REGION_PRICES", "REGION_PRICES", "PREDISPATCH_PRICE", "PREDISPATCH_REGIONPRICE"]:
         rows = _parse_aemo(text, tk)
         if not rows:
             continue
@@ -1183,6 +1092,136 @@ def scrape_predispatch_prices(text: str) -> dict:
             result[region] = [{"interval": k, "rrp": v} for k, v in sorted(series.items())]
     logger.info(f"Predispatch prices: {sum(len(v) for v in result.values())} pts")
     return result
+
+
+def scrape_predispatch_sensitivity(text: str) -> dict:
+    """
+    Fetch sensitivity prices from Predispatch_Sensitivities file.
+    Returns { region: [{interval, scenarios: {label: rrp}}] }
+    Uses AEMO's published scenario definitions (Pre-Dispatch Sensitivities doc, March 2021).
+    """
+    now_aest = datetime.now(AEST).replace(tzinfo=None)
+
+    # Scenario demand offsets by region — from AEMO Pre-Dispatch Sensitivities doc
+    # Format: scenario_num -> {region -> offset_MW}
+    SCENARIO_DEFS = {
+        1:  {"NSW1": +100},
+        2:  {"NSW1": -100},
+        3:  {"NSW1": +200},
+        4:  {"NSW1": -200},
+        5:  {"NSW1": +500},
+        6:  {"NSW1": -500},
+        7:  {"NSW1": +1000},
+        8:  {"QLD1": +100},
+        9:  {"QLD1": -100},
+        10: {"QLD1": +200},
+        11: {"QLD1": -200},
+        12: {"QLD1": +500},
+        13: {"QLD1": -500},
+        14: {"QLD1": +1000},
+        15: {"SA1": +50},
+        16: {"SA1": -50},
+        17: {"SA1": +100},
+        18: {"SA1": -100},
+        19: {"SA1": +200},
+        20: {"SA1": -200},
+        25: {"NSW1": +200, "QLD1": +100, "SA1": +50, "VIC1": +100},
+        26: {"NSW1": -200, "QLD1": -100, "SA1": -50, "VIC1": -100},
+        27: {"NSW1": +400, "QLD1": +200, "SA1": +100, "VIC1": +200},
+        28: {"NSW1": -400, "QLD1": -200, "SA1": -100, "VIC1": -200},
+        29: {"VIC1": +100},
+        30: {"VIC1": -100},
+        31: {"VIC1": +200},
+        32: {"VIC1": -200},
+        33: {"VIC1": +500},
+        34: {"VIC1": -500},
+        35: {"VIC1": +1000},
+        36: {"TAS1": +50},
+        37: {"TAS1": -50},
+        38: {"TAS1": +100},
+        39: {"TAS1": -100},
+        40: {"TAS1": +150},
+        41: {"TAS1": -150},
+        42: {"TAS1": +300},
+        43: {"TAS1": +500},
+    }
+
+    def _scen_label(scen_num: int, region: str) -> str | None:
+        defn = SCENARIO_DEFS.get(scen_num, {})
+        if not defn:
+            return None
+        # For multi-region scenarios, show total NEM offset
+        if len(defn) > 1:
+            total = sum(defn.values())
+            sign = "+" if total > 0 else ""
+            return f"NEM {sign}{total} MW"
+        # Single-region: only label if it affects this region
+        r, off = next(iter(defn.items()))
+        if r != region:
+            return None  # skip scenarios that don't affect this region
+        sign = "+" if off > 0 else ""
+        return f"{sign}{off} MW"
+
+    try:
+        SENS_URL = f"{NEMWEB_BASE}/REPORTS/CURRENT/Predispatch_Sensitivities/"
+        urls = _list_hrefs(SENS_URL)
+        if not urls:
+            return {}
+        sens_text = _read_zip(urls[-1])
+        if not sens_text:
+            return {}
+
+        rows = _parse_aemo(sens_text, "PREDISPATCH_PRICESENSITIVITIES")
+        if not rows:
+            return {}
+
+        sample = rows[0]
+        rrpeep_cols = sorted(
+            [k for k in sample.keys() if k.startswith("RRPEEP")],
+            key=lambda x: int(x.replace("RRPEEP", ""))
+        )
+
+        region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
+        for row in rows:
+            region = row.get("REGIONID", "").strip()
+            if region not in NEM_REGIONS:
+                continue
+            if row.get("INTERVENTION", "0") not in ("0", ""):
+                continue
+            dt_str = row.get("DATETIME", "")
+            if not dt_str:
+                continue
+            try:
+                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
+                if dt.replace(tzinfo=None) < now_aest - timedelta(minutes=30):
+                    continue
+                label = dt.strftime("%H:%M")
+                scenarios = {}
+                for col in rrpeep_cols:
+                    scen_num = int(col.replace("RRPEEP", ""))
+                    scen_label = _scen_label(scen_num, region)
+                    if scen_label is None:
+                        continue  # skip scenarios not relevant to this region
+                    v = row.get(col, "")
+                    if v:
+                        try:
+                            scenarios[scen_label] = round(float(v), 2)
+                        except (ValueError, TypeError):
+                            pass
+                if scenarios:
+                    region_series[region][label] = scenarios
+            except (ValueError, TypeError):
+                pass
+
+        result = {}
+        for region, series in region_series.items():
+            if series:
+                result[region] = [{"interval": k, "scenarios": v} for k, v in sorted(series.items())]
+        logger.info(f"Predispatch sensitivity: {sum(len(v) for v in result.values())} pts")
+        return result
+    except Exception as e:
+        logger.warning(f"scrape_predispatch_sensitivity: {e}")
+        return {}
 
 
 def scrape_predispatch_demand(text: str) -> dict:
@@ -1221,11 +1260,13 @@ def scrape_predispatch_demand(text: str) -> dict:
 
 def scrape_predispatch_generation(text: str) -> dict:
     """
-    Extract today's future generation forecast from PREDISPATCH files.
-    Returns { region: [{interval, Scheduled, SemiScheduled}] } for today's future intervals.
+    Extract today's future + tomorrow's generation forecast from PREDISPATCH files.
+    Returns { region: [{interval, Scheduled, SemiScheduled, solar, wind}] }
+    Intervals use "YYYY-MM-DD HH:MM" format for tomorrow, "HH:MM" for today.
     """
     now_aest = datetime.now(AEST).replace(tzinfo=None)
     today    = now_aest.date()
+    tomorrow = (now_aest + timedelta(days=1)).date()
     region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
     for tk in ["PREDISPATCH_REGION_SOLUTION", "PREDISPATCH_REGIONSOLUTION"]:
         rows = _parse_aemo(text, tk)
@@ -1242,18 +1283,24 @@ def scrape_predispatch_generation(text: str) -> dict:
                 continue
             try:
                 dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                if dt.date() == today and dt >= now_aest:
+                if dt < now_aest:
+                    continue
+                if dt.date() == today:
                     label = dt.strftime("%H:%M")
-                    sched = float(row.get("DISPATCHABLEGENERATION", 0) or 0)
-                    semi  = float(row.get("SEMISCHEDULE_CLEAREDMW", 0) or 0)
-                    sol   = float(row.get("SS_SOLAR_UIGF", row.get("SS_SOLAR_CLEAREDMW", 0)) or 0)
-                    win   = float(row.get("SS_WIND_UIGF",  row.get("SS_WIND_CLEAREDMW",  0)) or 0)
-                    region_series[region][label] = {
-                        "Scheduled":     round(sched, 1),
-                        "SemiScheduled": round(semi, 1),
-                        "solar":         round(sol, 1),
-                        "wind":          round(win, 1),
-                    }
+                elif dt.date() == tomorrow:
+                    label = dt.strftime("%Y-%m-%d %H:%M")
+                else:
+                    continue
+                sched = float(row.get("DISPATCHABLEGENERATION", 0) or 0)
+                semi  = float(row.get("SEMISCHEDULE_CLEAREDMW", 0) or 0)
+                sol   = float(row.get("SS_SOLAR_UIGF", row.get("SS_SOLAR_CLEAREDMW", 0)) or 0)
+                win   = float(row.get("SS_WIND_UIGF",  row.get("SS_WIND_CLEAREDMW",  0)) or 0)
+                region_series[region][label] = {
+                    "Scheduled":     round(sched, 1),
+                    "SemiScheduled": round(semi, 1),
+                    "solar":         round(sol, 1),
+                    "wind":          round(win, 1),
+                }
             except (ValueError, TypeError):
                 pass
         break
@@ -1704,12 +1751,13 @@ def scrape_all() -> dict:
     logger.info("scrape_all starting...")
 
     # Run all IO-bound fetches concurrently with per-future timeout
-    with ThreadPoolExecutor(max_workers=2) as ex:
+    with ThreadPoolExecutor(max_workers=6) as ex:
         f_dispatch_is   = ex.submit(_fetch_dispatch_is)
         f_predispatch   = ex.submit(_fetch_predispatch)
         f_trading       = ex.submit(scrape_trading_history)
         f_dispatch_hist = ex.submit(scrape_dispatch_history)
         f_scada         = ex.submit(_fetch_full_scada)
+        f_sens          = ex.submit(scrape_predispatch_sensitivity, "")
 
     def _safe_result(fut, default, name):
         try:
@@ -1723,6 +1771,7 @@ def scrape_all() -> dict:
     trading          = _safe_result(f_trading,        {"prices": {}, "fetch_stats": {}}, "trading")
     dispatch_hist    = _safe_result(f_dispatch_hist,  {"demand": {}, "op_demand": {}, "prices": {}}, "dispatch_hist")
     scada_vals       = _safe_result(f_scada,          {}, "scada")
+    pd_sensitivity   = _safe_result(f_sens,           {}, "sensitivity")
 
     dispatch_demand       = dispatch_hist.get("demand", {})
     dispatch_op_demand    = dispatch_hist.get("op_demand", {})
@@ -1864,6 +1913,7 @@ def scrape_all() -> dict:
         "dispatch_prices_5min":  capped_dispatch_prices,
         "price_fetch_stats":     trading.get("fetch_stats", {}),
         "predispatch_prices":    pd_prices,
+        "predispatch_sensitivity": pd_sensitivity,
         "demand_history":        demand_history,
         "op_demand_history":     dispatch_op_demand,
         "dispatch_history":      dispatch_demand,
@@ -2382,1334 +2432,6 @@ def scrape_all_generators() -> dict:
 # scrape_scada_history - backfill 24hr fuel mix history from SCADA CURRENT files
 # ---------------------------------------------------------------------------
 
-def scrape_historical_dispatch_prices(date_str: str) -> dict:
-    """
-    Fetch 5-min dispatch prices for a given date (YYYYMMDD).
-    Returns { region: [ {interval: "HH:MM", rrp: float} ] }
-
-    Sources (in priority order):
-    1. DispatchIS CURRENT — last ~3 days, table PRICE, filter INTERVENTION=0
-    2. TradingIS CURRENT  — last ~15 days, table PRICE, uses PERIODID for time
-    """
-    from datetime import datetime as _dt, timedelta as _td
-    now_aest = datetime.now(AEST)
-    today    = now_aest.date()
-
-    try:
-        req_date = _dt.strptime(date_str, "%Y%m%d").date()
-    except ValueError:
-        return {}
-
-    prices: dict = {r: {} for r in NEM_REGIONS}
-
-    # ── Source 1: DispatchIS CURRENT (last ~3 days, 5-min, INTERVENTION filter) ──
-    try:
-        dispatch_files = _list_hrefs(DISPATCH_IS_URL)
-        date_files = sorted([f for f in dispatch_files if date_str in f and "PUBLIC_DISPATCHIS" in f.upper()])
-        logger.info(f"scrape_historical_dispatch_prices: {len(date_files)} DispatchIS files for {date_str}")
-        for url in date_files:
-            try:
-                text = _read_zip_bulk(url)
-                if not text: continue
-                for row in _parse_aemo(text, "PRICE"):
-                    if row.get("INTERVENTION", "0").strip() != "0":
-                        continue
-                    region = row.get("REGIONID", "").strip()
-                    if region not in NEM_REGIONS: continue
-                    dt_str2 = row.get("SETTLEMENTDATE", "")
-                    rrp_str = row.get("RRP", "")
-                    if not dt_str2 or not rrp_str: continue
-                    try:
-                        dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - _td(minutes=5)
-                        if dt.date() != req_date: continue
-                        label = dt.strftime("%H:%M")
-                        prices[region][label] = round(float(rrp_str), 2)
-                    except (ValueError, TypeError):
-                        continue
-            except Exception as e:
-                logger.debug(f"scrape_historical_dispatch_prices: DispatchIS file error {url}: {e}")
-    except Exception as e:
-        logger.warning(f"scrape_historical_dispatch_prices: DispatchIS listing failed: {e}")
-
-    # If we got data from DispatchIS, return it
-    if any(prices.values()):
-        return {r: [{"interval": k, "rrp": v} for k, v in sorted(pts.items())]
-                for r, pts in prices.items() if pts}
-
-    # ── Source 2: TradingIS CURRENT (last ~15 days, 5-min via PERIODID) ──
-    try:
-        trading_files = _list_hrefs(TRADING_IS_URL)
-        date_files = sorted([f for f in trading_files if date_str in f and "PUBLIC_TRADINGIS" in f.upper()])
-        logger.info(f"scrape_historical_dispatch_prices: {len(date_files)} TradingIS files for {date_str}")
-        for url in date_files:
-            try:
-                text = _read_zip_bulk(url)
-                if not text: continue
-                for row in _parse_aemo(text, "PRICE"):
-                    region = row.get("REGIONID", "").strip()
-                    if region not in NEM_REGIONS: continue
-                    period_str = row.get("PERIODID", "")
-                    rrp_str    = row.get("RRP", "")
-                    if not period_str or not rrp_str: continue
-                    try:
-                        # PERIODID 1-288, each = 5 min from midnight
-                        period = int(float(period_str))
-                        total_min = (period - 1) * 5
-                        hh, mm = divmod(total_min, 60)
-                        label = f"{hh:02d}:{mm:02d}"
-                        prices[region][label] = round(float(rrp_str), 2)
-                    except (ValueError, TypeError):
-                        continue
-            except Exception as e:
-                logger.debug(f"scrape_historical_dispatch_prices: TradingIS file error {url}: {e}")
-    except Exception as e:
-        logger.warning(f"scrape_historical_dispatch_prices: TradingIS listing failed: {e}")
-
-    if not any(prices.values()):
-        logger.warning(f"scrape_historical_dispatch_prices: no data found for {date_str}")
-
-    return {r: [{"interval": k, "rrp": v} for k, v in sorted(pts.items())]
-            for r, pts in prices.items() if pts}
-
-
-def _fetch_predispatch() -> str:
-    url = get_latest_file_url(PREDISPATCH_URL, "PUBLIC_PREDISPATCHIS")
-    return _read_zip_bulk(url) if url else ""
-
-
-def scrape_predispatch_prices(text: str) -> dict:
-    now_aest = datetime.now(AEST).replace(tzinfo=None)
-    today    = now_aest.date()
-    region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-    for tk in ["PREDISPATCH_REGION_PRICES", "PREDISPATCH_PRICE", "PREDISPATCH_REGIONPRICE"]:
-        rows = _parse_aemo(text, tk)
-        if not rows:
-            continue
-        for row in rows:
-            region = row.get("REGIONID", "")
-            if region not in NEM_REGIONS:
-                continue
-            if row.get("INTERVENTION", "0") not in ("0", ""):
-                continue
-            dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", ""))
-            rrp_str = row.get("RRP", "")
-            if not dt_str or not rrp_str:
-                continue
-            try:
-                rrp = round(float(rrp_str), 2)
-                # DATETIME is end-of-interval; shift back 30min for display
-                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                # Only keep today's future intervals (AEST) - keep anything within last 30min too
-                if dt.date() == today and dt >= now_aest - timedelta(minutes=30):
-                    region_series[region][dt.strftime("%H:%M")] = rrp
-            except (ValueError, TypeError):
-                pass
-        break
-    result = {}
-    for region, series in region_series.items():
-        if series:
-            result[region] = [{"interval": k, "rrp": v} for k, v in sorted(series.items())]
-    logger.info(f"Predispatch prices: {sum(len(v) for v in result.values())} pts")
-    return result
-
-
-def scrape_predispatch_demand(text: str) -> dict:
-    now_aest = datetime.now(AEST).replace(tzinfo=None)
-    today    = now_aest.date()
-    region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-    for tk in ["PREDISPATCH_REGION_SOLUTION", "PREDISPATCH_REGIONSOLUTION"]:
-        rows = _parse_aemo(text, tk)
-        if not rows:
-            continue
-        for row in rows:
-            region = row.get("REGIONID", "")
-            if region not in NEM_REGIONS:
-                continue
-            if row.get("INTERVENTION", "0") not in ("0", ""):
-                continue
-            dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", ""))
-            demand_str = row.get("DEMAND_AND_NONSCHEDGEN", row.get("TOTALDEMAND", row.get("DEMAND", "")))
-            if not dt_str or not demand_str:
-                continue
-            try:
-                demand = round(float(demand_str), 1)
-                # DATETIME is end-of-interval; shift back 30min for display
-                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                if dt.date() == today and dt > now_aest:
-                    region_series[region][dt.strftime("%H:%M")] = demand
-            except (ValueError, TypeError):
-                pass
-        break
-    result = {}
-    for region, series in region_series.items():
-        if series:
-            result[region] = [{"interval": k, "demand": v} for k, v in sorted(series.items())]
-    return result
-
-
-def scrape_predispatch_generation(text: str) -> dict:
-    """
-    Extract today's future generation forecast from PREDISPATCH files.
-    Returns { region: [{interval, Scheduled, SemiScheduled}] } for today's future intervals.
-    """
-    now_aest = datetime.now(AEST).replace(tzinfo=None)
-    today    = now_aest.date()
-    region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-    for tk in ["PREDISPATCH_REGION_SOLUTION", "PREDISPATCH_REGIONSOLUTION"]:
-        rows = _parse_aemo(text, tk)
-        if not rows:
-            continue
-        for row in rows:
-            region = row.get("REGIONID", "")
-            if region not in NEM_REGIONS:
-                continue
-            if row.get("INTERVENTION", "0") not in ("0", ""):
-                continue
-            dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", ""))
-            if not dt_str:
-                continue
-            try:
-                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                if dt.date() == today and dt >= now_aest:
-                    label = dt.strftime("%H:%M")
-                    sched = float(row.get("DISPATCHABLEGENERATION", 0) or 0)
-                    semi  = float(row.get("SEMISCHEDULE_CLEAREDMW", 0) or 0)
-                    sol   = float(row.get("SS_SOLAR_UIGF", row.get("SS_SOLAR_CLEAREDMW", 0)) or 0)
-                    win   = float(row.get("SS_WIND_UIGF",  row.get("SS_WIND_CLEAREDMW",  0)) or 0)
-                    region_series[region][label] = {
-                        "Scheduled":     round(sched, 1),
-                        "SemiScheduled": round(semi, 1),
-                        "solar":         round(sol, 1),
-                        "wind":          round(win, 1),
-                    }
-            except (ValueError, TypeError):
-                pass
-        break
-    result = {}
-    for region, series in region_series.items():
-        if series:
-            result[region] = [{"interval": k, **v} for k, v in sorted(series.items())]
-    return result
-
-
-def scrape_p5min_unit_solution(text: str) -> dict:
-    """
-    Extract DUID-level MW forecasts from P5MIN_UNIT_SOLUTION.
-    Returns { duid: [{interval: "HH:MM", mw: float}] } for future intervals today.
-    P5MIN covers ~1hr ahead in 5-min intervals.
-    INTERVAL_DATETIME is end-of-period - subtract 5min for display label.
-    """
-    if not text:
-        return {}
-
-    now_aest = datetime.now(AEST).replace(tzinfo=None)
-    today    = now_aest.date()
-    now_hhmm = now_aest.strftime("%H:%M")
-
-    result: dict[str, dict] = {}
-
-    for tk in ["P5MIN_UNIT_SOLUTION", "P5MIN_UNITSOLUTION"]:
-        rows = _parse_aemo(text, tk)
-        if not rows:
-            continue
-        for row in rows:
-            if row.get("INTERVENTION", "0") not in ("0", ""):
-                continue
-            duid = row.get("DUID", "").strip()
-            if not duid:
-                continue
-            dt_str = row.get("INTERVAL_DATETIME", "")
-            if not dt_str:
-                continue
-            try:
-                dt = datetime.strptime(dt_str[:16], "%Y/%m/%d %H:%M")
-                dt -= timedelta(minutes=5)
-            except Exception:
-                try:
-                    dt = datetime.strptime(dt_str[:16], "%Y-%m-%d %H:%M")
-                    dt -= timedelta(minutes=5)
-                except Exception:
-                    continue
-            if dt.date() != today:
-                continue
-            hhmm = dt.strftime("%H:%M")
-            if hhmm <= now_hhmm:
-                continue
-            mw_str = row.get("TOTALCLEARED", row.get("SEMIDISPATCHCAP", ""))
-            try:
-                mw = float(mw_str)
-            except Exception:
-                continue
-            result.setdefault(duid, {})[hhmm] = mw
-        if result:
-            break
-
-    return {duid: [{"interval": k, "mw": v} for k, v in sorted(pts.items())]
-            for duid, pts in result.items() if pts}
-
-
-# Keep old name as alias so nothing else breaks
-scrape_predispatch_unit_solution = scrape_p5min_unit_solution
-
-
-
-
-def scrape_tomorrow_prices(text: str) -> dict:
-    """
-    Extract tomorrow's predispatch price forecast from PREDISPATCH files.
-    Returns { region: [{interval: "HH:MM", rrp: float}] } for tomorrow only.
-    """
-    now_aest = datetime.now(AEST).replace(tzinfo=None)
-    tomorrow = (now_aest + timedelta(days=1)).date()
-    region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-    for tk in ["PREDISPATCH_REGION_PRICES", "PREDISPATCH_PRICE", "PREDISPATCH_REGIONPRICE"]:
-        rows = _parse_aemo(text, tk)
-        if not rows:
-            continue
-        for row in rows:
-            region = row.get("REGIONID", "")
-            if region not in NEM_REGIONS:
-                continue
-            if row.get("INTERVENTION", "0") not in ("0", ""):
-                continue
-            dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", ""))
-            rrp_str = row.get("RRP", "")
-            if not dt_str or not rrp_str:
-                continue
-            try:
-                rrp = round(float(rrp_str), 2)
-                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                if dt.date() == tomorrow:
-                    region_series[region][dt.strftime("%H:%M")] = rrp
-            except (ValueError, TypeError):
-                pass
-        break
-    result = {}
-    for region, series in region_series.items():
-        if series:
-            result[region] = [{"interval": k, "rrp": v} for k, v in sorted(series.items())]
-    logger.info(f"Tomorrow prices: {sum(len(v) for v in result.values())} pts")
-    return result
-
-
-def scrape_tomorrow_demand(text: str, stpasa: dict) -> dict:
-    """
-    Tomorrow's demand forecast - combines predispatch (finer resolution near midnight)
-    and STPASA (broader 30-min intervals for the full day).
-    Returns { region: [{interval: "HH:MM", demand: float}] }
-    """
-    now_aest = datetime.now(AEST).replace(tzinfo=None)
-    tomorrow = (now_aest + timedelta(days=1)).date()
-    region_series: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-
-    # First: predispatch region solution (high-res near midnight)
-    for tk in ["PREDISPATCH_REGION_SOLUTION", "PREDISPATCH_REGIONSOLUTION"]:
-        rows = _parse_aemo(text, tk)
-        if not rows:
-            continue
-        for row in rows:
-            region = row.get("REGIONID", "")
-            if region not in NEM_REGIONS:
-                continue
-            if row.get("INTERVENTION", "0") not in ("0", ""):
-                continue
-            dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", ""))
-            demand_str = row.get("DEMAND_AND_NONSCHEDGEN", row.get("TOTALDEMAND", row.get("DEMAND", "")))
-            if not dt_str or not demand_str:
-                continue
-            try:
-                demand = round(float(demand_str), 1)
-                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
-                if dt.date() == tomorrow:
-                    region_series[region][dt.strftime("%H:%M")] = demand
-            except (ValueError, TypeError):
-                pass
-        break
-
-    # Second: fill remainder from STPASA (30-min intervals)
-    for region, pts in stpasa.items():
-        if region not in NEM_REGIONS:
-            continue
-        for pt in pts:
-            label_full = pt.get("interval", "")  # "YYYY-MM-DD HH:MM"
-            d50 = pt.get("demand_50")
-            if not label_full or d50 is None:
-                continue
-            try:
-                dt = datetime.strptime(label_full, "%Y-%m-%d %H:%M")
-                if dt.date() == tomorrow:
-                    hhmm = dt.strftime("%H:%M")
-                    if hhmm not in region_series[region]:  # don't overwrite predispatch
-                        region_series[region][hhmm] = d50
-            except ValueError:
-                pass
-
-    result = {}
-    for region, series in region_series.items():
-        if series:
-            result[region] = [{"interval": k, "demand": v} for k, v in sorted(series.items())]
-    logger.info(f"Tomorrow demand: {sum(len(v) for v in result.values())} pts")
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Fuel mix - OpenNEM (single NEM-wide call, not 5 calls)
-# ---------------------------------------------------------------------------
-
-def _normalise_fuel(fuel: str) -> str:
-    f = fuel.upper()
-    if "COAL_BLACK" in f or "BLACK" in f:          return "Black Coal"
-    if "COAL_BROWN" in f or "BROWN" in f:          return "Brown Coal"
-    if "GAS" in f or "OCGT" in f or "CCGT" in f:  return "Gas"
-    if "HYDRO" in f or "WATER" in f:               return "Hydro"
-    if "WIND" in f:                                return "Wind"
-    if "SOLAR" in f or "ROOFTOP" in f:             return "Solar"
-    if "BATTERY" in f or "STORAGE" in f:           return "Battery"
-    if "LIQUID" in f or "DISTILLATE" in f:         return "Liquid"
-    return "Other"
-
-
-def scrape_fuel_mix_live() -> dict:
-    """
-    Compute current fuel mix from SCADA output + registration list.
-    Returns { region: { fuel: mw } } - a single snapshot (not history).
-    Used as primary source; OpenNEM used for history if available.
-    """
-    try:
-        scada = _fetch_full_scada()
-        reg   = _load_registration_list()
-        if not scada or not reg:
-            return {}
-
-        result: dict[str, dict[str, float]] = {r: {} for r in NEM_REGIONS}
-        for duid, mw in scada.items():
-            info = reg.get(duid, {})
-            region = info.get("region", "")
-            raw_fuel = info.get("fuel", "")
-            fuel   = raw_fuel if (raw_fuel and raw_fuel != "Other") else _infer_fuel_from_duid(duid)
-            if region not in NEM_REGIONS or mw is None or mw <= 0:
-                continue
-            result[region][fuel] = round(result[region].get(fuel, 0) + mw, 1)
-
-        final = {r: v for r, v in result.items() if v}
-        logger.info(f"Live fuel mix: {len(final)} regions")
-        return final
-    except Exception as e:
-        logger.warning(f"Live fuel mix failed: {e}")
-        return {}
-
-
-def scrape_fuel_mix_history_opennem() -> dict:
-    """
-    Fetch fuel mix history from OpenNEM API.
-    Returns { region: [ {interval, Black Coal, Gas, ...}, ... ] }
-    Falls back to live SCADA snapshot if OpenNEM is unavailable.
-    """
-    try:
-        url = f"{OPENNEM_API}/v4/stats/power/network/NEM?interval=5m&period=1d"
-        r = _get(url, timeout=15)
-        if not r or r.status_code != 200:
-            raise ValueError(f"OpenNEM returned {r.status_code if r else 'no response'}")
-        data = r.json()
-        # result: region -> interval_str -> fuel -> mw
-        result: dict[str, dict] = {}
-        for series in data.get("data", []):
-            fuel_raw = series.get("fuel_tech") or series.get("type") or ""
-            net_region = series.get("network_region", "")
-            if not fuel_raw or not net_region:
-                continue
-            region = net_region if net_region.endswith("1") else net_region + "1"
-            if region not in NEM_REGIONS:
-                continue
-            fuel = _normalise_fuel(fuel_raw)
-            history = series.get("history", {})
-            start_str = history.get("start", "")
-            interval_mins = history.get("interval", 5)
-            values = history.get("data", []) or []
-            if not start_str or not values:
-                continue
-            try:
-                start_dt = datetime.fromisoformat(start_str.replace("Z", "+00:00")).astimezone(AEST)
-                for i, val in enumerate(values):
-                    if val is None:
-                        continue
-                    slot = (start_dt + timedelta(minutes=i * interval_mins)).strftime("%H:%M")
-                    rd = result.setdefault(region, {})
-                    sd = rd.setdefault(slot, {})
-                    sd[fuel] = sd.get(fuel, 0) + round(float(val), 1)
-            except (ValueError, TypeError):
-                pass
-        final = {}
-        for region, series in result.items():
-            if series:
-                final[region] = [{"interval": k, **v} for k, v in sorted(series.items())]
-        if final:
-            logger.info(f"Fuel mix (OpenNEM): {sum(len(v) for v in final.values())} pts across {len(final)} regions")
-            return final
-        raise ValueError("OpenNEM returned empty data")
-    except Exception as e:
-        logger.warning(f"OpenNEM fuel mix failed: {e} - using live SCADA snapshot")
-        # Fall back: wrap live snapshot as single-point history
-        live = scrape_fuel_mix_live()
-        now_label = datetime.now(AEST).strftime("%H:%M")
-        return {r: [{"interval": now_label, **fuels}] for r, fuels in live.items()}
-
-
-# ---------------------------------------------------------------------------
-# In-memory demand history - lightweight fallback used only if TradingIS fetch fails
-# ---------------------------------------------------------------------------
-
-_demand_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-
-# ---------------------------------------------------------------------------
-# In-memory fuel mix history - populated by scrape_gen every 15 min
-# { region: { "HH:MM": { fuel: mw } } }
-# Keyed by AEST time string; old entries pruned to keep only today's data.
-# ---------------------------------------------------------------------------
-_fuel_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
-_duid_history: dict[str, dict] = {}  # { duid: { "HH:MM": mw } } - per-unit today history
-_rooftop_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}  # TOTALINTERMITTENTGENERATION
-
-def _update_fuel_history(fuel_mix: dict, scada: dict | None = None, pump_load: dict | None = None) -> None:
-    """Store a fuel mix snapshot and per-DUID snapshot. Prune to today only."""
-    now = datetime.now(AEST)
-    # Snap to nearest 5-min boundary so labels align with the 5-min time spine in the frontend
-    snapped_min = (now.minute // 5) * 5
-    label = now.strftime("%H:") + f"{snapped_min:02d}"
-    for region in NEM_REGIONS:
-        if region not in fuel_mix:
-            continue
-        snap = dict(fuel_mix[region])
-        # Store pump hydro load as negative value under 'Pump Hydro' key
-        if pump_load and pump_load.get(region, 0) < -1:
-            snap["Pump Hydro"] = round(pump_load[region], 1)
-        _fuel_history[region][label] = snap
-        if len(_fuel_history[region]) > 290:
-            oldest = sorted(_fuel_history[region].keys())[0]
-            del _fuel_history[region][oldest]
-
-    # Store per-DUID history for station drill-down
-    if scada:
-        for duid, mw in scada.items():
-            if mw is None:
-                continue
-            if duid not in _duid_history:
-                _duid_history[duid] = {}
-            # Pump-load DUIDs report positive MW when consuming - negate for display
-            stored_mw = -round(mw, 1) if duid in PUMP_LOAD_DUIDS else round(mw, 1)
-            _duid_history[duid][label] = stored_mw
-            if len(_duid_history[duid]) > 290:
-                oldest = sorted(_duid_history[duid].keys())[0]
-                del _duid_history[duid][oldest]
-
-def _get_fuel_history() -> dict:
-    now_label = datetime.now(AEST).strftime("%H:%M")
-    result = {}
-    for region, series in _fuel_history.items():
-        if series:
-            result[region] = [{"interval": k, **v} for k, v in sorted(series.items()) if k <= now_label]
-    return result
-
-
-def _update_demand_history(region_summary: dict) -> None:
-    label = datetime.now(AEST).strftime("%H:%M")
-    for region, data in region_summary.items():
-        if region in NEM_REGIONS and "TOTALDEMAND" in data:
-            _demand_history[region][label] = data["TOTALDEMAND"]
-
-
-def _get_demand_history() -> dict:
-    result = {}
-    for region, series in _demand_history.items():
-        if series:
-            result[region] = [{"interval": k, "demand": v} for k, v in sorted(series.items())]
-    return result
-
-
-# ---------------------------------------------------------------------------
-# In-memory interconnector history + predispatch IC flows
-# ---------------------------------------------------------------------------
-
-_ic_history: dict[str, dict] = {}
-_bdu_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}  # { region: { HH:MM: {gen,load,storage,max_avail} } }
-
-
-def _update_ic_history(ic_snapshot: dict) -> None:
-    label = datetime.now(AEST).strftime("%H:%M")
-    for ic_id, vals in ic_snapshot.items():
-        if ic_id not in _ic_history:
-            _ic_history[ic_id] = {}
-        _ic_history[ic_id][label] = vals.get("flow", 0)
-
-
-def _get_ic_history() -> dict:
-    result = {}
-    for ic_id, series in _ic_history.items():
-        if series:
-            result[ic_id] = [{"interval": k, "flow": v} for k, v in sorted(series.items())]
-    return result
-
-
-def _update_bdu_history(region_summary: dict) -> None:
-    label = datetime.now(AEST).strftime("%H:%M")
-    for region, d in region_summary.items():
-        if region not in NEM_REGIONS:
-            continue
-        gen  = d.get("BDU_CLEAREDMW_GEN", 0) or 0
-        load = d.get("BDU_CLEAREDMW_LOAD", 0) or 0
-        soc  = d.get("BDU_ENERGY_STORAGE")
-        cap  = d.get("BDU_MAX_AVAIL") or d.get("BDU_MIN_AVAIL")
-        # Pump hydro load = total scheduled load - battery load
-        disp_load = d.get("DISPATCHABLELOAD", 0) or 0
-        pump_load = max(round(disp_load - load, 1), 0)  # never negative
-        _bdu_history[region][label] = {
-            "net_mw":    round(gen - load, 1),   # positive=discharging, negative=charging
-            "gen":       round(gen, 1),
-            "load":      round(load, 1),
-            "pump_load": pump_load,               # pump hydro MW consuming
-            "storage":   round(soc, 1) if soc is not None else None,
-            "max_avail": round(cap, 1) if cap is not None else None,
-        }
-
-
-def _update_live_duid_history(scada: dict) -> None:
-    """Write current SCADA snapshot into _duid_history so modal charts stay live.
-    Called every 5 min from scrape_all. Only writes DUIDs we care about."""
-    label = datetime.now(AEST).strftime("%H:%M")
-    for duid, mw in scada.items():
-        if mw is None:
-            continue
-        # Negate pump-load DUIDs so they show as negative
-        stored_mw = -round(mw, 1) if duid in PUMP_LOAD_DUIDS else round(mw, 1)
-        if duid not in _duid_history:
-            _duid_history[duid] = {}
-        _duid_history[duid][label] = stored_mw
-        # Trim to 290 points (~24h of 5-min data)
-        if len(_duid_history[duid]) > 290:
-            oldest = sorted(_duid_history[duid].keys())[0]
-            del _duid_history[duid][oldest]
-
-
-def _get_bdu_history() -> dict:
-    now_label = datetime.now(AEST).strftime("%H:%M")
-    result = {}
-    for region, series in _bdu_history.items():
-        if series:
-            result[region] = [{"interval": k, **v} for k, v in sorted(series.items()) if k <= now_label]
-    return result
-
-
-def scrape_predispatch_interconnectors(text: str) -> dict:
-    now_aest = datetime.now(AEST).replace(tzinfo=None)
-    ic_series: dict[str, dict] = {}
-    for tk in ["PREDISPATCH_INTERCONNECTOR_SOLN", "PREDISPATCH_INTERCONNECTORSOLN"]:
-        rows = _parse_aemo(text, tk)
-        if not rows:
-            continue
-        for row in rows:
-            ic = row.get("INTERCONNECTORID", "").strip()
-            dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", ""))
-            flow_str = row.get("MWFLOW", "")
-            if not ic or not dt_str or not flow_str:
-                continue
-            try:
-                flow = round(float(flow_str), 1)
-                dt = datetime.fromisoformat(dt_str.replace("/", "-"))
-                if dt.replace(tzinfo=None) >= now_aest:
-                    ic_series.setdefault(ic, {})[dt.strftime("%H:%M")] = flow
-            except (ValueError, TypeError):
-                pass
-        break
-    return {ic: [{"interval": k, "flow": v} for k, v in sorted(s.items())]
-            for ic, s in ic_series.items() if s}
-
-
-# ---------------------------------------------------------------------------
-# Main scrape_all - parallel fetches
-# ---------------------------------------------------------------------------
-
-def scrape_all() -> dict:
-    logger.info("scrape_all starting...")
-
-    # Run all IO-bound fetches concurrently with per-future timeout
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        f_dispatch_is   = ex.submit(_fetch_dispatch_is)
-        f_predispatch   = ex.submit(_fetch_predispatch)
-        f_trading       = ex.submit(scrape_trading_history)
-        f_dispatch_hist = ex.submit(scrape_dispatch_history)
-        f_scada         = ex.submit(_fetch_full_scada)
-
-    def _safe_result(fut, default, name):
-        try:
-            return fut.result(timeout=55)
-        except Exception as e:
-            logger.error(f"scrape_all: {name} failed - {e}")
-            return default
-
-    dispatch_text    = _safe_result(f_dispatch_is,   "",  "dispatch_is")
-    predispatch_text = _safe_result(f_predispatch,    "",  "predispatch")
-    trading          = _safe_result(f_trading,        {"prices": {}, "fetch_stats": {}}, "trading")
-    dispatch_hist    = _safe_result(f_dispatch_hist,  {"demand": {}, "op_demand": {}, "prices": {}}, "dispatch_hist")
-    scada_vals       = _safe_result(f_scada,          {}, "scada")
-
-    dispatch_demand       = dispatch_hist.get("demand", {})
-    dispatch_op_demand    = dispatch_hist.get("op_demand", {})
-    dispatch_price_5min   = dispatch_hist.get("prices", {})
-    dispatch_solar        = dispatch_hist.get("solar", {})
-    dispatch_wind         = dispatch_hist.get("wind", {})
-
-    # Parse live dispatch snapshot (prices, demand, generation, ICs)
-    region_summary  = scrape_region_summary(dispatch_text)
-    interconnectors = scrape_interconnectors(dispatch_text)
-
-    # Supplement SCADA with unit solution if needed
-    missing = ORIGIN_DUIDS - set(scada_vals.keys())
-    if missing:
-        unit_sol = scrape_unit_solution(dispatch_text, missing)
-        scada_vals.update(unit_sol)
-
-    # Parse predispatch (future forecasts only)
-    pd_prices = scrape_predispatch_prices(predispatch_text)
-    pd_demand = scrape_predispatch_demand(predispatch_text)
-    pd_gen    = scrape_predispatch_generation(predispatch_text)
-    pd_units  = {}  # AEMO does not publish unit-level predispatch on public NEMWeb
-
-    # Tomorrow's forecasts from same predispatch file
-    tomorrow_prices = scrape_tomorrow_prices(predispatch_text)
-    tomorrow_demand = scrape_tomorrow_demand(predispatch_text, {})
-
-    # In-memory accumulators - IC builds up over process lifetime
-    _update_demand_history(region_summary)
-    _update_ic_history(interconnectors)
-    _update_bdu_history(region_summary)
-    _update_live_duid_history(scada_vals)   # keep _duid_history current for modal charts
-
-    # Build fuel_mix from live SCADA and update fuel history every 5 min
-    # This keeps the fuel stack charts current without waiting for scrape_gen (15 min)
-    live_fuel_mix: dict = {r: {} for r in NEM_REGIONS}
-    live_pump_load: dict = {}
-    for duid, mw_raw in scada_vals.items():
-        if mw_raw is None:
-            continue
-        info = NEM_UNITS.get(duid, {})
-        region = info.get("region", "")
-        fuel = info.get("fuel", "") or _infer_fuel_from_duid(duid)
-        if region not in NEM_REGIONS:
-            region = _infer_region_from_duid(duid)
-        if region not in NEM_REGIONS:
-            continue
-        mw = -mw_raw if duid in PUMP_LOAD_DUIDS else mw_raw
-        mw_pos = max(mw, 0)
-        live_fuel_mix[region][fuel] = round(live_fuel_mix[region].get(fuel, 0) + mw_pos, 1)
-        if fuel == "Hydro" and mw < -1:
-            live_pump_load[region] = round(live_pump_load.get(region, 0) + mw, 1)
-    # Inject rooftop solar from region_summary
-    for region, rdata in region_summary.items():
-        if region in NEM_REGIONS and "TOTALINTERMITTENTGENERATION" in rdata:
-            rooftop = rdata.get("TOTALINTERMITTENTGENERATION", 0)
-            if rooftop:
-                live_fuel_mix[region]["Rooftop Solar"] = round(float(rooftop), 1)
-    _update_fuel_history(live_fuel_mix, None, live_pump_load)
-    # Inject live solar/wind into dispatch history for current interval
-    now_label = datetime.now(AEST).strftime("%H:%M")
-    for region, rdata in region_summary.items():
-        if region not in NEM_REGIONS:
-            continue
-        sol = rdata.get("SS_SOLAR_CLEAREDMW")
-        win = rdata.get("SS_WIND_CLEAREDMW")
-        if sol is not None:
-            dispatch_solar.setdefault(region, [])
-            dispatch_solar[region] = [p for p in dispatch_solar[region] if p["interval"] != now_label]
-            dispatch_solar[region].append({"interval": now_label, "mw": round(float(sol), 1)})
-        if win is not None:
-            dispatch_wind.setdefault(region, [])
-            dispatch_wind[region] = [p for p in dispatch_wind[region] if p["interval"] != now_label]
-            dispatch_wind[region].append({"interval": now_label, "mw": round(float(win), 1)})
-    # Use DispatchIS history for demand (full day), fall back to in-memory if empty
-    demand_history     = dispatch_demand if dispatch_demand else _get_demand_history()
-    ic_history         = _get_ic_history()
-    pd_interconnectors = scrape_predispatch_interconnectors(predispatch_text)
-
-    # Live current values from latest dispatch interval
-    prices     = {r: d["RRP"]         for r, d in region_summary.items() if "RRP" in d}
-    demand     = {r: d["TOTALDEMAND"] for r, d in region_summary.items() if "TOTALDEMAND" in d}
-    op_demand  = {r: d["DEMAND_AND_NONSCHEDGEN"] for r, d in region_summary.items() if "DEMAND_AND_NONSCHEDGEN" in d}
-    generation = {r: {
-        "Scheduled":      d.get("DISPATCHABLEGENERATION", 0),
-        "Semi-Scheduled": d.get("SEMISCHEDULE_CLEAREDMW", 0),
-        "Net Interchange":d.get("NETINTERCHANGE", 0),
-    } for r, d in region_summary.items() if "DISPATCHABLEGENERATION" in d}
-
-    # Build Origin assets output - ORIGIN_DISPLAY_NAMES overrides nem_units station name
-    origin_assets_out = {}
-    for duid in ORIGIN_DUIDS:
-        mw       = scada_vals.get(duid)
-        reg_info = NEM_UNITS.get(duid, {})\
-        # Solar and wind absent from SCADA = generating 0 (semi-scheduled, not truly unknown)
-        fuel     = reg_info.get("fuel")     or "Other"
-        if mw is None and fuel in ("Solar", "Wind"):
-            mw = 0.0
-        station  = ORIGIN_DISPLAY_NAMES.get(duid) or reg_info.get("station") or duid
-        region   = reg_info.get("region")   or ""
-        capacity = reg_info.get("capacity")
-        origin_assets_out[duid] = {
-            "station":  station,
-            "fuel":     fuel,
-            "region":   region,
-            "capacity": capacity,
-            "mw":       mw,
-            "pct":      round(mw / capacity * 100, 1) if mw is not None and capacity else None,
-            "status":   "running" if (mw is not None and mw > 5) else ("charging" if (mw is not None and mw < -5) else ("off" if mw is not None else "unknown")),
-        }
-
-    # Keep trading (firm 30-min) and dispatch 5-min prices separate
-    # so the frontend can style them differently
-    trading_prices = trading["prices"]
-    # Cap dispatch at now
-    now_label = datetime.now(AEST).strftime("%H:%M")
-    capped_dispatch_prices = {}
-    for r in NEM_REGIONS:
-        pts = [p for p in dispatch_price_5min.get(r, []) if p["interval"] <= now_label]
-        if pts:
-            capped_dispatch_prices[r] = pts
-
-    logger.info(
-        f"scrape_all done - prices:{list(prices.keys())} "
-        f"trading_pts:{sum(len(v) for v in trading_prices.values())} "
-        f"dispatch_5min_pts:{sum(len(v) for v in capped_dispatch_prices.values())} "
-        f"origin_duids_found:{len(scada_vals)}"
-    )
-
-    return {
-        "timestamp":             datetime.now(timezone.utc).isoformat(),
-        "prices":                prices,
-        "demand":                demand,
-        "op_demand":             op_demand,
-        "generation":            generation,
-        "interconnectors":       interconnectors,
-        "raw_summary":           region_summary,
-        "historical_prices":     trading_prices,
-        "dispatch_prices_5min":  capped_dispatch_prices,
-        "price_fetch_stats":     trading.get("fetch_stats", {}),
-        "predispatch_prices":    pd_prices,
-        "demand_history":        demand_history,
-        "op_demand_history":     dispatch_op_demand,
-        "dispatch_history":      dispatch_demand,
-        "solar_history":         dispatch_solar,
-        "wind_history":          dispatch_wind,
-        "gen_demand_history":    dispatch_hist.get("gen_demand", {}),
-        "predispatch_demand":    pd_demand,
-        "predispatch_gen":       pd_gen,
-        "predispatch_units":     pd_units,
-        "ic_history":            ic_history,
-        "predispatch_ic":        pd_interconnectors,
-        "bdu_history":           _get_bdu_history(),
-        "origin_assets":         origin_assets_out,
-        "fuel_colors":           FUEL_COLORS,
-        "all_fuels":             ALL_FUELS,
-        "tomorrow_prices":       tomorrow_prices,
-        "tomorrow_demand":       tomorrow_demand,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Registration list cache - DUID -> {station, fuel, region, capacity}
-# ---------------------------------------------------------------------------
-
-_reg_cache: dict = {}
-_reg_cache_date: str = ""
-
-
-def _fuel_from_reg(fuel_raw: str) -> str:
-    """Map AEMO registration fuel source string to display fuel."""
-    f = (fuel_raw or "").upper()
-    if "BLACK COAL" in f or "COAL" in f and "BROWN" not in f: return "Black Coal"
-    if "BROWN COAL" in f or "BROWN" in f:                      return "Brown Coal"
-    if "GAS" in f or "OCGT" in f or "CCGT" in f or "LIQUID FUEL" in f and "GAS" in f: return "Gas"
-    if "HYDRO" in f or "WATER" in f:                           return "Hydro"
-    if "WIND" in f:                                             return "Wind"
-    if "SOLAR" in f or "PHOTOVOLTAIC" in f:                    return "Solar"
-    if "BATTERY" in f or "STORAGE" in f:                       return "Battery"
-    if "LIQUID" in f or "DISTILLATE" in f or "DIESEL" in f:   return "Liquid"
-    return "Other"
-
-
-def _load_registration_list() -> dict:
-    """
-    Download and parse AEMO NEM Registration list from NEMWeb Static CSV.
-    Falls back to the AEMO website XLS if CSV unavailable.
-    Returns { DUID: {station, fuel, region, capacity_mw, participant} }
-    Cached once per day.
-    """
-    global _reg_cache, _reg_cache_date
-    today = datetime.now(AEST).strftime("%Y-%m-%d")
-    if _reg_cache and _reg_cache_date == today:
-        return _reg_cache
-
-    # Primary: NEMWeb Generators and Scheduled Loads CSV (no auth, no XLS)
-    CSV_URLS = [
-        "https://www.nemweb.com.au/REPORTS/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV",
-        "https://nemweb.com.au/REPORTS/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV",
-        f"{NEMWEB_BASE}/REPORTS/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV",
-    ]
-    # Fallback: AEMO static file page (sometimes available without redirect)
-    AEMO_URLS = [
-        "https://aemo.com.au/-/media/Files/Electricity/NEM/Participant_Information/Current-Participants/NEM-Registration-and-Exemption-List.xls",
-        AEMO_REG_LIST_URL,
-    ]
-
-    result = _try_load_nemweb_csv()
-    if result:
-        _reg_cache = result
-        _reg_cache_date = today
-        return result
-
-    # Fallback: try AEMO XLS
-    result = _try_load_aemo_xls()
-    if result:
-        _reg_cache = result
-        _reg_cache_date = today
-        return result
-
-    logger.warning("Registration list: all sources failed, using empty cache")
-    return _reg_cache
-
-
-def _try_load_nemweb_csv() -> dict:
-    """
-    Try multiple NEMWeb sources for DUID registration data.
-    Priority:
-      1. SEMP registration CSV (direct, updated daily)
-      2. MMS DVD DUDETAILSUMMARY zip (monthly snapshot, very complete)
-      3. MMS DVD DUDETAIL zip (fallback)
-    """
-    # Source 1: SEMP registration CSV
-    semp_url = f"{NEMWEB_BASE}/REPORTS/CURRENT/SEMP/PUBLIC_SEMP_REGISTRATION.CSV"
-    r = _get(semp_url, timeout=15)
-    if r and r.status_code == 200 and len(r.content) > 1000:
-        logger.info("Registration: loaded from SEMP CSV")
-        return _parse_registration_csv(r.text)
-
-    # Source 2: MMS DVD DUDETAILSUMMARY — find latest zip
-    for dvd_path in [
-        f"{NEMWEB_BASE}/REPORTS/CURRENT/DVD/",
-        f"{NEMWEB_BASE}/REPORTS/ARCHIVE/DVD/",
-    ]:
-        try:
-            files = _list_hrefs(dvd_path)
-            # Find DUDETAILSUMMARY files
-            detail_files = sorted([f for f in files if "DUDETAILSUMMARY" in f.upper()])
-            if not detail_files:
-                detail_files = sorted([f for f in files if "DUDETAIL" in f.upper()])
-            if detail_files:
-                url = detail_files[-1]
-                logger.info(f"Registration: trying DVD {url}")
-                text = _read_zip_bulk(url)
-                if text:
-                    result = _parse_dudetail_csv(text)
-                    if result:
-                        logger.info(f"Registration: loaded {len(result)} DUIDs from DVD")
-                        return result
-        except Exception as e:
-            logger.debug(f"Registration DVD fetch failed: {e}")
-
-    logger.warning("Registration: all sources failed")
-    return {}
-
-
-def _parse_dudetail_csv(text: str) -> dict:
-    """Parse MMS DUDETAILSUMMARY or DUDETAIL CSV into {DUID: info} dict."""
-    import csv, io
-    result = {}
-    try:
-        # MMS format: I,DUDETAILSUMMARY,DUDETAILSUMMARY,1,...col headers...
-        # D rows: D,DUDETAILSUMMARY,DUDETAILSUMMARY,1,...values...
-        reader = csv.reader(io.StringIO(text))
-        headers = []
-        for row in reader:
-            if not row:
-                continue
-            rec_type = row[0].strip().upper()
-            if rec_type == 'I' and len(row) > 4:
-                table = row[2].strip().upper()
-                if 'DUDETAIL' in table:
-                    headers = [c.strip().upper() for c in row[4:]]
-            elif rec_type == 'D' and headers:
-                if len(row) < 5:
-                    continue
-                vals = row[4:]
-                d = dict(zip(headers, vals))
-                duid = d.get('DUID', '').strip().upper()
-                if not duid:
-                    continue
-                # DUDETAILSUMMARY columns: DUID, REGIONID, STATIONID, DISPATCHTYPE,
-                #   CONNECTIONPOINTID, REGISTEREDCAPACITY, LASTCHANGED
-                region = d.get('REGIONID', '').strip()
-                if region and not region.endswith('1'):
-                    region += '1'
-                capacity_str = d.get('REGISTEREDCAPACITY', '') or d.get('MAXCAPACITY', '')
-                try:
-                    capacity = round(float(capacity_str)) if capacity_str else 0
-                except ValueError:
-                    capacity = 0
-                station = d.get('STATIONID', duid).strip()
-                # Fuel not in DUDETAILSUMMARY — will need to infer or leave for SEMP
-                fuel = _infer_fuel_from_duid(duid)
-                if region:
-                    result[duid] = {
-                        "station":  station,
-                        "fuel":     fuel,
-                        "region":   region,
-                        "capacity": capacity,
-                    }
-    except Exception as e:
-        logger.warning(f"_parse_dudetail_csv failed: {e}")
-    return result
-
-
-def _parse_registration_csv(text: str) -> dict:
-    """Parse a CSV registration file into {DUID: info} dict."""
-    result = {}
-    try:
-        reader = csv.DictReader(io.StringIO(text))
-        headers_upper = {k: k.upper() for k in (reader.fieldnames or [])}
-
-        def get(row, *keys):
-            for k in keys:
-                for fk, fu in headers_upper.items():
-                    if k.upper() in fu:
-                        return str(row.get(fk, "") or "").strip()
-            return ""
-
-        for row in reader:
-            duid = get(row, "DUID").upper()
-            if not duid:
-                continue
-            region = get(row, "REGION", "REGIONID")
-            if region and not region.endswith("1"):
-                region = region + "1"
-            fuel_raw = get(row, "FUEL SOURCE", "FUEL_SOURCE", "FUEL", "TECHNOLOGY")
-            cap_str = get(row, "REG CAP", "REGISTERED_CAPACITY", "CAPACITY", "MAX_CAP")
-            try:
-                capacity = round(float(cap_str), 1) if cap_str else None
-            except (ValueError, TypeError):
-                capacity = None
-            result[duid] = {
-                "station":     get(row, "STATION NAME", "STATION", "STATIONNAME") or duid,
-                "fuel":        _fuel_from_reg(fuel_raw),
-                "fuel_raw":    fuel_raw,
-                "region":      region,
-                "capacity":    capacity,
-                "participant": get(row, "PARTICIPANT", "PARTICIPANTID"),
-            }
-        logger.info(f"Registration CSV parsed: {len(result)} DUIDs")
-    except Exception as e:
-        logger.warning(f"Registration CSV parse failed: {e}")
-    return result
-
-
-def _try_load_aemo_xls() -> dict:
-    """Try to load AEMO registration XLS using xlrd."""
-    try:
-        import xlrd
-    except ImportError:
-        logger.warning("xlrd not installed")
-        return {}
-
-    headers_to_try = {
-        "User-Agent": "Mozilla/5.0 (compatible; NEM-Dashboard/1.0)",
-        "Accept": "application/vnd.ms-excel,*/*",
-        "Referer": "https://aemo.com.au/",
-    }
-    try:
-        r = None
-        for _url in AEMO_REG_LIST_URLS:
-            try:
-                r = SESSION.get(_url, timeout=20, headers=headers_to_try, allow_redirects=True)
-                if r and r.status_code == 200 and len(r.content) > 10000:
-                    logger.info(f"Registration XLS loaded from {_url}")
-                    break
-            except Exception:
-                continue
-        if not r or r.status_code != 200 or len(r.content) < 10000:
-            logger.warning(f"AEMO XLS fetch failed: status={getattr(r,'status_code','?')} size={len(getattr(r,'content',b''))}")
-            return {}
-
-        logger.info(f"AEMO XLS: {len(r.content)} bytes, content-type={r.headers.get('Content-Type','?')}")
-        wb = xlrd.open_workbook(file_contents=r.content)
-        sheet = None
-        for name in wb.sheet_names():
-            if "generator" in name.lower() or "scheduled" in name.lower():
-                sheet = wb.sheet_by_name(name)
-                break
-        if sheet is None:
-            sheet = wb.sheet_by_index(0)
-
-        # Find DUID header row
-        header_row_idx = None
-        for i in range(min(20, sheet.nrows)):
-            cells = [str(sheet.cell_value(i, j)).upper() for j in range(sheet.ncols)]
-            if any("DUID" in c for c in cells):
-                header_row_idx = i
-                logger.info(f"XLS header at row {i}: {cells[:8]}")
-                break
-        if header_row_idx is None:
-            logger.warning("XLS: no DUID header found")
-            return {}
-
-        headers = [str(sheet.cell_value(header_row_idx, j)).strip().upper()
-                   for j in range(sheet.ncols)]
-
-        def col(name_parts):
-            for i, h in enumerate(headers):
-                if any(p.upper() in h for p in name_parts):
-                    return i
-            return None
-
-        ci_duid     = col(["DUID"])
-        ci_station  = col(["STATION NAME", "STATION"])
-        ci_fuel     = col(["FUEL SOURCE - DESCRIPTOR", "FUEL SOURCE", "FUEL"])
-        ci_region   = col(["REGION"])
-        ci_capacity = col(["REG CAP", "REGISTERED CAPACITY", "MAX CAP", "CAPACITY"])
-        ci_part     = col(["PARTICIPANT"])
-
-        result = {}
-        for i in range(header_row_idx + 1, sheet.nrows):
-            if ci_duid is None:
-                continue
-            duid = str(sheet.cell_value(i, ci_duid)).strip().upper()
-            if not duid or duid == "DUID":
-                continue
-            station  = str(sheet.cell_value(i, ci_station)).strip()  if ci_station  is not None else ""
-            fuel_raw = str(sheet.cell_value(i, ci_fuel)).strip()     if ci_fuel     is not None else ""
-            region   = str(sheet.cell_value(i, ci_region)).strip()   if ci_region   is not None else ""
-            cap_raw  = sheet.cell_value(i, ci_capacity)               if ci_capacity is not None else None
-            part     = str(sheet.cell_value(i, ci_part)).strip()     if ci_part     is not None else ""
-            try:
-                capacity = round(float(cap_raw), 1) if cap_raw not in (None, "") else None
-            except (ValueError, TypeError):
-                capacity = None
-            if region and not region.endswith("1"):
-                region = region + "1"
-            result[duid] = {
-                "station":     station or duid,
-                "fuel":        _fuel_from_reg(fuel_raw),
-                "fuel_raw":    fuel_raw,
-                "region":      region,
-                "capacity":    capacity,
-                "participant": part,
-            }
-        logger.info(f"AEMO XLS loaded: {len(result)} DUIDs")
-        return result
-
-    except Exception as e:
-        logger.warning(f"AEMO XLS load failed: {e}", exc_info=True)
-        return {}
-
-
-
-
-# ---------------------------------------------------------------------------
-# Full SCADA fetch - all DUIDs (not just Origin)
-# ---------------------------------------------------------------------------
-
-def _fetch_full_scada() -> dict:
-    """Return { DUID: mw } for every unit in DISPATCH_UNIT_SCADA."""
-    url = get_latest_file_url(SCADA_URL, "PUBLIC_DISPATCHSCADA")
-    if not url:
-        return {}
-    text = _read_zip_bulk(url)
-    result = {}
-    for row in _parse_aemo(text, "DISPATCH_UNIT_SCADA"):
-        duid = row.get("DUID", "").strip().upper()
-        v = row.get("SCADAVALUE", "")
-        try:
-            result[duid] = round(float(v), 1)
-        except (ValueError, TypeError):
-            pass
-    logger.info(f"Full SCADA: {len(result)} DUIDs")
-    return result
-
-
-ROOFTOP_PV_URL = f"{NEMWEB_BASE}/REPORTS/CURRENT/ROOFTOP_PV/ACTUAL/"
-
-def _scrape_rooftop_pv_latest() -> dict:
-    """
-    Fetch the latest ROOFTOP_PV_ACTUAL file and return { regionid: mw }.
-    Published every 30 min with 30-min actuals by state.
-    Table: ROOFTOP_PV,ACTUAL  Cols: INTERVAL_DATETIME, REGIONID, POWER, QI
-    """
-    try:
-        url = get_latest_file_url(ROOFTOP_PV_URL, "PUBLIC_ROOFTOP_PV_ACTUAL")
-        if not url:
-            return {}
-        text = _read_zip_bulk(url)
-        if not text:
-            return {}
-        # Take latest interval per region (file may have multiple 30-min rows)
-        result = {}
-        latest_dt = {}
-        for row in _parse_aemo(text, "ROOFTOP_PV_ACTUAL"):
-            region = row.get("REGIONID", "").strip().upper()
-            if region not in NEM_REGIONS:
-                continue
-            dt_str  = row.get("INTERVAL_DATETIME", "")
-            power_str = row.get("POWER", "")
-            try:
-                mw = round(float(power_str), 1)
-                if mw < 0:
-                    continue
-                if dt_str > latest_dt.get(region, ""):
-                    latest_dt[region] = dt_str
-                    result[region] = mw
-            except (ValueError, TypeError):
-                pass
-        logger.info(f"Rooftop PV actual: {result}")
-        return result
-    except Exception as e:
-        logger.warning(f"Rooftop PV fetch failed: {e}")
-        return {}
-
-
-# ---------------------------------------------------------------------------
-# ST PASA - 7-day ahead regional demand forecast
-# ---------------------------------------------------------------------------
-
-def scrape_stpasa_demand() -> dict:
-    """
-    Fetch latest ST PASA file and extract STPASA_REGIONSOLUTION.
-    Returns { region: [{interval, demand_50, demand_10, solar_uigf, wind_uigf}] }
-    """
-    try:
-        urls = _list_hrefs(ST_PASA_URL)
-        pasa_urls = sorted([u for u in urls if "STPASA" in u.upper()])
-        if not pasa_urls:
-            logger.warning("No ST PASA files found")
-            return {}
-        url = pasa_urls[-1]
-        text = _read_zip_bulk(url)
-
-        now_aest = datetime.now(AEST).replace(tzinfo=None)
-        region_series: dict = {r: {} for r in NEM_REGIONS}
-
-        for tk in ["STPASA_REGIONSOLUTION", "ST_PASA_REGIONSOLUTION"]:
-            rows = _parse_aemo(text, tk)
-            if not rows:
-                continue
-            for row in rows:
-                region = row.get("REGIONID", "").strip()
-                if region not in NEM_REGIONS:
-                    continue
-                dt_str = row.get("INTERVAL_DATETIME", row.get("SETTLEMENTDATE", ""))
-                d50 = row.get("DEMAND50", row.get("TOTALDEMAND", ""))
-                d10 = row.get("DEMAND10", "")
-                solar = row.get("SS_SOLAR_UIGF", "")
-                wind  = row.get("SS_WIND_UIGF", "")
-                if not dt_str:
-                    continue
-                try:
-                    dt = datetime.fromisoformat(dt_str.replace("/", "-"))
-                    if dt.replace(tzinfo=None) < now_aest:
-                        continue
-                    label = dt.strftime("%Y-%m-%d %H:%M")
-                    region_series[region][label] = {
-                        "demand_50":  round(float(d50), 1) if d50 else None,
-                        "demand_10":  round(float(d10), 1) if d10 else None,
-                        "solar_uigf": round(float(solar), 1) if solar else None,
-                        "wind_uigf":  round(float(wind), 1) if wind else None,
-                    }
-                except (ValueError, TypeError):
-                    pass
-            if any(region_series.values()):
-                break
-
-        result = {}
-        for region, series in region_series.items():
-            if series:
-                result[region] = [{"interval": k, **v} for k, v in sorted(series.items())]
-        logger.info(f"ST PASA: {sum(len(v) for v in result.values())} pts across {len(result)} regions")
-        return result
-    except Exception as e:
-        logger.warning(f"ST PASA fetch failed: {e}")
-        return {}
-
-
-# ---------------------------------------------------------------------------
-# All-generators scrape (for /api/slow endpoint)
-# ---------------------------------------------------------------------------
-
-def scrape_all_generators() -> dict:
-    """
-    Fetch full SCADA output for all NEM DUIDs, join with registration list.
-    Returns grouped structure: { region: { fuel: [ {duid, station, mw, capacity, pct} ] } }
-    """
-    # Fetch SCADA and registration list concurrently
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        f_scada = ex.submit(_fetch_full_scada)
-        f_reg   = ex.submit(_load_registration_list)
-    scada  = f_scada.result()
-    reg    = f_reg.result()
-
-    timestamp = datetime.now(timezone.utc).isoformat()
-
-    # Group by region → fuel → list of units
-    grouped: dict = {}
-    for duid, mw in scada.items():
-        info = reg.get(duid, {})
-        region   = info.get("region", "UNKNOWN")
-        fuel     = info.get("fuel", "Other")
-        station  = info.get("station", duid)
-        capacity = info.get("capacity")
-        pct = round(mw / capacity * 100, 1) if (mw is not None and capacity and capacity > 0) else None
-
-        if region not in NEM_REGIONS:
-            continue  # skip non-NEM (WA, etc.)
-
-        rg = grouped.setdefault(region, {})
-        fg = rg.setdefault(fuel, [])
-        fg.append({
-            "duid":     duid,
-            "station":  station,
-            "mw":       round(mw, 1) if mw is not None else None,
-            "capacity": capacity,
-            "pct":      pct,
-            "participant": info.get("participant", ""),
-        })
-
-    # Sort within each fuel group by MW descending
-    for region in grouped:
-        for fuel in grouped[region]:
-            grouped[region][fuel].sort(key=lambda x: x["mw"] or 0, reverse=True)
-
-    # Summary stats per region/fuel
-    summary: dict = {}
-    for region, fuels in grouped.items():
-        summary[region] = {}
-        for fuel, units in fuels.items():
-            total_mw  = sum(u["mw"] or 0 for u in units)
-            total_cap = sum(u["capacity"] or 0 for u in units)
-            summary[region][fuel] = {
-                "total_mw":  round(total_mw, 1),
-                "total_cap": round(total_cap, 1),
-                "unit_count": len(units),
-            }
-
-    logger.info(f"scrape_all_generators: {sum(len(v) for r in grouped.values() for v in r.values())} units across {len(grouped)} regions")
-    return {
-        "timestamp":      datetime.now(timezone.utc).isoformat(),
-        "grouped":        grouped,
-        "summary":        summary,
-        "fuel_colors":    FUEL_COLORS,
-        "reg_list_count": len(reg),
-        "scada_count":    len(scada),
-    }
-
-
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
-# scrape_scada_history - backfill 24hr fuel mix history from SCADA CURRENT files
-# ---------------------------------------------------------------------------
-
 def scrape_scada_history() -> None:
     """
     Fetch all of today's DISPATCH_SCADA files in parallel and populate
@@ -3738,7 +2460,7 @@ def scrape_scada_history() -> None:
     def fetch_one(url):
         _time.sleep(random.uniform(0, 0.03))
         try:
-            text = _read_zip_bulk(url)
+            text = _read_zip(url)
             if not text:
                 return None
             # Each file: { HH:MM -> { duid: mw } }
@@ -3766,7 +2488,7 @@ def scrape_scada_history() -> None:
 
     # Parallel fetch
     all_snapshots = {}  # { HH:MM -> { duid: mw } }
-    with ThreadPoolExecutor(max_workers=2) as ex:
+    with ThreadPoolExecutor(max_workers=4) as ex:
         futures = {ex.submit(fetch_one, u): u for u in today_urls}
         for fut in as_completed(futures):
             result = fut.result()
@@ -4033,238 +2755,354 @@ def scrape_pasa_duid_availability(source: str = "STPASA") -> dict:
     return {"slots": result, "max_avail": max_avail}
 
 
-def scrape_historical_day(date_str: str) -> dict:
+def scrape_historical_day_fast(date_str: str) -> dict:
     """
-    Fetch a full day of historical data for the D-1 page.
-    Returns prices (5-min), demand, op_demand, solar, wind from DispatchIS + TradingIS.
-    date_str: YYYYMMDD
+    Prices + demand for D-1 (yesterday) using DispatchIS CURRENT.
+    5-min resolution. Returns empty if date is not yesterday.
     """
     from datetime import datetime as _dt, timedelta as _td
     from concurrent.futures import ThreadPoolExecutor as _TPE
-
-    now_aest = datetime.now(AEST)
-    today    = now_aest.date()
 
     try:
         req_date = _dt.strptime(date_str, "%Y%m%d").date()
     except ValueError:
         return {}
 
-    # ── Step 1: Get price data (already handles DispatchIS + TradingIS fallback) ──
-    prices_5m = scrape_historical_dispatch_prices(date_str)
-    prices_30m_raw = {}
-    try:
-        from scraper import scrape_historical_prices as _shp
-        prices_30m_raw = _shp(date_str)
-    except Exception:
-        pass
-
-    # ── Step 2: Demand, IC flows, and battery from DispatchIS REGIONSUM ─────────
+    prices:    dict = {r: {} for r in NEM_REGIONS}
     demand:    dict = {r: {} for r in NEM_REGIONS}
     op_demand: dict = {r: {} for r in NEM_REGIONS}
-    ic_flows:  dict = {}   # { ic_id: { HH:MM: flow } }
-    bdu:       dict = {r: {} for r in NEM_REGIONS}  # { region: { HH:MM: {net_mw,gen,load,storage} } }
+    ic_flows:  dict = {}
+    bdu:       dict = {r: {} for r in NEM_REGIONS}
+    rooftop:   dict = {r: {} for r in NEM_REGIONS}  # SS_SOLAR_CLEAREDMW per region
+
+    def _fetch(url):
+        try: return _read_zip(url)
+        except: return None
 
     try:
-        dispatch_files = _list_hrefs(DISPATCH_IS_URL)
-        date_files = sorted([f for f in dispatch_files if date_str in f and "PUBLIC_DISPATCHIS" in f.upper()])
-        logger.info(f"scrape_historical_day: {len(date_files)} DispatchIS files")
-
-        for url in date_files:
-            try:
-                text = _read_zip_bulk(url)
+        all_files     = _list_hrefs(DISPATCH_IS_URL)
+        dispatch_urls = sorted([f for f in all_files if date_str in f and "PUBLIC_DISPATCHIS" in f.upper()])
+        logger.info(f"scrape_historical_day_fast {date_str}: DispatchIS CURRENT — {len(dispatch_urls)} files")
+        with _TPE(max_workers=20) as ex:
+            for text in ex.map(_fetch, dispatch_urls):
                 if not text: continue
-
-                # Demand
-                for row in _parse_aemo(text, "DISPATCH_REGIONSUM"):
-                    region = row.get("REGIONID", "").strip()
+                for row in _parse_aemo(text, "PRICE"):
+                    if row.get("INTERVENTION","0").strip() != "0": continue
+                    region = row.get("REGIONID","").strip()
                     if region not in NEM_REGIONS: continue
-                    dt_str2 = row.get("SETTLEMENTDATE", "")
-                    dem_str = row.get("TOTALDEMAND", "")
-                    op_str  = row.get("DEMAND_AND_NONSCHEDGEN", "")
+                    dt_str2 = row.get("SETTLEMENTDATE",""); rrp_str = row.get("RRP","")
+                    if not dt_str2 or not rrp_str: continue
+                    try:
+                        dt = datetime.fromisoformat(dt_str2.replace("/","-")) - _td(minutes=5)
+                        if dt.date() != req_date: continue
+                        prices[region][dt.strftime("%H:%M")] = round(float(rrp_str), 2)
+                    except (ValueError, TypeError): continue
+                for row in _parse_aemo(text, "DISPATCH_REGIONSUM"):
+                    region = row.get("REGIONID","").strip()
+                    if region not in NEM_REGIONS: continue
+                    dt_str2 = row.get("SETTLEMENTDATE","")
+                    dem_str = row.get("TOTALDEMAND","")
+                    op_str  = row.get("DEMAND_AND_NONSCHEDGEN","")
                     if not dt_str2: continue
                     try:
-                        dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - _td(minutes=5)
+                        dt = datetime.fromisoformat(dt_str2.replace("/","-")) - _td(minutes=5)
                         if dt.date() != req_date: continue
                         label = dt.strftime("%H:%M")
                         if dem_str: demand[region][label]    = round(float(dem_str), 1)
-                        if op_str:  op_demand[region][label] = round(float(op_str), 1)
-                    except (ValueError, TypeError):
-                        continue
-
-                # IC flows
-                for row in _parse_aemo(text, "DISPATCH_INTERCONNECTORRES"):
-                    ic_id = row.get("INTERCONNECTORID", "").strip()
-                    dt_str2 = row.get("SETTLEMENTDATE", "")
-                    flow_str = row.get("MWFLOW", "")
-                    if not ic_id or not dt_str2 or not flow_str: continue
-                    try:
-                        dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - _td(minutes=5)
-                        if dt.date() != req_date: continue
-                        label = dt.strftime("%H:%M")
-                        if ic_id not in ic_flows: ic_flows[ic_id] = {}
-                        ic_flows[ic_id][label] = round(float(flow_str), 1)
-                    except (ValueError, TypeError):
-                        continue
-
-                # Battery (BDU) from DISPATCH_UNIT_SOLUTION
-                for row in _parse_aemo(text, "DISPATCH_UNIT_SOLUTION"):
-                    duid = row.get("DUID", "").strip().upper()
-                    dt_str2 = row.get("SETTLEMENTDATE", "")
-                    bdu_gen  = row.get("BDU_CLEAREDMW_GEN", "")
-                    bdu_load = row.get("BDU_CLEAREDMW_LOAD", "")
-                    bdu_soc  = row.get("BDU_ENERGY_STORAGE", "")
-                    if not (bdu_gen or bdu_load) or not dt_str2: continue
-                    info = NEM_UNITS.get(duid, {})
-                    region = info.get("region", "")
-                    if region not in NEM_REGIONS: continue
-                    try:
-                        dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - _td(minutes=5)
-                        if dt.date() != req_date: continue
-                        label = dt.strftime("%H:%M")
-                        g = round(float(bdu_gen  or 0), 1)
-                        l = round(float(bdu_load or 0), 1)
-                        s = round(float(bdu_soc), 1) if bdu_soc else None
-                        existing = bdu[region].get(label, {"net_mw": 0, "gen": 0, "load": 0, "storage": None})
-                        bdu[region][label] = {
-                            "net_mw":  round(existing["net_mw"] + g - l, 1),
-                            "gen":     round(existing["gen"]  + g, 1),
-                            "load":    round(existing["load"] + l, 1),
-                            "storage": s if s is not None else existing["storage"],
-                        }
-                    except (ValueError, TypeError):
-                        continue
-
-            except Exception as e:
-                logger.debug(f"scrape_historical_day: DispatchIS error {url}: {e}")
-    except Exception as e:
-        logger.warning(f"scrape_historical_day: DispatchIS listing failed: {e}")
-
-    # ── Step 3: SCADA-based fuel mix from Dispatch_SCADA files ───────────────
-    # Fetch all SCADA files for the date (they're ~5min each, ~288 for a day)
-    fuel_history: dict = {r: {} for r in NEM_REGIONS}  # { region: { HH:MM: {fuel: mw} } }
-
-    try:
-        scada_files = _list_hrefs(SCADA_URL)
-        date_scada = sorted([f for f in scada_files if date_str in f and "PUBLIC_DISPATCHSCADA" in f.upper()])
-        logger.info(f"scrape_historical_day: {len(date_scada)} SCADA files")
-
-        def _fetch_scada(url):
-            try:
-                text = _read_zip_bulk(url)
-                if not text: return {}
-                snapshot = {}  # { duid: mw }
-                dt_seen = None
-                for row in _parse_aemo(text, "DISPATCH_UNIT_SCADA"):
-                    duid = row.get("DUID", "").strip().upper()
-                    dt_str2 = row.get("SETTLEMENTDATE", "")
-                    v = row.get("SCADAVALUE", "")
-                    if not duid or not dt_str2 or not v: continue
-                    try:
-                        dt = datetime.fromisoformat(dt_str2.replace("/", "-")) - _td(minutes=5)
-                        if dt.date() != req_date: continue
-                        dt_seen = dt.strftime("%H:%M")
-                        snapshot[duid] = round(float(v), 1)
+                        if op_str:  op_demand[region][label] = round(float(op_str),  1)
+                        # Rooftop solar (semi-scheduled, not in SCADA)
+                        rt_str = row.get("SS_SOLAR_CLEAREDMW","")
+                        if rt_str:
+                            try: rooftop[region][label] = round(float(rt_str), 1)
+                            except (ValueError, TypeError): pass
+                        # BDU (battery) fields
+                        bdu_gen  = row.get("BDU_CLEAREDMW_GEN","")
+                        bdu_load = row.get("BDU_CLEAREDMW_LOAD","")
+                        bdu_soc  = row.get("BDU_ENERGY_STORAGE","")
+                        bdu_cap  = row.get("BDU_MAX_AVAIL","")
+                        if bdu_gen or bdu_load:
+                            g = round(float(bdu_gen or 0), 1)
+                            l = round(float(bdu_load or 0), 1)
+                            s = round(float(bdu_soc), 1) if bdu_soc else None
+                            bdu[region][label] = {"net_mw": round(g-l,1), "gen": g, "load": l, "storage": s}
                     except (ValueError, TypeError): continue
-                return (dt_seen, snapshot)
-            except Exception:
-                return None
-
-        with _TPE(max_workers=10) as ex:
-            results = list(ex.map(_fetch_scada, date_scada))
-
-        for result in results:
-            if not result or not result[0]: continue
-            label, snapshot = result
-            fuel_mix_snap = {r: {} for r in NEM_REGIONS}
-            for duid, mw in snapshot.items():
-                info = NEM_UNITS.get(duid, {})
-                region = info.get("region", "")
-                fuel = info.get("fuel", "") or _infer_fuel_from_duid(duid)
-                if region not in NEM_REGIONS: continue
-                mw_pos = max(mw, 0)
-                fuel_mix_snap[region][fuel] = round(fuel_mix_snap[region].get(fuel, 0) + mw_pos, 1)
-            for region in NEM_REGIONS:
-                if fuel_mix_snap[region]:
-                    fuel_history[region][label] = fuel_mix_snap[region]
-
+                for row in _parse_aemo(text, "DISPATCH_INTERCONNECTORRES"):
+                    if row.get("INTERVENTION","0").strip() != "0": continue
+                    ic_id = row.get("INTERCONNECTORID","").strip()
+                    if not ic_id: continue
+                    dt_str2 = row.get("SETTLEMENTDATE",""); flow_str = row.get("MWFLOW","")
+                    if not dt_str2 or not flow_str: continue
+                    try:
+                        dt = datetime.fromisoformat(dt_str2.replace("/","-")) - _td(minutes=5)
+                        if dt.date() != req_date: continue
+                        if ic_id not in ic_flows: ic_flows[ic_id] = {}
+                        ic_flows[ic_id][dt.strftime("%H:%M")] = round(float(flow_str), 1)
+                    except (ValueError, TypeError): continue
     except Exception as e:
-        logger.warning(f"scrape_historical_day: SCADA fetch failed: {e}")
+        logger.warning(f"scrape_historical_day_fast: DispatchIS failed: {e}")
 
-    # Convert to list format
-    def _to_list(d):
-        return {r: [{"interval": k, **v} for k, v in sorted(s.items())] for r, s in d.items() if s}
+    logger.info(f"scrape_historical_day_fast {date_str}: prices={sum(len(v) for v in prices.values())} demand={sum(len(v) for v in op_demand.values())} ic={len(ic_flows)}")
 
     def _to_series(d):
-        return {r: [{"interval": k, "demand": v} for k, v in sorted(s.items())] for r, s in d.items() if s}
-
+        return {r:[{"interval":k,"demand":v} for k,v in sorted(s.items())] for r,s in d.items() if s}
     return {
-        "date": date_str,
-        "dispatch_prices_5min": prices_5m,
-        "historical_prices":   prices_30m_raw,
-        "demand_history":      _to_series(demand),
-        "op_demand_history":   _to_series(op_demand),
-        "fuel_history":        _to_list(fuel_history),
-        "ic_history":          {ic_id: [{"interval": k, "flow": v} for k, v in sorted(s.items())]
-                                for ic_id, s in ic_flows.items() if s},
-        "bdu_history":         {r: [{"interval": k, **v} for k, v in sorted(s.items())]
-                                for r, s in bdu.items() if s},
+        "date":                 date_str,
+        "resolution_minutes":   5,
+        "dispatch_prices_5min": {r:[{"interval":k,"rrp":v} for k,v in sorted(pts.items())] for r,pts in prices.items() if pts},
+        "historical_prices":    {},
+        "demand_history":       _to_series(demand),
+        "op_demand_history":    _to_series(op_demand),
+        "fuel_history":         {},
+        "ic_history":           {ic:[{"interval":k,"flow":v} for k,v in sorted(h.items())] for ic,h in ic_flows.items() if h},
+        "bdu_history":          {r:[{"interval":k,**v} for k,v in sorted(h.items())] for r,h in bdu.items() if h},
+        "rooftop_history":      {r:[{"interval":k,"mw":v} for k,v in sorted(h.items())] for r,h in rooftop.items() if h},
     }
 
-
-def scrape_historical_price_averages() -> dict:
-    """
-    Compute daily average prices for the last 15 days using scrape_historical_prices.
-    Fetches one file per day (30-min trading prices), computes daily avg/min/max/p90.
-    Returns { region: { "YYYY-MM-DD": { avg, min, max, p90, count } } }
-    """
-    import statistics
-    from collections import defaultdict
+def scrape_historical_day_fuel(date_str: str) -> dict:
+    """SCADA fuel mix only — parallel fetch, only available for last ~3 days."""
     from datetime import datetime as _dt, timedelta as _td
     from concurrent.futures import ThreadPoolExecutor as _TPE
 
-    now_aest = datetime.now(AEST)
-    # Last 15 days (excluding today — today may be incomplete)
-    dates = []
-    for i in range(1, 16):
-        d = (now_aest - _td(days=i)).strftime("%Y%m%d")
-        dates.append(d)
+    try:
+        req_date = _dt.strptime(date_str, "%Y%m%d").date()
+    except ValueError:
+        return {}
 
-    results: dict = {r: {} for r in NEM_REGIONS}
+    fuel_history: dict = {r: {} for r in NEM_REGIONS}
+    try:
+        scada_all  = _list_hrefs(SCADA_URL)
+        scada_urls = sorted([f for f in scada_all if date_str in f and "PUBLIC_DISPATCHSCADA" in f.upper()])
+        logger.info(f"scrape_historical_day_fuel {date_str}: {len(scada_urls)} SCADA files")
 
-    def _fetch_day(date_str):
+        def _fetch_scada(url):
+            try:
+                text = _read_zip(url)
+                if not text: return None
+                snapshot, label = {}, None
+                for row in _parse_aemo(text, "DISPATCH_UNIT_SCADA"):
+                    duid = row.get("DUID","").strip().upper()
+                    dt_str2 = row.get("SETTLEMENTDATE",""); v = row.get("SCADAVALUE","")
+                    if not duid or not dt_str2 or not v: continue
+                    try:
+                        dt = datetime.fromisoformat(dt_str2.replace("/","-")) - _td(minutes=5)
+                        if dt.date() != req_date: continue
+                        label = dt.strftime("%H:%M")
+                        snapshot[duid] = round(float(v), 1)
+                    except (ValueError, TypeError): continue
+                return (label, snapshot) if label else None
+            except Exception: return None
+
+        with _TPE(max_workers=20) as ex:
+            for result in ex.map(_fetch_scada, scada_urls):
+                if not result: continue
+                label, snapshot = result
+                fuel_mix_snap = {r: {} for r in NEM_REGIONS}
+                for duid, mw in snapshot.items():
+                    info = NEM_UNITS.get(duid, {})
+                    region = info.get("region",""); fuel = info.get("fuel","") or _infer_fuel_from_duid(duid)
+                    if region not in NEM_REGIONS: continue
+                    fuel_mix_snap[region][fuel] = round(fuel_mix_snap[region].get(fuel,0) + max(mw,0), 1)
+                for region in NEM_REGIONS:
+                    if fuel_mix_snap[region]:
+                        fuel_history[region][label] = fuel_mix_snap[region]
+    except Exception as e:
+        logger.warning(f"scrape_historical_day_fuel: SCADA failed: {e}")
+
+    def _to_list(d):
+        return {r:[{"interval":k,**v} for k,v in sorted(s.items())] for r,s in d.items() if s}
+    return {"date": date_str, "fuel_history": _to_list(fuel_history)}
+
+
+
+def scrape_historical_price_averages(days: int = 90) -> dict:
+    """
+    Compute daily average prices for the last N days (default 95).
+
+    Sources (in priority order):
+    1. GitHub daily price files — 5-min dispatch prices, covers recent days
+    2. TradingIS weekly archive — 30-min prices, covers ~8 weeks back
+
+    Returns { region: { "YYYY-MM-DD": { avg, min, max, p90, count } } }
+    """
+    import statistics, json, base64, os
+    from datetime import timedelta as _td
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+
+    now_aest  = datetime.now(AEST)
+    cutoff    = (now_aest - _td(days=days)).date()
+    today     = now_aest.date()
+
+    raw: dict = {}  # { (region, "YYYY-MM-DD"): [(hhmm, rrp), ...] }
+    days_covered = set()  # dates fully covered by GitHub files
+
+    # ── Source 1: GitHub daily price files ───────────────────────────────────
+    GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+    GH_REPO  = os.environ.get("GITHUB_REPO", "")
+    if GH_TOKEN and GH_REPO:
         try:
-            day_prices = scrape_historical_prices(date_str)
-            return date_str, day_prices
+            import requests as _req
+            GH_HEADERS = {
+                "Authorization": f"token {GH_TOKEN}",
+                "Accept": "application/vnd.github.v3+json",
+            }
+            # Check dates from cutoff to today
+            check_date = cutoff
+            while check_date <= today:
+                date_str = check_date.strftime("%Y-%m-%d")
+                path     = f"data/prices/{date_str}.json"
+                r = _req.get(
+                    f"https://api.github.com/repos/{GH_REPO}/contents/{path}",
+                    headers=GH_HEADERS, timeout=8
+                )
+                if r.status_code == 200:
+                    day_data = json.loads(base64.b64decode(r.json()["content"]).decode())
+                    day_data.pop("date", None)
+                    for region, intervals in day_data.items():
+                        if region not in NEM_REGIONS:
+                            continue
+                        for hhmm, rrp in intervals.items():
+                            key = (region, date_str)
+                            raw.setdefault(key, []).append((hhmm, float(rrp)))
+                    days_covered.add(check_date)
+                if check_date == today:
+                    break
+                # advance
+                check_date = check_date + _td(days=1)
+            logger.info(f"scrape_historical_price_averages: {len(days_covered)} days from GitHub files")
         except Exception as e:
-            logger.debug(f"scrape_historical_price_averages: {date_str} failed: {e}")
-            return date_str, {}
+            logger.warning(f"scrape_historical_price_averages: GitHub files failed: {e}")
 
-    with _TPE(max_workers=5) as ex:
-        all_results = list(ex.map(_fetch_day, dates))
+    # Work out which months still need TradingIS archive coverage
+    months_needed = set()
+    d = cutoff
+    while d < today:
+        if d not in days_covered:
+            months_needed.add((d.year, d.month))
+        if d.month == 12:
+            d = d.replace(year=d.year+1, month=1, day=1)
+        else:
+            d = d.replace(month=d.month+1, day=1)
 
-    for date_str, day_prices in all_results:
-        day_label = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
-        for region, intervals in day_prices.items():
+    if not months_needed:
+        logger.info("scrape_historical_price_averages: all days covered by GitHub files")
+    else:
+        logger.info(f"scrape_historical_price_averages: {len(months_needed)} months need TradingIS archive")
+
+    def _parse_text(text: str):
+        """Parse AEMO CSV text and accumulate into raw."""
+        # Try both TRADINGPRICE and TRADING_PRICE table names (vary by source)
+        rows = _parse_aemo(text, "TRADINGPRICE") or _parse_aemo(text, "TRADING_PRICE")
+        for row in rows:
+            region = row.get("REGIONID", "").strip()
             if region not in NEM_REGIONS:
                 continue
-            prices = [pt["rrp"] for pt in intervals if pt.get("rrp") is not None]
-            if not prices:
+            if row.get("INVALIDFLAG", "0") not in ("0", ""):
                 continue
-            prices_sorted = sorted(prices)
-            p90_idx = min(int(len(prices_sorted) * 0.90), len(prices_sorted) - 1)
-            results[region][day_label] = {
-                "avg":   round(statistics.mean(prices), 2),
-                "min":   round(min(prices), 2),
-                "max":   round(max(prices), 2),
-                "p90":   round(prices_sorted[p90_idx], 2),
-                "count": len(prices),
-            }
+            dt_str  = row.get("SETTLEMENTDATE", "")
+            rrp_str = row.get("RRP", "")
+            if not dt_str or not rrp_str:
+                continue
+            try:
+                dt       = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
+                day_date = dt.date()
+                if day_date < cutoff or day_date >= today:
+                    continue
+                key  = (region, dt.strftime("%Y-%m-%d"))
+                hhmm = dt.strftime("%H:%M")
+                raw.setdefault(key, []).append((hhmm, round(float(rrp_str), 2)))
+            except (ValueError, TypeError):
+                continue
 
-    logger.info(f"scrape_historical_price_averages: {sum(len(v) for v in results.values())} region-days")
+    # ── Step 1 (only): TradingIS weekly archive for months not in GitHub ─────
+    if months_needed:
+        try:
+            all_hrefs = _list_hrefs(TRADING_ARCHIVE)
+            relevant = []
+            for href in all_hrefs:
+                fname = href.split('/')[-1]
+                parts = fname.replace('.zip', '').split('_')
+                if len(parts) >= 4:
+                    try:
+                        start_date = datetime.strptime(parts[-2], "%Y%m%d").date()
+                        end_date   = datetime.strptime(parts[-1], "%Y%m%d").date()
+                        for (yr, mo) in months_needed:
+                            from calendar import monthrange
+                            month_start = datetime(yr, mo, 1).date()
+                            last_day    = monthrange(yr, mo)[1]
+                            month_end   = datetime(yr, mo, last_day).date()
+                            if start_date <= month_end and end_date >= month_start and end_date >= cutoff:
+                                relevant.append(href)
+                                break
+                    except ValueError:
+                        continue
+            relevant = list(set(relevant))
+            logger.info(f"scrape_historical_price_averages: {len(relevant)} TradingIS archive ZIPs to fetch")
+
+            def _fetch_archive(u):
+                try: return _read_zip_of_zips(u)
+                except: return ""
+
+            with _TPE(max_workers=3) as ex:
+                for text in ex.map(_fetch_archive, relevant):
+                    if text:
+                        _parse_text(text)
+        except Exception as e:
+            logger.warning(f"scrape_historical_price_averages: TradingIS archive failed: {e}")
+
+    # ── Step 2: compute daily stats ───────────────────────────────────────────
+    CAP = 300.0
+    # Time-of-day bands (AEST, 30-min intervals, start inclusive, end exclusive)
+    TOD_BANDS = {
+        "overnight":   ("00:00", "06:00"),  # 12am–6am
+        "morning":     ("06:00", "10:00"),  # 6am–10am
+        "midday":      ("10:00", "16:00"),  # 10am–4pm
+        "evening":     ("16:00", "20:00"),  # 4pm–8pm
+        "late_evening":("20:00", "24:00"),  # 8pm–12am
+    }
+
+    def _band_avg(band_prices):
+        if not band_prices: return None
+        return round(statistics.mean(band_prices), 2)
+
+    results: dict = {r: {} for r in NEM_REGIONS}
+    for (region, day_str), interval_list in raw.items():
+        if not interval_list:
+            continue
+        try:
+            prices = [p for _, p in interval_list]
+        except (TypeError, ValueError) as e:
+            logger.warning(f"scrape_historical_price_averages: bad interval_list for {region} {day_str}: {e} sample={interval_list[:2]}")
+            # Fall back: treat as plain floats
+            prices = [float(x) for x in interval_list]
+            interval_list = [(f"{i*5//60:02d}:{i*5%60:02d}", p) for i, p in enumerate(prices)]
+
+        prices_sorted = sorted(prices)
+        p90_idx = min(int(len(prices_sorted) * 0.90), len(prices_sorted) - 1)
+
+        # Bucket prices into time-of-day bands
+        tod = {k: [] for k in TOD_BANDS}
+        for hhmm, p in interval_list:
+            for band, (start, end) in TOD_BANDS.items():
+                if start <= hhmm < end or (end == "24:00" and hhmm >= start):
+                    tod[band].append(p)
+                    break
+
+        results[region][day_str] = {
+            "avg":        round(statistics.mean(prices), 2),
+            "min":        round(min(prices), 2),
+            "max":        round(max(prices), 2),
+            "p90":        round(prices_sorted[p90_idx], 2),
+            "count":      len(prices),
+            "energy_avg": round(statistics.mean(min(p, CAP) for p in prices), 2),
+            "cap_avg":    round(statistics.mean(max(0.0, p - CAP) for p in prices), 2),
+            "tod":        {band: _band_avg(tod[band]) for band in TOD_BANDS},
+            "tod_count":  {band: len(tod[band]) for band in TOD_BANDS},
+            "tod_energy": {band: _band_avg([min(p, CAP) for p in tod[band]]) for band in TOD_BANDS},
+        }
+
+    total = sum(len(v) for v in results.values())
+    logger.info(f"scrape_historical_price_averages: {total} region-days computed")
     return results
-
-
 def scrape_mtpasa_outages() -> list:
     """
     Find units that are currently offline/derated OR have upcoming availability changes.
@@ -4537,10 +3375,836 @@ def scrape_mtpasa_outages() -> list:
     return results
 
 
+def scrape_weather() -> dict:
+    """
+    Fetch 7-day daily forecast using Open-Meteo API (free, no key, uses BOM ACCESS-G model).
+    Returns { region: { name, days: [{day_of_week, date_label, temp_max, temp_min}] } }
+    """
+    # Exact BOM station coordinates for each NEM region
+    LOCATIONS = {
+        "QLD1": {"name": "Archerfield",       "lat": -27.57,   "lon": 153.01},
+        "NSW1": {"name": "Bankstown",          "lat": -33.92,   "lon": 150.98},
+        "VIC1": {"name": "Melbourne (Olympic Park)", "lat": -37.8136, "lon": 144.9631},
+        "SA1":  {"name": "Adelaide (West Terrace)",  "lat": -34.95,   "lon": 138.52},
+        "TAS1": {"name": "Hobart",             "lat": -42.8821, "lon": 147.3272},
+    }
+
+    result = {}
+    session = requests.Session()
+    session.headers.update({"User-Agent": "nem-dashboard/1.0"})
+
+    for region, info in LOCATIONS.items():
+        try:
+            url = (
+                f"https://api.open-meteo.com/v1/forecast"
+                f"?latitude={info['lat']}&longitude={info['lon']}"
+                f"&daily=temperature_2m_max,temperature_2m_min"
+                f"&timezone=Australia%2FSydney&forecast_days=7"
+            )
+            r = session.get(url, timeout=10)
+            if r.status_code != 200:
+                logger.warning(f"scrape_weather: {region} status {r.status_code}")
+                continue
+            j = r.json()
+            daily = j.get("daily", {})
+            dates    = daily.get("time", [])
+            temp_max = daily.get("temperature_2m_max", [])
+            temp_min = daily.get("temperature_2m_min", [])
+
+            days = []
+            for i, date_str in enumerate(dates[:7]):
+                try:
+                    from datetime import datetime as _dt
+                    dt = _dt.strptime(date_str, "%Y-%m-%d")
+                    day_of_week = dt.strftime("%a")
+                    date_label  = dt.strftime("%-d %b")
+                except Exception:
+                    day_of_week = ""
+                    date_label  = date_str
+                days.append({
+                    "date":        date_str,
+                    "day_of_week": day_of_week,
+                    "date_label":  date_label,
+                    "temp_max":    round(temp_max[i], 1) if i < len(temp_max) and temp_max[i] is not None else None,
+                    "temp_min":    round(temp_min[i], 1) if i < len(temp_min) and temp_min[i] is not None else None,
+                })
+
+            if days:
+                result[region] = {"name": info["name"], "days": days}
+                logger.info(f"scrape_weather: {region} ({info['name']}) got {len(days)} days")
+            else:
+                logger.warning(f"scrape_weather: {region} no days in response")
+        except Exception as e:
+            logger.warning(f"scrape_weather: {region} error: {e}")
+
+    return result
+
+
+STTM_BASE   = f"{NEMWEB_BASE}/REPORTS/CURRENT/STTM"
+VICGAS_BASE = f"{NEMWEB_BASE}/REPORTS/CURRENT/VicGas"
+
+# Facility type classification for STTM demand breakdown
+def _sttm_facility_type(facility_name: str) -> str:
+    """Classify an STTM facility into a demand segment."""
+    n = facility_name.upper()
+    if any(x in n for x in ["POWER", "GENERATION", "GENERAT", "ENERGY", "TURBINE", "GAS FIRED"]):
+        return "Generation"
+    if any(x in n for x in ["DISTRIBUTION", "DISTRIB", "NETWORK", "RETAIL"]):
+        return "Distribution"
+    if any(x in n for x in ["INDUSTRIAL", "INDUSTRY", "MANUFACTURING", "PROCESS"]):
+        return "Industrial"
+    if any(x in n for x in ["PIPELINE", "TRANSMISSION", "HAUL"]):
+        return "Pipeline"
+    return "Other"
+
+
+def scrape_gas(days: int = 14) -> dict:
+    """
+    Scrape gas market data:
+    - STTM: ex ante prices + scheduled withdrawals for Adelaide, Brisbane, Sydney
+      Source: nemweb REPORTS/CURRENT/STTM/CURRENTDAY.ZIP + DAY01..DAY14.ZIP
+    - VicGas DWGM: indicative intraday price + scheduled price + withdrawals + history
+      Source: nemweb REPORTS/CURRENT/VicGas/ (flat CSVs)
+
+    Returns {
+      "sttm": {
+        "today": { hub: { "price": float, "demand_tj": float, "gas_date": str } },
+        "history": [ { "gas_date": str, hub: { "price": float, "demand_tj": float } } ]  # 14 days
+      },
+      "vicgas": {
+        "today_price": float,          # scheduled price $/GJ
+        "intraday": [ {"time": "HH:MM", "price": float} ],  # indicative, 30-min
+        "today_demand_tj": float,      # scheduled withdrawals TJ
+        "history": [ {"gas_date": str, "price": float, "demand_tj": float} ]  # 14 days
+      },
+      "last_updated": isoformat
+    }
+    """
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+
+    result = {
+        "sttm":    {"today": {}, "history": []},
+        "vicgas":  {"today_price": None, "intraday": [], "today_demand_tj": None, "history": []},
+        "last_updated": datetime.now(timezone.utc).isoformat(),
+    }
+
+    STTM_HUBS = ["Adelaide", "Brisbane", "Sydney"]
+
+    # ── Helper: parse STTM ZIP (CURRENTDAY or DAY##) ─────────────────────────
+    def _parse_sttm_zip(zip_bytes: bytes) -> dict:
+        """Parse STTM ZIP → { hub: {price, demand_tj, gas_date, facilities: {name: {type, tj}}} }"""
+        out = {}
+        try:
+            with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+                names = z.namelist()
+                # int651 = ex ante market price, int652 = ex ante schedule quantity
+                price_csvs = [n for n in names if "int651" in n.lower() and n.endswith(".csv")]
+                qty_csvs   = [n for n in names if "int652" in n.lower() and n.endswith(".csv")]
+
+                # Parse prices (one row per hub per schedule run — take latest)
+                for csv_name in sorted(price_csvs):
+                    with z.open(csv_name) as f:
+                        reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8", errors="replace"))
+                        for row in reader:
+                            hub_name = (row.get("hub_name") or "").strip().title()
+                            price    = (row.get("ex_ante_market_price") or "").strip()
+                            gas_date_raw = (row.get("gas_date") or "").strip()
+                            if hub_name and price:
+                                try:
+                                    from datetime import datetime as _dt
+                                    try:
+                                        gas_date = _dt.strptime(gas_date_raw, "%d %b %Y").strftime("%Y-%m-%d")
+                                    except ValueError:
+                                        gas_date = gas_date_raw[:10]  # fallback
+                                    out.setdefault(hub_name, {})["price"]    = round(float(price), 4)
+                                    out.setdefault(hub_name, {})["gas_date"] = gas_date
+                                except (ValueError, TypeError):
+                                    pass
+
+                # Parse withdrawals — flow_direction "F" = from hub (withdrawal/demand)
+                for csv_name in sorted(qty_csvs):
+                    with z.open(csv_name) as f:
+                        reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8", errors="replace"))
+                        for row in reader:
+                            hub_name = (row.get("hub_name") or "").strip().title()
+                            facility = (row.get("facility_name") or "").strip()
+                            qty      = (row.get("scheduled_qty") or "").strip()
+                            direction = (row.get("flow_direction") or "").strip().upper()
+                            if hub_name and qty and direction == "F":  # F = from hub = withdrawal
+                                try:
+                                    tj = round(float(qty) / 1000, 3)  # GJ → TJ
+                                    ftype = _sttm_facility_type(facility)
+                                    out.setdefault(hub_name, {}).setdefault("facilities", {})
+                                    out[hub_name]["facilities"][facility] = {"type": ftype, "tj": tj}
+                                    out[hub_name]["demand_tj"] = round(
+                                        out[hub_name].get("demand_tj", 0) + tj, 3
+                                    )
+                                except (ValueError, TypeError):
+                                    pass
+        except Exception as e:
+            logger.warning(f"scrape_gas: STTM ZIP parse failed: {e}")
+        return out
+
+    # ── STTM: fetch CURRENTDAY ZIP only ──────────────────────────────────────
+    # CURRENTDAY.ZIP contains:
+    #   int651 — ex ante market prices (today + last 8 days = 9 days, 3 hubs each)
+    #   int652 — ex ante schedule quantities (today's demand only, flow_direction F)
+    # No daily demand history available from STTM sources.
+
+    def _fetch_sttm_current():
+        url = f"{STTM_BASE}/CURRENTDAY.ZIP"
+        r = _get(url, timeout=30)
+        if not r:
+            return {}
+        return r.content
+
+    sttm_bytes = {}
+    with _TPE(max_workers=1) as ex:
+        sttm_bytes = ex.submit(_fetch_sttm_current).result(timeout=45)
+
+    if sttm_bytes:
+        try:
+            history_prices = {}  # { "YYYY-MM-DD": { hub: price } }
+            today_qty      = {}  # { hub: demand_tj }
+            today_date_raw = {}  # { hub: gas_date str for today }
+
+            with zipfile.ZipFile(io.BytesIO(sttm_bytes)) as z:
+                names = z.namelist()
+
+                # int651 — ex ante prices, multiple rows per hub per day
+                # Take the latest schedule_identifier (highest number) per hub per date
+                int651_best = {}  # { (hub, date_raw): (sched_id, price) }
+                for fname in sorted(n for n in names if "int651" in n.lower()):
+                    with z.open(fname) as f:
+                        reader = csv.DictReader(io.TextIOWrapper(f, errors="replace"))
+                        for row in reader:
+                            hub      = (row.get("hub_name") or "").strip().title()
+                            date_raw = (row.get("gas_date") or "").strip()
+                            price    = (row.get("ex_ante_market_price") or "").strip()
+                            sched_id = int(row.get("schedule_identifier") or 0)
+                            if hub and date_raw and price:
+                                key = (hub, date_raw)
+                                if key not in int651_best or sched_id > int651_best[key][0]:
+                                    int651_best[key] = (sched_id, price)
+
+                for (hub, date_raw), (_, price) in int651_best.items():
+                    try:
+                        from datetime import datetime as _dt
+                        gas_date = _dt.strptime(date_raw, "%d %b %Y").strftime("%Y-%m-%d")
+                        history_prices.setdefault(gas_date, {})[hub] = round(float(price), 4)
+                    except (ValueError, TypeError):
+                        pass
+
+                # int652 — today's withdrawals: take the LATEST schedule run per hub
+                # Multiple int652 files = multiple schedule runs; use highest schedule_identifier
+                qty_best = {}  # { hub: (sched_id, total_qty) }
+                for fname in sorted(n for n in names if "int652" in n.lower()):
+                    with z.open(fname) as f:
+                        reader = csv.DictReader(io.TextIOWrapper(f, errors="replace"))
+                        # Sum F-direction qty per hub within this schedule file
+                        sched_qty  = {}
+                        sched_id   = 0
+                        date_raw_h = {}
+                        for row in reader:
+                            hub       = (row.get("hub_name") or "").strip().title()
+                            direction = (row.get("flow_direction") or "").strip().upper()
+                            qty       = (row.get("scheduled_qty") or "").strip()
+                            date_raw  = (row.get("gas_date") or "").strip()
+                            sid       = int(row.get("schedule_identifier") or 0)
+                            if hub and direction == "F" and qty:
+                                try:
+                                    sched_qty[hub]  = sched_qty.get(hub, 0.0) + float(qty)
+                                    date_raw_h[hub] = date_raw
+                                    sched_id = max(sched_id, sid)
+                                except (ValueError, TypeError):
+                                    pass
+                        # Keep this file's totals only if schedule_id is newer
+                        for hub, total in sched_qty.items():
+                            if hub not in qty_best or sched_id > qty_best[hub][0]:
+                                qty_best[hub] = (sched_id, total)
+                                today_date_raw[hub] = date_raw_h.get(hub, "")
+
+                today_qty = {hub: v[1] for hub, v in qty_best.items()}
+
+            # Determine today's date (most recent in int651)
+            from datetime import datetime as _dt
+            sorted_dates = sorted(history_prices.keys())
+            today_iso = sorted_dates[-1] if sorted_dates else None
+
+            # Populate today
+            if today_iso:
+                for hub in STTM_HUBS:
+                    hub_price = history_prices.get(today_iso, {}).get(hub)
+                    demand_tj = round(today_qty.get(hub, 0) / 1000, 3) if hub in today_qty else None
+                    result["sttm"]["today"][hub] = {
+                        "price":    hub_price,
+                        "demand_tj": demand_tj,
+                        "gas_date": today_iso,
+                    }
+
+            # Populate history (all dates, sorted ascending, last `days` entries)
+            for gas_date in sorted_dates[-days:]:
+                entry = {"gas_date": gas_date}
+                for hub in STTM_HUBS:
+                    p = history_prices.get(gas_date, {}).get(hub)
+                    if p is not None:
+                        entry[hub] = {"price": p}
+                if len(entry) > 1:
+                    result["sttm"]["history"].append(entry)
+
+            logger.info(f"scrape_gas: STTM history {len(result['sttm']['history'])} days, today={today_iso}")
+        except Exception as e:
+            logger.warning(f"scrape_gas: STTM parse failed: {e}")
+
+    # ── VicGas: fetch flat CSVs ───────────────────────────────────────────────
+    def _fetch_vicgas_csv(filename: str) -> str:
+        url = f"{VICGAS_BASE}/{filename}"
+        r = _get(url, timeout=15)
+        return r.text if r else ""
+
+    vicgas_files = [
+        "INT037B_V4_INDICATIVE_MKT_PRICE_1.CSV",      # intraday indicative price
+        "INT041_V4_MARKET_AND_REFERENCE_PRICES_1.CSV", # 14-day price history
+        "INT050_V4_SCHED_WITHDRAWALS_1.CSV",           # today's withdrawals by zone
+    ]
+    with _TPE(max_workers=4) as ex:
+        vicgas_texts = {f: t for f, t in zip(vicgas_files, ex.map(_fetch_vicgas_csv, vicgas_files))}
+
+    # INT037B — intraday indicative price
+    # Columns: demand_type_name, price_value_gst_ex, transmission_group_id, schedule_type_id,
+    #          transmission_id, gas_date, approval_datetime, current_date
+    try:
+        text = vicgas_texts.get("INT037B_V4_INDICATIVE_MKT_PRICE_1.CSV", "")
+        if text:
+            reader = csv.DictReader(io.StringIO(text))
+            pts = []
+            for row in reader:
+                demand_type = (row.get("demand_type_name") or "").strip()
+                price       = (row.get("price_value_gst_ex") or "").strip()
+                approval    = (row.get("approval_datetime") or "").strip()
+                if demand_type.lower() == "normal" and price and approval:
+                    try:
+                        from datetime import datetime as _dt
+                        dt = _dt.strptime(approval, "%d %b %Y %H:%M:%S")
+                        pts.append({"time": dt.strftime("%H:%M"), "price": round(float(price), 4)})
+                    except (ValueError, TypeError):
+                        pass
+            result["vicgas"]["intraday"] = sorted(pts, key=lambda x: x["time"])
+            logger.info(f"scrape_gas: VicGas intraday {len(pts)} pts")
+    except Exception as e:
+        logger.warning(f"scrape_gas: INT037B parse failed: {e}")
+
+    # INT041 — 14-day price history
+    # Columns: gas_date, price_bod_gst_ex, price_10am_gst_ex, ..., imb_wtd_ave_price_gst_ex, current_date
+    try:
+        text = vicgas_texts.get("INT041_V4_MARKET_AND_REFERENCE_PRICES_1.CSV", "")
+        if text:
+            from datetime import datetime as _dt
+            reader = csv.DictReader(io.StringIO(text))
+            hist = []
+            for row in reader:
+                date_raw = (row.get("gas_date") or "").strip()
+                price    = (row.get("price_bod_gst_ex") or "").strip()
+                if date_raw and price:
+                    try:
+                        gas_date = _dt.strptime(date_raw, "%d %b %Y").strftime("%Y-%m-%d")
+                        hist.append({"gas_date": gas_date, "price": round(float(price), 4)})
+                    except (ValueError, TypeError):
+                        pass
+            hist.sort(key=lambda x: x["gas_date"])
+            result["vicgas"]["history"] = hist[-days:]
+            # Today's price = last row
+            if hist:
+                result["vicgas"]["today_price"] = hist[-1]["price"]
+            logger.info(f"scrape_gas: VicGas history {len(result['vicgas']['history'])} days")
+    except Exception as e:
+        logger.warning(f"scrape_gas: INT041 parse failed: {e}")
+
+    # INT050 — today's scheduled withdrawals by zone (filter to today's date only)
+    # Columns: gas_date, withdrawal_zone_name, scheduled_qty, transmission_id, current_date
+    try:
+        text = vicgas_texts.get("INT050_V4_SCHED_WITHDRAWALS_1.CSV", "")
+        if text:
+            from datetime import datetime as _dt, date as _date
+            today_str = _date.today().strftime("%d %b %Y")  # e.g. "29 Mar 2026"
+            reader = csv.DictReader(io.StringIO(text))
+            total = 0.0
+            for row in reader:
+                row_date = (row.get("gas_date") or "").strip()
+                qty      = (row.get("scheduled_qty") or "").strip()
+                if row_date == today_str and qty:
+                    try:
+                        total += float(qty)
+                    except (ValueError, TypeError):
+                        pass
+            result["vicgas"]["today_demand_tj"] = round(total / 1000, 3) if total else None
+            logger.info(f"scrape_gas: VicGas demand {result['vicgas']['today_demand_tj']} TJ")
+    except Exception as e:
+        logger.warning(f"scrape_gas: INT050 parse failed: {e}")
+
+    # ── VicGas demand history: AEMO DWGM Prices and Demand Excel ────────────
+    # Demand sheet columns: Gas_Date, System Demand, GPG, Total Demand (already in TJ)
+    try:
+        import openpyxl
+        excel_url = "https://www.aemo.com.au/-/media/files/gas/dwgm/dwgm-prices-and-demand.xlsx"
+        r = _get(excel_url, timeout=60)
+        if r and len(r.content) > 10000:
+            wb = openpyxl.load_workbook(io.BytesIO(r.content), read_only=True, data_only=True)
+            demand_sheet = next((ws for ws in wb.worksheets if ws.title == "Demand"), None)
+            if demand_sheet:
+                from datetime import datetime as _dt, date as _date
+                demand_hist = []
+                header_done = False
+                date_col = demand_col = gpg_col = None
+                for row in demand_sheet.iter_rows(values_only=True):
+                    if not header_done:
+                        # Header row
+                        headers = [str(v).lower().strip() if v else "" for v in row]
+                        date_col   = next((i for i, h in enumerate(headers) if "date" in h), None)
+                        demand_col = next((i for i, h in enumerate(headers) if "system demand" in h), None)
+                        gpg_col    = next((i for i, h in enumerate(headers) if "gpg" in h), None)
+                        header_done = True
+                        continue
+                    if date_col is None or demand_col is None:
+                        continue
+                    dv  = row[date_col]
+                    dem = row[demand_col]
+                    if not dv or not dem:
+                        continue
+                    try:
+                        gas_date = dv.strftime("%Y-%m-%d") if hasattr(dv, "strftime") else str(dv)[:10]
+                        entry = {"gas_date": gas_date, "demand_tj": round(float(dem), 3)}
+                        if gpg_col is not None and row[gpg_col]:
+                            entry["gpg_tj"] = round(float(row[gpg_col]), 3)
+                        demand_hist.append(entry)
+                    except (ValueError, TypeError):
+                        pass
+                wb.close()
+
+                # Last `days` entries are already in date order (file is chronological)
+                demand_by_date = {d["gas_date"]: d for d in demand_hist[-days:]}
+
+                # Merge into vicgas history price entries
+                for entry in result["vicgas"]["history"]:
+                    d = entry["gas_date"]
+                    if d in demand_by_date:
+                        entry["demand_tj"] = demand_by_date[d]["demand_tj"]
+                        if "gpg_tj" in demand_by_date[d]:
+                            entry["gpg_tj"] = demand_by_date[d]["gpg_tj"]
+
+                # Today's demand fallback (INT050 is more current)
+                today_iso = _date.today().strftime("%Y-%m-%d")
+                if result["vicgas"]["today_demand_tj"] is None and today_iso in demand_by_date:
+                    result["vicgas"]["today_demand_tj"] = demand_by_date[today_iso]["demand_tj"]
+
+                logger.info(f"scrape_gas: DWGM Excel {len(demand_hist)} total days, last={demand_hist[-1]['gas_date'] if demand_hist else 'none'}")
+        else:
+            logger.warning("scrape_gas: DWGM Excel fetch failed or empty")
+    except Exception as e:
+        logger.warning(f"scrape_gas: DWGM Excel demand failed: {e}")
+
+    logger.info(
+        f"scrape_gas done — STTM today hubs={list(result['sttm']['today'].keys())} "
+        f"history={len(result['sttm']['history'])} days, "
+        f"VicGas price={result['vicgas']['today_price']} "
+        f"intraday={len(result['vicgas']['intraday'])} pts"
+    )
+    return result
+
+
+def scrape_gbb() -> dict:
+    """
+    Scrape GasBBActualFlowStorageLast31.CSV from NEMWeb.
+    Returns storage, production, demand by sector, pipeline flows, state summary.
+    """
+    url = "https://www.nemweb.com.au/Reports/Current/GBB/GasBBActualFlowStorageLast31.CSV"
+    result = {
+        "storage": {},
+        "state_summary": {},
+        "production_history": {},
+        "demand_by_sector": {},
+        "pipeline_flows": {},
+        "latest_date": None,
+        "last_complete_date": None,
+        "partial_dates": [],
+        "forecast_dates": [],
+        "chart_dates": [],
+        "last_updated": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        r = _get(url, timeout=30)
+        if not r:
+            logger.warning("scrape_gbb: fetch failed")
+            return result
+
+        rows = list(csv.DictReader(r.text.splitlines()))
+        all_dates = sorted({row["GasDate"] for row in rows})
+        latest_date = all_dates[-1] if all_dates else None
+        result["latest_date"] = latest_date
+        N = len(all_dates)  # use all available days (up to 31)
+
+        # ── Storage facilities ──────────────────────────────────────────────
+        stor_rows = [row for row in rows if row.get("FacilityType") == "STOR"]
+        storage_hist = {}
+        for row in stor_rows:
+            name     = row["FacilityName"]
+            gas_date = row["GasDate"].replace("/", "-")
+            held     = row.get("HeldInStorage", "")
+            if not held:
+                continue
+            try:
+                storage_hist.setdefault(name, {})[gas_date] = {
+                    "held_tj":   round(float(held), 1),
+                    "demand_tj": round(float(row.get("Demand") or 0), 1),
+                    "supply_tj": round(float(row.get("Supply") or 0), 1),
+                }
+            except (ValueError, TypeError):
+                pass
+        for name, dates in storage_hist.items():
+            result["storage"][name] = [{"gas_date": d, **v} for d, v in sorted(dates.items())]
+
+        # ── Determine complete vs partial dates ──────────────────────────────
+        MIN_COMPLETE_ROWS = 150
+        complete_dates = set()
+        partial_dates  = set()
+        for d in all_dates:
+            d_rows = [r for r in rows if r["GasDate"] == d]
+            types = {r["FacilityType"] for r in d_rows}
+            if "PROD" in types and "LNGEXPORT" in types and len(d_rows) >= MIN_COMPLETE_ROWS:
+                complete_dates.add(d)
+            else:
+                partial_dates.add(d)
+
+        last_complete = max(complete_dates).replace("/", "-") if complete_dates else None
+        result["partial_dates"] = sorted(d.replace("/", "-") for d in partial_dates)
+        result["last_complete_date"] = last_complete
+
+        # Use the most recent COMPLETE date for the state summary table
+        summary_date = max(complete_dates) if complete_dates else latest_date
+        result["latest_date"] = summary_date
+        latest_rows = [row for row in rows if row["GasDate"] == summary_date]
+
+        # ── State summary for latest date ────────────────────────────────────
+        # Methodology matching GBB bulletin board:
+        # Supply = PROD supply + PIPE supply at end-point delivery locations (Darwin)
+        # Demand = LNGEXPORT + BBGPG + BBLARGE + PIPE demand at city gates
+        # Notes:
+        # - Darwin PIPE supply (WPP) counts as NT supply (gas to power stations)
+        # - Curtis Island PIPE demand is already captured in LNGEXPORT — skip
+        # - Darwin PIPE demand = same gas as Darwin BBGPG — skip to avoid double-count
+        # - Regional-QLD/VIC/SA PIPE = transit flows, not end-user demand
+        CITY_GATE_LOCS = {
+            "Melbourne", "Sydney", "Adelaide", "Brisbane", "Geelong",
+            "Ballarat", "Northern", "Western", "Canberra",
+            "Gippsland", "Darwin",
+            "Regional - TAS", "Regional - ACT",
+        }
+        TRANSIT_LOCS = {
+            "Longford Hub", "Iona Hub", "Wallumbilla Hub", "Moomba Hub",
+            "Ballera", "Curtis Island",
+            "Regional - QLD", "Regional - VIC", "Regional - SA",
+            "Regional - NSW", "Regional - NT",
+        }
+        # PIPE supply locations that count as state supply (end-point, not transit)
+        TERMINAL_PIPE_SUPPLY_LOCS = {"Darwin"}
+
+        state_agg = {}
+        for row in latest_rows:
+            st  = row.get("State", "")
+            ft  = row.get("FacilityType", "")
+            loc = row.get("LocationName", "")
+            if not st:
+                continue
+            state_agg.setdefault(st, {"supply": 0.0, "demand": 0.0})
+            try:
+                sup = float(row.get("Supply") or 0)
+                dem = float(row.get("Demand") or 0)
+
+                # ── Supply ──
+                if ft == "PROD" and sup > 0:
+                    state_agg[st]["supply"] += sup
+                elif ft == "STOR":
+                    # Net storage flow: withdrawals (dem) = supply to market, injections (sup) = removed from market
+                    state_agg[st]["supply"] += dem - sup
+                elif ft == "PIPE" and sup > 0 and loc in TERMINAL_PIPE_SUPPLY_LOCS:
+                    # End-point pipe delivery (e.g. WPP Darwin to NT power stations)
+                    state_agg[st]["supply"] += sup
+
+                # ── Demand ──
+                if ft in ("LNGEXPORT", "BBGPG", "BBLARGE") and dem > 0:
+                    state_agg[st]["demand"] += dem
+                elif ft == "PIPE" and dem > 0 and loc in CITY_GATE_LOCS and loc not in TRANSIT_LOCS:
+                    # Skip Darwin PIPE demand — same gas already counted in BBGPG
+                    if loc == "Darwin":
+                        pass
+                    else:
+                        state_agg[st]["demand"] += dem
+
+            except (ValueError, TypeError):
+                pass
+
+        for st, vals in state_agg.items():
+            s, d = round(vals["supply"], 1), round(vals["demand"], 1)
+            result["state_summary"][st] = {"supply": s, "demand": d, "net": round(s - d, 1)}
+
+        # ── Demand by sector (all days) ──────────────────────────────────────
+        sector_hist = {}
+        for row in rows:
+            ft  = row.get("FacilityType", "")
+            loc = row.get("LocationName", "")
+            gd  = row.get("GasDate", "").replace("/", "-")
+            dem = float(row.get("Demand") or 0)
+            if not gd or dem == 0:
+                continue
+            if ft == "BBGPG":
+                key = "Gas Power Generation"
+            elif ft == "LNGEXPORT":
+                key = "LNG Export"
+            elif ft == "BBLARGE":
+                key = "Large Industrial"
+            elif ft == "PIPE" and loc in CITY_GATE_LOCS:
+                key = "Residential & Commercial"
+            else:
+                continue
+            sector_hist.setdefault(key, {}).setdefault(gd, 0.0)
+            sector_hist[key][gd] = round(sector_hist[key][gd] + dem, 1)
+
+        result["demand_by_sector"] = {}
+        for key, dates in sector_hist.items():
+            result["demand_by_sector"][key] = [
+                {"gas_date": d, "demand_tj": dates[d]} for d in sorted(dates)
+                if last_complete is None or d <= last_complete
+            ]
+
+        # ── Production by source (all days) ─────────────────────────────────
+        VIC_PROD = {'Longford', 'Otway', 'Orbost', 'ATHENA', 'Lang Lang'}
+        prod_hist = {}
+        for row in rows:
+            if row.get("FacilityType") != "PROD":
+                continue
+            name   = row.get("FacilityName", "")
+            st     = row.get("State", "")
+            gd     = row.get("GasDate", "").replace("/", "-")
+            supply = float(row.get("Supply") or 0)
+            if not gd or supply == 0:
+                continue
+            if name in VIC_PROD:
+                key = f"VIC: {name}"
+            elif name == "Moomba":
+                key = "SA: Moomba"
+            elif st == "QLD":
+                key = "QLD (CSG+LNG)"
+            elif st == "NT":
+                key = "NT"
+            else:
+                continue
+            prod_hist.setdefault(key, {}).setdefault(gd, 0.0)
+            prod_hist[key][gd] = round(prod_hist[key][gd] + supply, 1)
+
+        # ── Storage net flow: withdrawals (demand) = supply to market ────────
+        # demand_tj = gas released from storage (positive = market supply)
+        # supply_tj = gas injected into storage (negative = market withdrawal)
+        # Net = demand - supply: positive means net releasing to market
+        stor_net = {}  # { date: net_tj }
+        for row in rows:
+            if row.get("FacilityType") != "STOR":
+                continue
+            gd  = row.get("GasDate", "").replace("/", "-")
+            dem = float(row.get("Demand") or 0)   # withdrawals from storage
+            sup = float(row.get("Supply") or 0)   # injections into storage
+            if not gd:
+                continue
+            stor_net.setdefault(gd, 0.0)
+            stor_net[gd] = round(stor_net[gd] + dem - sup, 1)
+
+        if stor_net:
+            prod_hist["Storage (net)"] = stor_net
+
+        result["production_history"] = {}
+        for key, dates in prod_hist.items():
+            if isinstance(list(dates.values())[0], float):
+                pts = [{"gas_date": d, "supply_tj": v} for d, v in sorted(dates.items())
+                       if last_complete is None or d <= last_complete]
+            else:
+                pts = [{"gas_date": d, "supply_tj": dates[d]} for d in sorted(dates)
+                       if last_complete is None or d <= last_complete]
+            if pts:
+                result["production_history"][key] = pts
+
+        # ── Pipeline flows (all days) ─────────────────────────────────────────
+        # Key interstate pipelines with direction label
+        # For each pipeline, we track net flow = supply at source - demand at destination
+        # We use supply side only to avoid double-counting: supply = gas entering the pipe
+        PIPELINES = {
+            "EGP":   "VIC → NSW",   # Eastern Gas Pipeline
+            "TGP":   "VIC → TAS",   # Tasmanian Gas Pipeline
+            "MSP":   "SA → NSW",    # Moomba-Sydney Pipeline
+            "MAPS":  "SA (Moomba→Adelaide)",
+            "RBP":   "QLD (Roma→Brisbane)",
+            "SWQP":  "QLD → SA",    # South West Queensland Pipeline
+            "VTS":   "VIC (Longford→Melbourne)",
+            "PCA":   "SA → VIC",    # Parmelia/Port Campbell to Adelaide
+        }
+        pipe_hist = {}  # { label: { date: flow_tj } }
+        for row in rows:
+            if row.get("FacilityType") != "PIPE":
+                continue
+            name       = row.get("FacilityName", "")
+            gd         = row.get("GasDate", "").replace("/", "-")
+            supply     = float(row.get("Supply") or 0)
+            transfer_in = float(row.get("TransferIn") or 0)
+            # Use Supply if available, else TransferIn at the source hub
+            flow = supply if supply > 0 else transfer_in
+            if name not in PIPELINES or not gd or flow == 0:
+                continue
+            label = f"{name} ({PIPELINES[name]})"
+            pipe_hist.setdefault(label, {}).setdefault(gd, 0.0)
+            pipe_hist[label][gd] = round(pipe_hist[label][gd] + flow, 1)
+
+        result["pipeline_flows"] = {}
+        for label, dates in pipe_hist.items():
+            result["pipeline_flows"][label] = [
+                {"gas_date": d, "flow_tj": dates[d]} for d in sorted(dates)
+                if last_complete is None or d <= last_complete
+            ]
+
+        # ── Nominations: today + D+1 production and pipeline forecasts ──────
+        # GasBBNominationAndForecastNext7.CSV — same structure as actuals
+        # Column is "Gasdate" (lowercase d), covers D+0 through D+6
+        try:
+            nom_url = "https://www.nemweb.com.au/Reports/Current/GBB/GasBBNominationAndForecastNext7.CSV"
+            rn = _get(nom_url, timeout=20)
+            if rn:
+                nom_rows = list(csv.DictReader(rn.text.splitlines()))
+                nom_prod  = {}  # same structure as prod_hist
+                nom_pipes = {}  # same structure as pipe_hist
+
+                for row in nom_rows:
+                    gd  = row.get("Gasdate", "").replace("/", "-")
+                    ft  = row.get("FacilityType", "")
+                    nm  = row.get("FacilityName", "")
+                    st  = row.get("State", "")
+                    sup = float(row.get("Supply") or 0)
+                    if not gd or sup == 0:
+                        continue
+
+                    # Production nominations
+                    if ft == "PROD":
+                        if nm in VIC_PROD:
+                            key = f"VIC: {nm}"
+                        elif nm == "Moomba":
+                            key = "SA: Moomba"
+                        elif st == "QLD":
+                            key = "QLD (CSG+LNG)"
+                        elif st == "NT":
+                            key = "NT"
+                        else:
+                            continue
+                        nom_prod.setdefault(key, {}).setdefault(gd, 0.0)
+                        nom_prod[key][gd] = round(nom_prod[key][gd] + sup, 1)
+
+                    # Pipeline nominations
+                    elif ft == "PIPE" and nm in PIPELINES:
+                        label = f"{nm} ({PIPELINES[nm]})"
+                        nom_pipes.setdefault(label, {}).setdefault(gd, 0.0)
+                        nom_pipes[label][gd] = round(nom_pipes[label][gd] + sup, 1)
+
+                # Collect all dates that appear in ANY actuals series
+                all_actual_dates = set()
+                for pts in result["production_history"].values():
+                    all_actual_dates.update(p["gas_date"] for p in pts)
+
+                # Merge nominations: add forecast flag for any date not in actuals,
+                # OR fill a series that has no value for a date that other series have
+                for key, dates in nom_prod.items():
+                    existing = {p["gas_date"] for p in result["production_history"].get(key, [])}
+                    for gd, val in sorted(dates.items()):
+                        if gd not in existing:
+                            # Mark as forecast only if this date has NO actuals at all
+                            is_forecast = gd not in all_actual_dates
+                            result["production_history"].setdefault(key, []).append(
+                                {"gas_date": gd, "supply_tj": val, "forecast": is_forecast}
+                            )
+
+                # Collect all dates in any pipeline actuals series
+                all_pipe_dates = set()
+                for pts in result["pipeline_flows"].values():
+                    all_pipe_dates.update(p["gas_date"] for p in pts)
+
+                # Merge pipeline nominations
+                for label, dates in nom_pipes.items():
+                    existing = {p["gas_date"] for p in result["pipeline_flows"].get(label, [])}
+                    for gd, val in sorted(dates.items()):
+                        if gd not in existing:
+                            is_forecast = gd not in all_pipe_dates
+                            result["pipeline_flows"].setdefault(label, []).append(
+                                {"gas_date": gd, "flow_tj": val, "forecast": is_forecast}
+                            )
+
+                # Store which dates are forecasts — only keep dates where ALL
+                # production series have a value (drop incomplete nomination dates)
+                nom_dates = sorted({row.get("Gasdate","").replace("/","-") for row in nom_rows if row.get("Gasdate","")})
+
+                # Count how many prod series have each nomination date
+                prod_keys = [k for k in result["production_history"] if k != "Storage (net)"]
+                clean_nom_dates = []
+                for d in nom_dates:
+                    coverage = sum(
+                        1 for k in prod_keys
+                        if any(p["gas_date"] == d for p in result["production_history"].get(k, []))
+                    )
+                    # Require at least 80% of series to have data for this date
+                    if len(prod_keys) == 0 or coverage >= len(prod_keys) * 0.8:
+                        clean_nom_dates.append(d)
+                    else:
+                        # Drop this date from all histories
+                        logger.info(f"scrape_gbb: dropping incomplete nomination date {d} ({coverage}/{len(prod_keys)} series)")
+                        for key in result["production_history"]:
+                            result["production_history"][key] = [
+                                p for p in result["production_history"][key] if p["gas_date"] != d
+                            ]
+                        for label in result["pipeline_flows"]:
+                            result["pipeline_flows"][label] = [
+                                p for p in result["pipeline_flows"][label] if p["gas_date"] != d
+                            ]
+
+                result["forecast_dates"] = clean_nom_dates
+
+                # ── Unified chart_dates: complete actuals + clean nominations ──
+                # All charts use this exact date range; missing series return null
+                result["chart_dates"] = [
+                    d.replace("/", "-") for d in sorted(complete_dates)
+                ] + clean_nom_dates
+
+                # Sort all series by date after merging
+                for key in result["production_history"]:
+                    result["production_history"][key].sort(key=lambda x: x["gas_date"])
+                for label in result["pipeline_flows"]:
+                    result["pipeline_flows"][label].sort(key=lambda x: x["gas_date"])
+
+                logger.info(f"scrape_gbb: nominations {len(nom_rows)} rows, dates={nom_dates[:3]}")
+        except Exception as e:
+            logger.warning(f"scrape_gbb: nominations failed: {e}")
+
+        # Fallback chart_dates if nominations didn't run
+        if not result["chart_dates"]:
+            result["chart_dates"] = [d.replace("/", "-") for d in sorted(complete_dates)]
+
+        logger.info(
+            f"scrape_gbb: {len(rows)} rows, {N} dates, "
+            f"storage={list(result['storage'].keys())}, latest={latest_date}"
+        )
+    except Exception as e:
+        logger.warning(f"scrape_gbb: failed: {e}")
+
+    return result
+
+
 def scrape_slow() -> dict:
     """
-    Combined slow scrape: STPASA demand forecast.
+    Combined slow scrape: STPASA demand forecast + BOM weather.
     Called by _run_slow in main.py every 30 minutes.
+    Gas data is fetched on-demand via /api/gas endpoint.
     """
     logger.info("scrape_slow starting...")
     result = {
@@ -4549,6 +4213,7 @@ def scrape_slow() -> dict:
         "fuel_colors":   FUEL_COLORS,
         "all_fuels":     ALL_FUELS,
         "fuel_mix_today": {},
+        "weather":       {},
     }
 
     # ST PASA demand forecast
@@ -4557,5 +4222,401 @@ def scrape_slow() -> dict:
     except Exception as e:
         logger.warning(f"scrape_slow: stpasa_demand failed: {e}")
 
+    # BOM weather forecast
+    try:
+        result["weather"] = scrape_weather()
+    except Exception as e:
+        logger.warning(f"scrape_slow: weather failed: {e}")
+
     logger.info("scrape_slow done")
     return result
+
+
+# ---------------------------------------------------------------------------
+# ASX Energy futures scraper
+# ---------------------------------------------------------------------------
+
+ASX_API_BASE = "https://asxenergy.com.au/api"
+
+# Code decoding maps
+ASX_REGION_MAP = {"N": "NSW", "Q": "QLD", "S": "SA", "V": "VIC"}
+ASX_PRODUCT_MAP = {"B": "base", "G": "cap"}  # quarterly futures only
+
+# Annual strip product codes (ASX market data vendor codes doc v2.2, Dec 2025)
+# H = Base load strip, R = Cap ($300) strip
+# D = Peak strip, J = Morning Peak strip, L = Evening Peak strip (skip these)
+ASX_STRIP_PRODUCT_MAP = {
+    "H": "base_strip",
+    "R": "cap_strip",
+}
+
+# Quarter letter mapping for B/G quarterly products
+ASX_QUARTER_MAP = {
+    "H": ("Q1", 1),   # Jan-Mar
+    "M": ("Q2", 2),   # Apr-Jun
+    "U": ("Q3", 3),   # Jul-Sep
+    "Z": ("Q4", 4),   # Oct-Dec
+}
+
+# Annual strip period: 3rd char = ending quarter month
+# Z = Calendar Year (ends Dec), M = Financial Year (ends Jun)
+ASX_STRIP_PERIOD_MAP = {
+    "Z": "cal",
+    "M": "fy",
+}
+
+def _asx_headers(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+def _asx_decode(code: str) -> dict | None:
+    """
+    Decode an ASX electricity futures code.
+
+    Quarterly futures (B=base, G=cap):
+      Format: [B/G][region][quarter][year]
+      H=Q1(Jan-Mar), M=Q2(Apr-Jun), U=Q3(Jul-Sep), Z=Q4(Oct-Dec)
+      e.g. BNM2026 = Base NSW Q2 2026
+
+    Annual strip futures (H=base strip, R=cap strip):
+      Format: [H/R][region][period][year]
+      Z=Calendar Year (Jan-Dec), M=Financial Year (Jul-Jun)
+      e.g. HNZ2027 = Base NSW Cal 2027, HNM2027 = Base NSW FY27
+    """
+    if len(code) < 7:
+        return None
+    product_char = code[0]
+    region_char  = code[1]
+    period_char  = code[2]
+    year_str     = code[3:]
+    if not year_str.isdigit():
+        return None
+    year = int(year_str)
+
+    region = ASX_REGION_MAP.get(region_char)
+    if not region:
+        return None
+
+    # Annual strips: H = base, R = cap
+    if product_char in ASX_STRIP_PRODUCT_MAP:
+        product = ASX_STRIP_PRODUCT_MAP[product_char]
+        period_type = ASX_STRIP_PERIOD_MAP.get(period_char)
+        if not period_type:
+            return None
+        if period_type == "cal":
+            period_label = f"Cal {year}"
+            sort_key = year * 100
+        else:
+            period_label = f"FY{str(year)[2:]}"
+            sort_key = year * 100
+        return {
+            "code": code, "product": product, "region": region,
+            "period_type": period_type, "period_label": period_label,
+            "sort_key": sort_key, "year": year,
+        }
+
+    # Quarterly futures: B or G as first char
+    product = ASX_PRODUCT_MAP.get(product_char)
+    if not product:
+        return None
+    qtr_info = ASX_QUARTER_MAP.get(period_char)
+    if not qtr_info:
+        return None
+    qtr_label, q_num = qtr_info
+    period_label = f"{qtr_label} {year}"
+    sort_key = year * 100 + q_num
+    return {
+        "code": code, "product": product, "region": region,
+        "period_type": "quarter", "period_label": period_label,
+        "sort_key": sort_key, "year": year,
+    }
+
+
+def scrape_asx(token: str) -> dict:
+    """
+    Fetch AU electricity futures from ASX Energy API.
+    Returns structured data: {
+      date, is_live, base: {period_label: {NSW, QLD, VIC, SA}}, cap: {...}
+    }
+    """
+    now_aest = datetime.now(AEST)
+    # Market hours: Mon-Fri 10am-4pm AEST
+    is_market_hours = (
+        now_aest.weekday() < 5 and
+        now_aest.hour >= 10 and
+        (now_aest.hour < 16 or (now_aest.hour == 16 and now_aest.minute == 0))
+    )
+
+    try:
+        resp = requests.get(
+            f"{ASX_API_BASE}/intraday",
+            params={"futures": "au_electricity"},
+            headers=_asx_headers(token),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        raw = resp.json()
+    except Exception as e:
+        logger.warning(f"scrape_asx: fetch failed: {e}")
+        return {}
+
+    rows = raw.get("data", [])
+
+    # Cap strips (R prefix) are NOT in the au_electricity feed — fetch separately
+    # Generate codes: R[region][period][year] for Cal (Z) and FY (M), years 2027-2030
+    cap_strip_codes = []
+    for region_char in ("N", "Q", "V", "S"):
+        for period_char in ("Z", "M"):
+            for year in range(now_aest.year + 1, now_aest.year + 5):
+                cap_strip_codes.append(f"R{region_char}{period_char}{year}")
+
+    def _fetch_cap_strip(code: str) -> dict | None:
+        try:
+            r = requests.get(
+                f"{ASX_API_BASE}/intraday",
+                params={"futures": code},
+                headers=_asx_headers(token),
+                timeout=8,
+            )
+            r.raise_for_status()
+            data = r.json().get("data", [])
+            if data:
+                return data[0]
+        except Exception as e:
+            logger.debug(f"cap strip {code}: {e}")
+        return None
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures_map = {ex.submit(_fetch_cap_strip, c): c for c in cap_strip_codes}
+        for fut in as_completed(futures_map):
+            result = fut.result()
+            if result and (result.get("settle") or result.get("bid") or result.get("last")):
+                rows.append(result)
+
+    logger.info(f"scrape_asx: {len(rows)} total rows after cap strip fetch")
+
+    # Fetch yesterday's EOD settle in parallel for day change calculation
+    yesterday_settle: dict = {}  # code → settle
+    try:
+        # Find last trading day (skip weekends)
+        prev = now_aest - timedelta(days=1)
+        while prev.weekday() >= 5:
+            prev -= timedelta(days=1)
+        prev_str = prev.strftime("%Y%m%d")
+        resp_prev = requests.get(
+            f"{ASX_API_BASE}/data",
+            params={"futures": "au_electricity", "date": prev_str},
+            headers=_asx_headers(token),
+            timeout=15,
+        )
+        resp_prev.raise_for_status()
+        for row in resp_prev.json().get("data", []):
+            code = row.get("code", "")
+            s = row.get("settle")
+            if code and s:
+                yesterday_settle[code] = float(s)
+        logger.info(f"scrape_asx: loaded {len(yesterday_settle)} yesterday settles for {prev_str}")
+    except Exception as e:
+        logger.warning(f"scrape_asx: yesterday settle fetch failed: {e}")
+
+    date = now_aest.strftime("%Y%m%d")
+    result: dict = {"date": date, "is_live": is_market_hours, "base": {}, "cap": {}}
+
+    current_year = now_aest.year
+    current_q = (now_aest.month - 1) // 3 + 1
+
+    for row in rows:
+        code = row.get("code", "")
+        decoded = _asx_decode(code)
+        if not decoded:
+            continue
+        product = decoded["product"]
+        if product == "base_strip":
+            product = "base"
+        elif product == "cap_strip":
+            product = "cap"
+        elif product not in ("base", "cap"):
+            continue
+        region = decoded["region"]
+        if region not in ("NSW", "QLD", "VIC", "SA"):
+            continue
+
+        period_label = decoded["period_label"]
+        period_type  = decoded["period_type"]
+        sort_key     = decoded["sort_key"]
+        year         = decoded["year"]
+
+        # Skip expired quarters
+        if period_type == "quarter":
+            q_num = sort_key % 100
+            if year < current_year or (year == current_year and q_num < current_q):
+                continue
+
+        # Skip Cal/FY for current year — partially elapsed
+        if period_type in ("cal", "fy") and year <= current_year:
+            continue
+
+        entry = result[product].setdefault(period_label, {
+            "period_type": period_type,
+            "sort_key": sort_key,
+            "year": year,
+        })
+
+        last   = row.get("last")
+        settle = row.get("settle")
+        bid    = row.get("bid")
+        ask    = row.get("ask")
+        has_intraday = bool(
+            (last and float(last or 0) > 0) or
+            (bid  and float(bid  or 0) > 0) or
+            (ask  and float(ask  or 0) > 0)
+        )
+        display = last if (is_market_hours and last and float(last or 0) > 0) else settle
+        net_change = row.get("net_change")
+
+        # Day change: today settle vs yesterday settle (works outside market hours too)
+        day_change = None
+        if settle and code in yesterday_settle:
+            day_change = round(float(settle) - yesterday_settle[code], 2)
+
+        entry[region] = {
+            "display":       display,
+            "last":          last,
+            "settle":        settle,
+            "net_change":    net_change,
+            "day_change":    day_change,
+            "bid":           bid,
+            "ask":           ask,
+            "bid_size":      row.get("bid_size"),
+            "ask_size":      row.get("ask_size"),
+            "high":          row.get("high"),
+            "low":           row.get("low"),
+            "volume":        row.get("volume"),
+            "open_interest": row.get("open_interest"),
+            "code":          code,
+            "is_live":       bool(is_market_hours and has_intraday),
+        }
+
+    logger.info(f"scrape_asx: date={date} live={is_market_hours} base={len(result['base'])} cap={len(result['cap'])} periods")
+    return result
+
+
+def scrape_asx_history(token: str, code: str) -> list:
+    """
+    Fetch 90-day price history for a specific futures code.
+    Past days: uses EOD settle via /api/data?date=YYYYMMDD
+    Today: uses /api/intraday last price (or settle if market closed)
+    Returns [{date, settle, last, volume, open_interest, is_today}]
+    """
+    now_aest = datetime.now(AEST)
+    is_market_hours = (
+        now_aest.weekday() < 5 and
+        now_aest.hour >= 10 and
+        (now_aest.hour < 16 or (now_aest.hour == 16 and now_aest.minute == 0))
+    )
+    today_str = now_aest.strftime("%Y%m%d")
+
+    # Generate past trading days (skip today, start from yesterday)
+    dates = []
+    for i in range(1, 182):
+        d = now_aest - timedelta(days=i)
+        if d.weekday() < 5:
+            dates.append(d.strftime("%Y%m%d"))
+
+    # Use a session for connection pooling across all requests
+    session = requests.Session()
+    session.headers.update(_asx_headers(token))
+
+    def _fetch_date(dt: str) -> dict | None:
+        for attempt in range(3):
+            try:
+                r = session.get(
+                    f"{ASX_API_BASE}/data",
+                    params={"futures": code, "date": dt},
+                    timeout=15,
+                )
+                if r.status_code == 429:
+                    # Rate limited — wait and retry
+                    import time
+                    time.sleep(2 ** attempt)
+                    continue
+                r.raise_for_status()
+                resp_json = r.json()
+                returned_date = resp_json.get("date", "")
+                if returned_date and returned_date != dt:
+                    return None
+                data = resp_json.get("data", [])
+                if data:
+                    row = data[0]
+                    settle = row.get("settle")
+                    if not settle or float(settle) == 0:
+                        return None
+                    return {
+                        "date":          dt,
+                        "settle":        settle,
+                        "last":          None,
+                        "volume":        row.get("volume"),
+                        "open_interest": row.get("open_interest"),
+                        "is_today":      False,
+                    }
+                return None
+            except Exception as e:
+                if attempt == 2:
+                    logger.warning(f"scrape_asx_history {code} {dt} (attempt {attempt+1}): {e}")
+        return None
+
+    history = []
+    # Process in batches of 15 with a small pause between batches to avoid rate limiting
+    import time
+    batch_size = 15
+    for i in range(0, len(dates), batch_size):
+        batch = dates[i:i+batch_size]
+        with ThreadPoolExecutor(max_workers=batch_size) as ex:
+            futures_map = {ex.submit(_fetch_date, d): d for d in batch}
+            for fut in as_completed(futures_map):
+                result = fut.result()
+                if result:
+                    history.append(result)
+        if i + batch_size < len(dates):
+            time.sleep(0.3)  # 300ms between batches
+
+    history.sort(key=lambda x: x["date"])
+
+    # Append today's price from intraday endpoint
+    try:
+        r = requests.get(
+            f"{ASX_API_BASE}/intraday",
+            params={"futures": code},
+            headers=_asx_headers(token),
+            timeout=10,
+        )
+        r.raise_for_status()
+        raw_today = r.json()
+        # data can be a list (quarterly) or dict with put/call (options) — just handle list
+        intraday_rows = raw_today.get("data", [])
+        if isinstance(intraday_rows, dict):
+            # options format — skip
+            intraday_rows = []
+        # Find the matching row for this exact code
+        row = next((x for x in intraday_rows if x.get("code","").upper() == code.upper()), None)
+        if not row and intraday_rows:
+            row = intraday_rows[0]
+        if row:
+            last   = row.get("last")
+            settle = row.get("settle")
+            display = last if (is_market_hours and last and float(last or 0) > 0) else settle
+            if display and float(display) > 0:
+                history.append({
+                    "date":          today_str,
+                    "settle":        settle,
+                    "last":          last,
+                    "display":       display,
+                    "volume":        row.get("volume"),
+                    "open_interest": row.get("open_interest"),
+                    "is_today":      True,
+                    "is_live":       bool(is_market_hours and last and float(last or 0) > 0),
+                })
+    except Exception as e:
+        logger.warning(f"scrape_asx_history today {code}: {e}")
+
+    logger.info(f"scrape_asx_history: {code} → {len(history)} pts")
+    return history

@@ -407,7 +407,7 @@ async def gen_loop():
         loop = asyncio.get_running_loop()
         logger.info("Starting SCADA history backfill…")
         await asyncio.wait_for(
-            loop.run_in_executor(None, scrape_scada_history), timeout=300
+            loop.run_in_executor(None, scrape_scada_history), timeout=120
         )
         logger.info("SCADA history backfill complete")
     except Exception as e:
@@ -424,7 +424,7 @@ async def gen_loop():
                 try:
                     loop = asyncio.get_running_loop()
                     await asyncio.wait_for(
-                        loop.run_in_executor(None, scrape_scada_history), timeout=300
+                        loop.run_in_executor(None, scrape_scada_history), timeout=180
                     )
                     logger.info("Gap re-backfill complete")
                 except Exception as e:
@@ -2009,7 +2009,7 @@ async def historical_price_averages(refresh: bool = False):
     loop = asyncio.get_running_loop()
     try:
         data = await asyncio.wait_for(
-            loop.run_in_executor(None, scrape_historical_price_averages),
+            loop.run_in_executor(None, lambda: scrape_historical_price_averages(days=95)),
             timeout=300.0
         )
         _price_avg_cache["data"] = data
@@ -2100,11 +2100,11 @@ async def historical_day_fast(date: str):
     if date in _dm1_fast_cache:
         logger.info(f"historical_day_fast: cache hit for {date}")
         return JSONResponse(content=_dm1_fast_cache[date])
-    from scraper import scrape_historical_day
+    from scraper import scrape_historical_day_fast
     loop = asyncio.get_running_loop()
     try:
         data = await asyncio.wait_for(
-            loop.run_in_executor(None, scrape_historical_day, date),
+            loop.run_in_executor(None, scrape_historical_day_fast, date),
             timeout=60.0
         )
         if data and not data.get("error"):
@@ -2129,11 +2129,11 @@ async def historical_day_fuel(date: str):
     if date in _dm1_fuel_cache:
         logger.info(f"historical_day_fuel: cache hit for {date}")
         return JSONResponse(content=_dm1_fuel_cache[date])
-    from scraper import scrape_historical_day
+    from scraper import scrape_historical_day_fuel
     loop = asyncio.get_running_loop()
     try:
         data = await asyncio.wait_for(
-            loop.run_in_executor(None, scrape_historical_day, date),
+            loop.run_in_executor(None, scrape_historical_day_fuel, date),
             timeout=120.0
         )
         if data and not data.get("error"):

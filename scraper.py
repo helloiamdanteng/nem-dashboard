@@ -476,7 +476,7 @@ def _get(url: str, timeout: int = 15, retries: int = 2) -> Optional[requests.Res
         try:
             r = SESSION.get(url, timeout=timeout)
             if r.status_code == 403:
-                wait = 3.0 * (attempt + 1)  # 3s, 6s
+                wait = 1.0 * (attempt + 1)  # 1s, 2s — fail fast on live scrape
                 logger.warning(f"GET 403 (rate-limited?) {url} — retrying in {wait:.0f}s")
                 if attempt < retries:
                     _time.sleep(wait)

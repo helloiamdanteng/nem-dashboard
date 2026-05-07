@@ -2105,7 +2105,7 @@ async def historical_day_fast(date: str):
     try:
         data = await asyncio.wait_for(
             loop.run_in_executor(None, scrape_historical_day, date),
-            timeout=60.0
+            timeout=300.0
         )
         if data and not data.get("error"):
             _dm1_fast_cache[date] = data
@@ -2134,7 +2134,7 @@ async def historical_day_fuel(date: str):
     try:
         data = await asyncio.wait_for(
             loop.run_in_executor(None, scrape_historical_day, date),
-            timeout=120.0
+            timeout=300.0
         )
         if data and not data.get("error"):
             _dm1_fuel_cache[date] = data

@@ -28,6 +28,7 @@ DISPATCH_IS_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/DispatchIS_Reports/"
 PREDISPATCH_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/PredispatchIS_Reports/"
 
 SCADA_URL         = f"{NEMWEB_BASE}/REPORTS/CURRENT/Dispatch_SCADA/"
+SCADA_ARCHIVE     = f"{NEMWEB_BASE}/REPORTS/ARCHIVE/Dispatch_SCADA/"
 TRADING_IS_URL    = f"{NEMWEB_BASE}/REPORTS/CURRENT/TradingIS_Reports/"
 TRADING_ARCHIVE   = f"{NEMWEB_BASE}/REPORTS/ARCHIVE/TradingIS_Reports/"
 MTPASA_DUID_URL   = f"{NEMWEB_BASE}/REPORTS/CURRENT/MTPASA_DUIDAvailability/"
@@ -2447,6 +2448,13 @@ def scrape_scada_history() -> None:
     now_label  = now_aest.strftime("%H:%M")
 
     all_urls = _list_hrefs(SCADA_URL)
+    # Also check archive — AEMO moves files there after a few hours,
+    # so a startup after midday would otherwise miss the morning's data
+    try:
+        archive_urls = _list_hrefs(SCADA_ARCHIVE)
+        all_urls = list(set(all_urls + archive_urls))
+    except Exception as e:
+        logger.warning(f"scrape_scada_history: archive listing failed: {e}")
     today_urls = sorted([u for u in all_urls if today_str in u and "PUBLIC_DISPATCHSCADA" in u.upper()])
     # Limit to 300 files (25hrs worth at 5min cadence)
     today_urls = today_urls[-300:]

@@ -376,7 +376,7 @@ async def _run_gen():
 
 async def _check_fuel_history_gaps() -> bool:
     """
-    Returns True if _fuel_history has a gap > 15 min in the last 3 hours.
+    Returns True if _fuel_history has any gap > 15 min from midnight to now.
     Uses NSW1 as representative region.
     """
     from scraper import _fuel_history
@@ -385,18 +385,20 @@ async def _check_fuel_history_gaps() -> bool:
     if len(series) < 3:
         return True
     now_str = dt_.now().strftime("%H:%M")
-    # All labels up to now, sorted
+    # All labels from midnight up to now, sorted
     labels = sorted(k for k in series if k <= now_str)
     if not labels:
         return True
-    # Only check last 3 hours worth
-    cutoff_dt = dt_.strptime(labels[-1], "%H:%M")
-    recent = [l for l in labels if (cutoff_dt - dt_.strptime(l, "%H:%M")).seconds <= 10800]
-    for i in range(1, len(recent)):
-        gap = (dt_.strptime(recent[i], "%H:%M") - dt_.strptime(recent[i-1], "%H:%M")).seconds // 60
+    # Check every consecutive pair for gaps > 15 min
+    for i in range(1, len(labels)):
+        gap = (dt_.strptime(labels[i], "%H:%M") - dt_.strptime(labels[i-1], "%H:%M")).seconds // 60
         if gap > 15:
-            logger.warning(f"Fuel history gap: {recent[i-1]}→{recent[i]} ({gap}min)")
+            logger.warning(f"Fuel history gap: {labels[i-1]}→{labels[i]} ({gap}min)")
             return True
+    # Also check if first label is more than 30 min after midnight
+    if labels and dt_.strptime(labels[0], "%H:%M").hour * 60 + dt_.strptime(labels[0], "%H:%M").minute > 30:
+        logger.warning(f"Fuel history missing data before {labels[0]}")
+        return True
     return False
 
 

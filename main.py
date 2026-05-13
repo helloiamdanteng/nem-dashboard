@@ -379,26 +379,37 @@ async def _check_fuel_history_gaps() -> bool:
     Returns True if _fuel_history has any gap > 15 min from midnight to now.
     Uses NSW1 as representative region.
     """
-    from scraper import _fuel_history
+    from scraper import _fuel_history, AEST
     from datetime import datetime as dt_
     series = _fuel_history.get("NSW1", {})
+    # Log current state every time for diagnostics
+    now_aest = dt_.now(AEST)
+    now_str  = now_aest.strftime("%H:%M")
+    labels   = sorted(k for k in series if k <= now_str)
+    logger.info(f"Gap check: {len(series)} total pts, {len(labels)} up to {now_str} AEST, "
+                f"first={labels[0] if labels else 'none'}, last={labels[-1] if labels else 'none'}")
+
     if len(series) < 3:
+        logger.warning("Gap check: too few points - triggering backfill")
         return True
-    now_str = dt_.now().strftime("%H:%M")
-    # All labels from midnight up to now, sorted
-    labels = sorted(k for k in series if k <= now_str)
     if not labels:
+        logger.warning("Gap check: no labels up to now - triggering backfill")
         return True
+
     # Check every consecutive pair for gaps > 15 min
     for i in range(1, len(labels)):
         gap = (dt_.strptime(labels[i], "%H:%M") - dt_.strptime(labels[i-1], "%H:%M")).seconds // 60
         if gap > 15:
-            logger.warning(f"Fuel history gap: {labels[i-1]}→{labels[i]} ({gap}min)")
+            logger.warning(f"Gap check: gap found {labels[i-1]}->{labels[i]} ({gap}min) - triggering backfill")
             return True
-    # Also check if first label is more than 30 min after midnight
-    if labels and dt_.strptime(labels[0], "%H:%M").hour * 60 + dt_.strptime(labels[0], "%H:%M").minute > 30:
-        logger.warning(f"Fuel history missing data before {labels[0]}")
+
+    # Check if first label is more than 30 min after midnight
+    first_mins = dt_.strptime(labels[0], "%H:%M").hour * 60 + dt_.strptime(labels[0], "%H:%M").minute
+    if first_mins > 30:
+        logger.warning(f"Gap check: data starts at {labels[0]} ({first_mins}min after midnight) - triggering backfill")
         return True
+
+    logger.info("Gap check: no gaps found")
     return False
 
 
@@ -407,7 +418,7 @@ async def gen_loop():
     # Backfill 24hr SCADA history once at startup so chart is immediately populated
     try:
         loop = asyncio.get_running_loop()
-        logger.info("Starting SCADA history backfill…")
+        logger.info("Starting SCADA history backfill...")
         await asyncio.wait_for(
             loop.run_in_executor(None, scrape_scada_history), timeout=120
         )
@@ -422,7 +433,7 @@ async def gen_loop():
             # After every successful scrape, check for gaps in fuel history
             # (e.g. from a previous run of failures). Re-backfill if needed.
             if await _check_fuel_history_gaps():
-                logger.info("Fuel history gap detected — triggering re-backfill")
+                logger.info("Fuel history gap detected - triggering re-backfill")
                 try:
                     loop = asyncio.get_running_loop()
                     await asyncio.wait_for(

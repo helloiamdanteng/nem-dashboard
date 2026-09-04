@@ -111,9 +111,10 @@ async def _append_prices_to_github(prices_5min: dict):
 
 async def _persist_gen_history_to_github():
     """
-    Snapshot today's in-memory supply + demand + IC history (_fuel_history,
-    _duid_history, _demand_history, _op_demand_history, _gen_demand_history,
-    _ic_history) to GitHub so a process restart can reload it instead of
+    Snapshot today's in-memory supply + demand + IC + battery history
+    (_fuel_history, _duid_history, _demand_history, _op_demand_history,
+    _gen_demand_history, _solar_history, _wind_history, _ic_history,
+    _bdu_history) to GitHub so a process restart can reload it instead of
     relying solely on AEMO NEMWeb's limited Current/Archive retention to
     reconstruct the day.
     File: data/gen/YYYY-MM-DD.json — overwritten each cycle (in-memory dicts
@@ -123,7 +124,8 @@ async def _persist_gen_history_to_github():
     from datetime import datetime, timezone, timedelta
     import httpx
     from scraper import (_fuel_history, _duid_history, _demand_history,
-                          _op_demand_history, _gen_demand_history, _ic_history)
+                          _op_demand_history, _gen_demand_history,
+                          _solar_history, _wind_history, _ic_history, _bdu_history)
 
     AEST     = timezone(timedelta(hours=10))
     today    = datetime.now(AEST).strftime("%Y-%m-%d")
@@ -138,7 +140,8 @@ async def _persist_gen_history_to_github():
     if not GH_TOKEN or not GH_REPO:
         return
     if not any([_fuel_history, _duid_history, _demand_history,
-                _op_demand_history, _gen_demand_history, _ic_history]):
+                _op_demand_history, _gen_demand_history,
+                _solar_history, _wind_history, _ic_history, _bdu_history]):
         return
 
     try:
@@ -156,7 +159,10 @@ async def _persist_gen_history_to_github():
                 "demand_history": _demand_history,
                 "op_demand_history": _op_demand_history,
                 "gen_demand_history": _gen_demand_history,
+                "solar_history": _solar_history,
+                "wind_history": _wind_history,
                 "ic_history": _ic_history,
+                "bdu_history": _bdu_history,
             }
             encoded = base64.b64encode(
                 json.dumps(payload_data, separators=(',', ':')).encode()
@@ -180,16 +186,18 @@ async def _persist_gen_history_to_github():
 async def _load_gen_history_from_github():
     """
     On startup, seed _fuel_history/_duid_history/_demand_history/
-    _op_demand_history/_gen_demand_history/_ic_history from today's
-    last-persisted snapshot (if any) before AEMO backfill runs. This
-    recovers history across restarts even when AEMO's Current/Archive
-    listings no longer cover the gap (e.g. a redeploy during a quiet period).
+    _op_demand_history/_gen_demand_history/_solar_history/_wind_history/
+    _ic_history/_bdu_history from today's last-persisted snapshot (if any)
+    before AEMO backfill runs. This recovers history across restarts even
+    when AEMO's Current/Archive listings no longer cover the gap (e.g. a
+    redeploy during a quiet period).
     """
     import json, base64, os
     from datetime import datetime, timezone, timedelta
     import httpx
     from scraper import (_fuel_history, _duid_history, _demand_history,
-                          _op_demand_history, _gen_demand_history, _ic_history)
+                          _op_demand_history, _gen_demand_history,
+                          _solar_history, _wind_history, _ic_history, _bdu_history)
 
     AEST     = timezone(timedelta(hours=10))
     today    = datetime.now(AEST).strftime("%Y-%m-%d")
@@ -229,11 +237,15 @@ async def _load_gen_history_from_github():
             n_dem = _restore(_demand_history, saved.get("demand_history", {}))
             n_op = _restore(_op_demand_history, saved.get("op_demand_history", {}))
             n_gd = _restore(_gen_demand_history, saved.get("gen_demand_history", {}))
+            n_sol = _restore(_solar_history, saved.get("solar_history", {}))
+            n_win = _restore(_wind_history, saved.get("wind_history", {}))
             n_ic = _restore(_ic_history, saved.get("ic_history", {}))
+            n_bdu = _restore(_bdu_history, saved.get("bdu_history", {}))
 
             logger.info(f"gen-history: restored {n_fh} fuel regions / {n_dh} DUIDs / "
                         f"{n_dem} demand regions / {n_op} op_demand regions / "
-                        f"{n_gd} gen_demand regions / {n_ic} interconnectors from {today}.json")
+                        f"{n_gd} gen_demand regions / {n_sol} solar / {n_win} wind / "
+                        f"{n_ic} interconnectors / {n_bdu} BDU regions from {today}.json")
     except Exception as e:
         logger.warning(f"gen-history: GitHub load failed: {e}")
 

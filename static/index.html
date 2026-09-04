@@ -7941,12 +7941,25 @@ function drawDMinus1Charts(data) {
 const ERARING_DUIDS = ['ER01', 'ER02', 'ER03', 'ER04'];
 const ERARING_COLOR = '#38bdf8';
 let _eraringData = null; // raw /api/stations/batch results, cached per page load
-let eraringShowPrice = false; // NSW1 price overlay — off by default, like other pages
+let eraringShowPrice = true; // NSW1 price overlay — on by default
 let _eraringDailyData = null; // /api/eraring/daily_summary results, cached per page load
 
 function toggleEraringPrice() {
   eraringShowPrice = !eraringShowPrice;
   if (currentPanel === 'eraring') renderPanel('eraring', latestData || {});
+}
+
+function toggleEraringUnit(duid) {
+  if (!charts.eraringUnit) return;
+  const btn = document.getElementById('er-unit-' + duid);
+  if (!btn) return;
+  const on = btn.dataset.on === '1';
+  btn.dataset.on = on ? '0' : '1';
+  btn.style.opacity = on ? '0.35' : '1';
+  charts.eraringUnit.data.datasets.forEach((ds, i) => {
+    if (ds.label === duid) charts.eraringUnit.getDatasetMeta(i).hidden = on;
+  });
+  charts.eraringUnit.update();
 }
 
 function _eraringUnitColor(idx, total) {
@@ -8014,7 +8027,17 @@ function _renderEraringContent(results) {
   html += '<div class="chart-container" style="height:240px"><canvas id="eraringUnitChart"></canvas></div>';
   html += '</div>';
 
-  html += `<div style="display:flex;flex-wrap:wrap;gap:5px;margin:-10px 0 16px">
+  html += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin:-10px 0 6px">';
+  latestByUnit.forEach((u, i) => {
+    const col = _eraringUnitColor(i, latestByUnit.length);
+    const bg  = col.replace('0.9)', '0.15)');
+    html += `<button id="er-unit-${u.duid}" data-on="1" onclick="toggleEraringUnit('${u.duid}')" style="
+      font-family:var(--font-mono);font-size:10px;padding:3px 8px;border-radius:20px;cursor:pointer;
+      border:1px solid ${col};background:${bg};color:${col}">${u.duid}</button>`;
+  });
+  html += '</div>';
+
+  html += `<div style="display:flex;flex-wrap:wrap;gap:5px;margin:0 0 16px">
     <button onclick="toggleEraringPrice()" style="font-family:var(--font-mono);font-size:10px;padding:3px 8px;border-radius:20px;cursor:pointer;
       border:1px solid ${eraringShowPrice ? REGION_COLORS.NSW1 : '#475569'};
       background:${eraringShowPrice ? REGION_COLORS.NSW1+'33' : 'transparent'};

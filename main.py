@@ -2458,6 +2458,139 @@ async def origin_history():
     return JSONResponse(content=result)
 
 
+ERARING_DUIDS = ["ER01", "ER02", "ER03", "ER04"]
+# Cache of finalized past days only — data/gen/<date>.json and
+# data/prices/<date>.json are immutable once that day is over, so once
+# computed a day never needs to be re-fetched. Today is never cached here
+# (always recomputed live). None means "checked, no snapshot exists yet".
+_eraring_daily_cache: dict = {}
+
+
+def _compute_eraring_day_stats(date_str: str, duid_hist: dict, nsw_prices: dict):
+    """
+    production_mwh: total Eraring (ER01-04) energy for the day.
+    twp: NSW1 time-weighted average price (simple mean of 5-min RRP) — every
+         interval counts equally regardless of what Eraring was doing.
+    dwap: Eraring's own dispatch-weighted average price — sum(MW*RRP)/sum(MW)
+          across 5-min intervals, i.e. the price Eraring actually captured
+          for the energy it generated.
+    ratio: dwap / twp — >100% means Eraring tended to run more during
+           higher-than-average price periods; <100% means the opposite.
+    """
+    totals: dict = {}
+    for duid in ERARING_DUIDS:
+        for label, mw in duid_hist.get(duid, {}).items():
+            if mw is None:
+                continue
+            totals[label] = totals.get(label, 0.0) + mw
+    if not totals:
+        return None
+
+    production_mwh = sum(totals.values()) * (5 / 60)
+
+    common = [l for l in totals if l in nsw_prices]
+    if not common:
+        return {"date": date_str, "production_mwh": round(production_mwh, 1),
+                "twp": None, "dwap": None, "ratio": None, "intervals": 0}
+
+    sum_mw = sum_mw_price = sum_price = 0.0
+    for l in common:
+        mw, rrp = totals[l], nsw_prices[l]
+        sum_mw       += mw
+        sum_mw_price += mw * rrp
+        sum_price    += rrp
+
+    twp   = sum_price / len(common)
+    dwap  = (sum_mw_price / sum_mw) if sum_mw > 0 else None
+    ratio = (dwap / twp) if (dwap is not None and twp) else None
+
+    return {
+        "date": date_str,
+        "production_mwh": round(production_mwh, 1),
+        "twp": round(twp, 2),
+        "dwap": round(dwap, 2) if dwap is not None else None,
+        "ratio": round(ratio, 4) if ratio is not None else None,
+        "intervals": len(common),
+    }
+
+
+async def _fetch_github_json(client, gh_repo: str, gh_headers: dict, path: str):
+    import json, base64
+    try:
+        r = await client.get(f"https://api.github.com/repos/{gh_repo}/contents/{path}", headers=gh_headers)
+        if r.status_code != 200:
+            return None
+        return json.loads(base64.b64decode(r.json()["content"]).decode())
+    except Exception:
+        return None
+
+
+@app.get("/api/eraring/daily_summary")
+async def eraring_daily_summary(days: int = 30):
+    """
+    Last N days of Eraring production/TWP/DWAP/ratio, newest first. Today is
+    computed live from in-memory history; past days are read from the
+    persisted daily snapshots (data/gen + data/prices) and cached forever
+    once found — those files don't change after the day ends.
+
+    Historical coverage grows by one day at a time starting from whenever
+    the gen-history persistence pipeline first went live (2026-09-04) — days
+    before that have no snapshot to read and are simply omitted, not zeroed.
+    """
+    from scraper import _duid_history, _dispatch_price_history, AEST
+    from datetime import datetime, timedelta
+    import os, httpx
+
+    now_aest  = datetime.now(AEST)
+    today_str = now_aest.strftime("%Y-%m-%d")
+    days      = max(1, min(days, 90))
+
+    GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+    GH_REPO  = os.environ.get("GITHUB_REPO", "")
+    GH_HEADERS = {
+        "Authorization": f"token {GH_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+
+    results = []
+
+    today_stats = _compute_eraring_day_stats(
+        today_str, _duid_history, dict(_dispatch_price_history.get("NSW1", {}))
+    )
+    if today_stats:
+        results.append(today_stats)
+
+    past_dates = [(now_aest - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, days)]
+
+    if GH_TOKEN and GH_REPO:
+        to_fetch = [d for d in past_dates if d not in _eraring_daily_cache]
+        if to_fetch:
+            async with httpx.AsyncClient(timeout=15) as client:
+                sem = asyncio.Semaphore(6)
+
+                async def _load(date_str):
+                    async with sem:
+                        gen_json, price_json = await asyncio.gather(
+                            _fetch_github_json(client, GH_REPO, GH_HEADERS, f"data/gen/{date_str}.json"),
+                            _fetch_github_json(client, GH_REPO, GH_HEADERS, f"data/prices/{date_str}.json"),
+                        )
+                        if not gen_json:
+                            _eraring_daily_cache[date_str] = None
+                            return
+                        duid_hist  = gen_json.get("duid_history", {})
+                        nsw_prices = (price_json or {}).get("NSW1", {})
+                        _eraring_daily_cache[date_str] = _compute_eraring_day_stats(date_str, duid_hist, nsw_prices)
+
+                await asyncio.gather(*[_load(d) for d in to_fetch])
+
+        for d in past_dates:
+            stats = _eraring_daily_cache.get(d)
+            if stats:
+                results.append(stats)
+
+    return JSONResponse(content={"days": results})
+
+
 @app.get("/api/historical_day_prices")
 async def historical_day_prices(date: str):
     """Return raw 5-min interval prices for a date from GitHub files. date=YYYY-MM-DD"""

@@ -232,6 +232,9 @@ tr:last-child td { border-bottom:none; }
   <button class="nav-btn" onclick="showPanel('batteries')" id="nav-batteries">
     <span class="icon">🔋</span><span class="label">Batt</span>
   </button>
+  <button class="nav-btn" onclick="showPanel('eraring')" id="nav-eraring">
+    <span class="icon">⬛</span><span class="label">Eraring</span>
+  </button>
   <button class="nav-btn" onclick="showPanel('dminus1')" id="nav-dminus1">
     <span class="icon">🕐</span><span class="label">D−1</span>
   </button>
@@ -7927,6 +7930,161 @@ function drawDMinus1Charts(data) {
   if (dateStr) setTimeout(() => dMinusLoadPrices(dateStr), 0);
 }
 
+// ── Eraring Page ──────────────────────────────────────────────────────────────
+
+const ERARING_DUIDS = ['ER01', 'ER02', 'ER03', 'ER04'];
+const ERARING_COLOR = '#38bdf8';
+let _eraringData = null; // raw /api/stations/batch results, cached per page load
+
+function _eraringUnitColor(idx, total) {
+  if (total <= 1) return ERARING_COLOR;
+  const r = parseInt(ERARING_COLOR.slice(1,3),16);
+  const g = parseInt(ERARING_COLOR.slice(3,5),16);
+  const b = parseInt(ERARING_COLOR.slice(5,7),16);
+  const factor = 0.5 + (idx / Math.max(total-1, 1)) * 0.5;
+  return `rgba(${Math.round(r*factor)},${Math.round(g*factor)},${Math.round(b*factor)},0.9)`;
+}
+
+function renderEraring() {
+  let html = '<div class="section-title">Eraring Power Station</div>';
+  html += '<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-bottom:12px">Black Coal · NSW1 · 4 × 720 MW units (ER01–ER04)</div>';
+  html += '<div id="eraring-content">';
+  if (!_eraringData) {
+    html += '<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:16px 0">Loading unit output…</div>';
+  } else {
+    html += _renderEraringContent(_eraringData);
+  }
+  html += '</div>';
+  return html;
+}
+
+function _renderEraringContent(results) {
+  if (!results.length) {
+    return '<div class="state-msg"><div class="icon">⚠️</div><div>No SCADA data available for Eraring</div></div>';
+  }
+
+  const latestByUnit = results.map(d => {
+    const sorted = [...(d.history||[])].sort((a,b) => a.interval < b.interval ? -1 : 1);
+    return {
+      duid: d.duid,
+      station: d.station,
+      capacity: d.capacity,
+      mw: sorted.length ? sorted[sorted.length-1].mw : null,
+    };
+  });
+  const totalNow = latestByUnit.reduce((s,u) => s + (u.mw || 0), 0);
+  const totalCap = latestByUnit.reduce((s,u) => s + (u.capacity || 0), 0);
+
+  let html = '<div class="section-title" style="margin-top:0">Unit Output — Now</div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px">';
+  latestByUnit.forEach((u, i) => {
+    const col = _eraringUnitColor(i, latestByUnit.length);
+    const pct = (u.mw !== null && u.capacity) ? Math.round(u.mw / u.capacity * 100) : null;
+    html += `<div class="demand-card">
+      <div class="region" style="color:${col}">${u.duid}</div>
+      <div class="value" style="color:${col}">${u.mw !== null ? fmt(u.mw,0) : '—'}</div>
+      <div class="unit">MW${pct !== null ? ' · ' + pct + '%' : ''}</div>
+    </div>`;
+  });
+  html += '</div>';
+
+  html += `<div class="chart-card" style="padding:10px 12px;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;font-family:var(--font-mono)">
+      <span style="font-size:9px;color:#64748b">STATION TOTAL</span>
+      <span style="font-size:9px;color:#64748b">${totalCap ? fmt(totalCap,0)+' MW capacity' : ''}</span>
+    </div>
+    <div style="font-size:22px;font-weight:700;color:${ERARING_COLOR};font-family:var(--font-mono)">${fmt(totalNow,0)} MW</div>
+  </div>`;
+
+  html += '<div class="chart-card">';
+  html += '<div class="chart-title">Unit Output Today (MW)</div>';
+  html += '<div class="chart-container" style="height:240px"><canvas id="eraringUnitChart"></canvas></div>';
+  html += '</div>';
+
+  return html;
+}
+
+async function fetchEraringData() {
+  try {
+    const results = await fetch(`/api/stations/batch?duids=${ERARING_DUIDS.join(',')}`).then(r => r.json());
+    _eraringData = results.filter(d => d.history && d.history.length > 0);
+  } catch(e) {
+    console.error('Eraring fetch error:', e);
+    _eraringData = [];
+  }
+  if (currentPanel === 'eraring') {
+    renderPanel('eraring', latestData || {});
+  }
+}
+
+function _drawEraringChart(results) {
+  const canvas = document.getElementById('eraringUnitChart');
+  if (!canvas || !results.length) return;
+
+  const allSlots = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 5)
+      allSlots.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);
+
+  let lastSlot = '';
+  for (const d of results) {
+    const slots = d.history.map(p => p.interval).filter(Boolean).sort();
+    if (slots.length && slots[slots.length-1] > lastSlot) lastSlot = slots[slots.length-1];
+  }
+  if (!lastSlot) return;
+  let lastIdx = allSlots.findIndex(s => s > lastSlot) - 1;
+  if (lastIdx < 0) lastIdx = allSlots.length - 1;
+  const labels = allSlots.slice(0, lastIdx + 1);
+
+  const datasets = results.map((d, i) => {
+    const hm = {};
+    d.history.forEach(p => { if (p.interval) hm[p.interval] = p.mw ?? 0; });
+    const color = _eraringUnitColor(i, results.length);
+    return {
+      label: d.duid,
+      data: labels.map(l => hm[l] !== undefined ? hm[l] : null),
+      borderColor: color,
+      backgroundColor: color.replace('0.9)', '0.15)'),
+      borderWidth: 1.5,
+      pointRadius: 0,
+      tension: 0.2,
+      spanGaps: false,
+      fill: false,
+    };
+  });
+
+  const nowStr = nowAEST();
+  const nowIdx = labels.reduce((best,l,i) => l<=nowStr ? i : best, -1);
+
+  destroyChart('eraringUnit');
+  charts.eraringUnit = new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      ...CHART_DEFAULTS,
+      plugins: {
+        ...CHART_DEFAULTS.plugins,
+        legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 } },
+        tooltip: {
+          ...CHART_DEFAULTS.plugins.tooltip,
+          callbacks: {
+            label: tooltipLabel,
+            footer: items => {
+              const total = items.reduce((s,i) => s + (i.raw||0), 0);
+              return items.length > 1 ? `Total: ${fmt(total,0)} MW` : null;
+            }
+          }
+        }
+      },
+      scales: {
+        ...CHART_DEFAULTS.scales,
+        y: { ...CHART_DEFAULTS.scales.y, title: { display:true, text:'MW', color:'#64748b', font:{family:'Space Mono',size:9} } }
+      }
+    },
+    plugins: [nowLinePlugin(nowIdx)]
+  });
+}
+
 function renderPanel(panel, data) {
   const main = document.getElementById('mainContent');
   let html = '';
@@ -7942,6 +8100,7 @@ function renderPanel(panel, data) {
     else if (panel === 'asx')         { html = renderASX(); }
     else if (panel === 'commodities') { html = renderCommodities(); }
     else if (panel === 'gas')         { html = renderGas(); }
+    else if (panel === 'eraring')     { html = renderEraring(); }
 
     else if (panel === 'dayahead')   html = renderDayAhead(data);
     else if (panel === 'about') { html = renderAbout(data); setTimeout(_renderViewStats, 0); }
@@ -7971,6 +8130,10 @@ function renderPanel(panel, data) {
           if (_gbbData) _renderGBB(_gbbData);
           else fetchGBBData();
         } else fetchGasData();
+      }
+      else if (panel === 'eraring') {
+        if (_eraringData) setTimeout(() => _drawEraringChart(_eraringData), 50);
+        else fetchEraringData();
       }
     } catch(e) {
       console.error(`Chart error [${panel}]:`, e);

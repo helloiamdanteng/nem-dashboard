@@ -7941,6 +7941,13 @@ function drawDMinus1Charts(data) {
 const ERARING_DUIDS = ['ER01', 'ER02', 'ER03', 'ER04'];
 const ERARING_COLOR = '#38bdf8';
 let _eraringData = null; // raw /api/stations/batch results, cached per page load
+let eraringShowPrice = false; // NSW1 price overlay — off by default, like other pages
+let _eraringDailyData = null; // /api/eraring/daily_summary results, cached per page load
+
+function toggleEraringPrice() {
+  eraringShowPrice = !eraringShowPrice;
+  if (currentPanel === 'eraring') renderPanel('eraring', latestData || {});
+}
 
 function _eraringUnitColor(idx, total) {
   if (total <= 1) return ERARING_COLOR;
@@ -8007,6 +8014,62 @@ function _renderEraringContent(results) {
   html += '<div class="chart-container" style="height:240px"><canvas id="eraringUnitChart"></canvas></div>';
   html += '</div>';
 
+  html += `<div style="display:flex;flex-wrap:wrap;gap:5px;margin:-10px 0 16px">
+    <button onclick="toggleEraringPrice()" style="font-family:var(--font-mono);font-size:10px;padding:3px 8px;border-radius:20px;cursor:pointer;
+      border:1px solid ${eraringShowPrice ? REGION_COLORS.NSW1 : '#475569'};
+      background:${eraringShowPrice ? REGION_COLORS.NSW1+'33' : 'transparent'};
+      color:${eraringShowPrice ? REGION_COLORS.NSW1 : '#475569'}">
+      ${eraringShowPrice ? '✓ ' : ''}NSW1 Price
+    </button>
+  </div>`;
+
+  html += _renderEraringDailySummary();
+
+  return html;
+}
+
+function _renderEraringDailySummary() {
+  let html = '<div class="section-title">Daily Summary — Last 30 Days</div>';
+  html += '<div style="font-family:var(--font-mono);font-size:9px;color:#475569;margin-bottom:8px;line-height:1.5">' +
+    'TWP = NSW1 time-weighted average price (every 5-min interval counts equally). ' +
+    'DWAP = Eraring\'s own dispatch-weighted average price (weighted by its output). ' +
+    'Ratio = DWAP ÷ TWP — above 100% means Eraring captured better-than-average prices.' +
+    '</div>';
+
+  if (!_eraringDailyData) {
+    html += '<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:12px 0">Loading daily summary…</div>';
+    return html;
+  }
+  if (!_eraringDailyData.length) {
+    html += '<div class="state-msg"><div class="icon">📊</div><div>No historical data available yet — this builds up day by day</div></div>';
+    return html;
+  }
+
+  html += '<div class="chart-card" style="padding:0;overflow-x:auto">';
+  html += '<table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px;white-space:nowrap">';
+  html += `<thead><tr style="border-bottom:1px solid var(--border)">
+    <th style="text-align:left;padding:8px 10px;color:#64748b">Date</th>
+    <th style="text-align:right;padding:8px 10px;color:#64748b">Production</th>
+    <th style="text-align:right;padding:8px 10px;color:#64748b">TWP</th>
+    <th style="text-align:right;padding:8px 10px;color:#64748b">DWAP</th>
+    <th style="text-align:right;padding:8px 10px;color:#64748b">Ratio</th>
+  </tr></thead><tbody>`;
+
+  _eraringDailyData.forEach((d, i) => {
+    const [y, m, dy] = d.date.split('-').map(Number);
+    const dateObj    = new Date(y, m - 1, dy);
+    const dateLabel   = dateObj.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) + (i === 0 ? ' (today)' : '');
+    const ratioColor = d.ratio == null ? '#475569' : d.ratio >= 1 ? '#2ed573' : '#e74c3c';
+    html += `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:6px 10px;color:var(--text)">${dateLabel}</td>
+      <td style="padding:6px 10px;text-align:right;color:var(--text)">${fmt(d.production_mwh,0)} MWh</td>
+      <td style="padding:6px 10px;text-align:right;color:var(--text)">${d.twp!=null?fmtPrice(d.twp):'—'}</td>
+      <td style="padding:6px 10px;text-align:right;color:var(--text)">${d.dwap!=null?fmtPrice(d.dwap):'—'}</td>
+      <td style="padding:6px 10px;text-align:right;color:${ratioColor};font-weight:700">${d.ratio!=null?(d.ratio*100).toFixed(1)+'%':'—'}</td>
+    </tr>`;
+  });
+
+  html += '</tbody></table></div>';
   return html;
 }
 
@@ -8017,6 +8080,19 @@ async function fetchEraringData() {
   } catch(e) {
     console.error('Eraring fetch error:', e);
     _eraringData = [];
+  }
+  if (currentPanel === 'eraring') {
+    renderPanel('eraring', latestData || {});
+  }
+}
+
+async function fetchEraringDailySummary() {
+  try {
+    const result = await fetch('/api/eraring/daily_summary?days=30').then(r => r.json());
+    _eraringDailyData = result.days || [];
+  } catch(e) {
+    console.error('Eraring daily summary fetch error:', e);
+    _eraringDailyData = [];
   }
   if (currentPanel === 'eraring') {
     renderPanel('eraring', latestData || {});
@@ -8056,8 +8132,28 @@ function _drawEraringChart(results) {
       tension: 0.2,
       spanGaps: false,
       fill: false,
+      yAxisID: 'y',
     };
   });
+
+  if (eraringShowPrice && latestData) {
+    const priceMap = {};
+    (latestData.historical_prices?.NSW1     || []).forEach(p => { priceMap[p.interval] = p.rrp; });
+    (latestData.dispatch_prices_5min?.NSW1  || []).forEach(p => { if (priceMap[p.interval] === undefined) priceMap[p.interval] = p.rrp; });
+    datasets.push({
+      label: 'NSW1 Price',
+      data: labels.map(l => priceMap[l] !== undefined ? priceMap[l] : null),
+      borderColor: '#ffffff',
+      backgroundColor: 'transparent',
+      borderWidth: 1,
+      pointRadius: 0,
+      tension: 0.2,
+      spanGaps: true,
+      fill: false,
+      yAxisID: 'yPrice',
+      order: 0,
+    });
+  }
 
   const nowStr = nowAEST();
   const nowIdx = labels.reduce((best,l,i) => l<=nowStr ? i : best, -1);
@@ -8074,17 +8170,26 @@ function _drawEraringChart(results) {
         tooltip: {
           ...CHART_DEFAULTS.plugins.tooltip,
           callbacks: {
-            label: tooltipLabel,
+            label: c => c.dataset.yAxisID === 'yPrice'
+              ? (c.raw === null ? null : ` ${c.dataset.label}: $${Number(c.raw).toFixed(2)}/MWh`)
+              : tooltipLabel(c),
             footer: items => {
-              const total = items.reduce((s,i) => s + (i.raw||0), 0);
-              return items.length > 1 ? `Total: ${fmt(total,0)} MW` : null;
+              const mwItems = items.filter(i => i.dataset.yAxisID !== 'yPrice');
+              const total = mwItems.reduce((s,i) => s + (i.raw||0), 0);
+              return mwItems.length > 1 ? `Total: ${fmt(total,0)} MW` : null;
             }
           }
         }
       },
       scales: {
         ...CHART_DEFAULTS.scales,
-        y: { ...CHART_DEFAULTS.scales.y, title: { display:true, text:'MW', color:'#64748b', font:{family:'Space Mono',size:9} } }
+        y: { ...CHART_DEFAULTS.scales.y, title: { display:true, text:'MW', color:'#64748b', font:{family:'Space Mono',size:9} } },
+        yPrice: {
+          type: 'linear', position: 'right', display: eraringShowPrice,
+          ticks: { color:'#94a3b8', font:{family:'Space Mono',size:9}, callback: v=>'$'+v.toFixed(0) },
+          grid: { drawOnChartArea:false },
+          title: { display:true, text:'$/MWh', color:'#94a3b8', font:{family:'Space Mono',size:8} }
+        }
       }
     },
     plugins: [nowLinePlugin(nowIdx)]
@@ -8140,6 +8245,7 @@ function renderPanel(panel, data) {
       else if (panel === 'eraring') {
         if (_eraringData) setTimeout(() => _drawEraringChart(_eraringData), 50);
         else fetchEraringData();
+        if (!_eraringDailyData) fetchEraringDailySummary();
       }
     } catch(e) {
       console.error(`Chart error [${panel}]:`, e);

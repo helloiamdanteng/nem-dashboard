@@ -9,3 +9,13 @@ services:
         value: 3.11.0
     healthCheckPath: /api/health
     autoDeploy: true
+    buildFilter:
+      # The app itself commits data/prices/*.json and data/gen/*.json to this
+      # repo roughly every 5 minutes (see main.py _append_prices_to_github /
+      # _persist_gen_history_to_github). Without this filter, every one of
+      # those commits triggers a full redeploy, restarting the process and
+      # wiping in-memory generation history — the main cause of recurring
+      # gaps in the generation/fuel-mix charts. Only redeploy on real code
+      # changes.
+      ignoredPaths:
+        - data/**

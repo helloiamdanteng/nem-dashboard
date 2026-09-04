@@ -109,6 +109,119 @@ async def _append_prices_to_github(prices_5min: dict):
         logger.warning(f"prices: GitHub write failed: {e}")
 
 
+async def _persist_gen_history_to_github():
+    """
+    Snapshot today's in-memory generation history (_fuel_history + _duid_history)
+    to GitHub so a process restart can reload it instead of relying solely on
+    AEMO NEMWeb's limited Current/Archive retention to reconstruct the day.
+    File: data/gen/YYYY-MM-DD.json — overwritten each cycle (in-memory dicts
+    already hold the accumulated day, so no merge is needed on write).
+    """
+    import json, base64, os
+    from datetime import datetime, timezone, timedelta
+    import httpx
+    from scraper import _fuel_history, _duid_history
+
+    AEST     = timezone(timedelta(hours=10))
+    today    = datetime.now(AEST).strftime("%Y-%m-%d")
+    GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+    GH_REPO  = os.environ.get("GITHUB_REPO", "")
+    GH_PATH  = f"data/gen/{today}.json"
+    GH_HEADERS = {
+        "Authorization": f"token {GH_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+
+    if not GH_TOKEN or not GH_REPO:
+        return
+    if not _fuel_history and not _duid_history:
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(
+                f"https://api.github.com/repos/{GH_REPO}/contents/{GH_PATH}",
+                headers=GH_HEADERS,
+            )
+            file_sha = r.json().get("sha", "") if r.status_code == 200 else ""
+
+            payload_data = {
+                "date": today,
+                "fuel_history": _fuel_history,
+                "duid_history": _duid_history,
+            }
+            encoded = base64.b64encode(
+                json.dumps(payload_data, separators=(',', ':')).encode()
+            ).decode()
+            payload = {"message": f"gen-history: {today}", "content": encoded}
+            if file_sha:
+                payload["sha"] = file_sha
+            wr = await client.put(
+                f"https://api.github.com/repos/{GH_REPO}/contents/{GH_PATH}",
+                headers=GH_HEADERS,
+                json=payload,
+            )
+            if wr.status_code not in (200, 201):
+                logger.warning(f"gen-history: write failed status={wr.status_code} body={wr.text[:300]}")
+            else:
+                logger.debug(f"gen-history: wrote {today}.json")
+    except Exception as e:
+        logger.warning(f"gen-history: GitHub write failed: {e}")
+
+
+async def _load_gen_history_from_github():
+    """
+    On startup, seed _fuel_history/_duid_history from today's last-persisted
+    snapshot (if any) before AEMO backfill runs. This recovers generation
+    history across restarts even when AEMO's Current/Archive listings no
+    longer cover the gap (e.g. a redeploy during a quiet period).
+    """
+    import json, base64, os
+    from datetime import datetime, timezone, timedelta
+    import httpx
+    from scraper import _fuel_history, _duid_history
+
+    AEST     = timezone(timedelta(hours=10))
+    today    = datetime.now(AEST).strftime("%Y-%m-%d")
+    GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+    GH_REPO  = os.environ.get("GITHUB_REPO", "")
+    GH_PATH  = f"data/gen/{today}.json"
+    GH_HEADERS = {
+        "Authorization": f"token {GH_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+
+    if not GH_TOKEN or not GH_REPO:
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(
+                f"https://api.github.com/repos/{GH_REPO}/contents/{GH_PATH}",
+                headers=GH_HEADERS,
+            )
+            if r.status_code != 200:
+                logger.info(f"gen-history: no persisted snapshot for {today} (status={r.status_code})")
+                return
+            saved = json.loads(base64.b64decode(r.json()["content"]).decode())
+
+            fh = saved.get("fuel_history", {})
+            for region, series in fh.items():
+                bucket = _fuel_history.setdefault(region, {})
+                for label, snap in series.items():
+                    bucket.setdefault(label, snap)
+
+            dh = saved.get("duid_history", {})
+            for duid, series in dh.items():
+                bucket = _duid_history.setdefault(duid, {})
+                for label, mw in series.items():
+                    bucket.setdefault(label, mw)
+
+            logger.info(f"gen-history: restored {len(fh)} regions / {len(dh)} DUIDs from {today}.json")
+    except Exception as e:
+        logger.warning(f"gen-history: GitHub load failed: {e}")
+
+
 async def _run_fast():
     t0 = time.time()
     try:
@@ -374,47 +487,54 @@ async def _run_gen():
         gen_cache["error"] = str(e)
 
 
-async def _check_fuel_history_gaps() -> bool:
-    """
-    Returns True if _fuel_history has any gap > 15 min from midnight to now.
-    Uses NSW1 as representative region.
-    """
-    from scraper import _fuel_history, AEST
+def _series_gap_minutes(series: dict, now_str: str) -> tuple[str | None, int]:
+    """Return (description, gap_minutes) for the worst gap in a single region's
+    history series, or (None, 0) if there's no gap worth flagging."""
     from datetime import datetime as dt_
-    series = _fuel_history.get("NSW1", {})
-    # Log current state every time for diagnostics
-    now_aest = dt_.now(AEST)
-    now_str  = now_aest.strftime("%H:%M")
-    labels   = sorted(k for k in series if k <= now_str)
-    logger.info(f"Gap check: {len(series)} total pts, {len(labels)} up to {now_str} AEST, "
-                f"first={labels[0] if labels else 'none'}, last={labels[-1] if labels else 'none'}")
-
-    if len(series) < 3:
-        logger.warning("Gap check: too few points - triggering backfill")
-        return True
-    if not labels:
-        logger.warning("Gap check: no labels up to now - triggering backfill")
-        return True
-
-    # Check every consecutive pair for gaps > 15 min
+    labels = sorted(k for k in series if k <= now_str)
+    if len(labels) < 3:
+        return ("too few points", 9999)
     for i in range(1, len(labels)):
         gap = (dt_.strptime(labels[i], "%H:%M") - dt_.strptime(labels[i-1], "%H:%M")).seconds // 60
         if gap > 15:
-            logger.warning(f"Gap check: gap found {labels[i-1]}->{labels[i]} ({gap}min) - triggering backfill")
-            return True
-
-    # Check if first label is more than 30 min after midnight
+            return (f"{labels[i-1]}->{labels[i]}", gap)
     first_mins = dt_.strptime(labels[0], "%H:%M").hour * 60 + dt_.strptime(labels[0], "%H:%M").minute
     if first_mins > 30:
-        logger.warning(f"Gap check: data starts at {labels[0]} ({first_mins}min after midnight) - triggering backfill")
-        return True
+        return (f"starts at {labels[0]}", first_mins)
+    return (None, 0)
 
-    logger.info("Gap check: no gaps found")
-    return False
+
+async def _check_fuel_history_gaps() -> bool:
+    """
+    Returns True if _fuel_history has any gap > 15 min from midnight to now,
+    in ANY of the 5 regions (previously only NSW1 was checked, so a gap
+    isolated to QLD/VIC/SA/TAS would never trigger a re-backfill).
+    """
+    from scraper import _fuel_history, NEM_REGIONS, AEST
+    from datetime import datetime as dt_
+    now_str = dt_.now(AEST).strftime("%H:%M")
+
+    found_gap = False
+    for region in NEM_REGIONS:
+        series = _fuel_history.get(region, {})
+        desc, minutes = _series_gap_minutes(series, now_str)
+        if desc:
+            logger.warning(f"Gap check [{region}]: {desc} ({minutes}min) - triggering backfill")
+            found_gap = True
+        else:
+            logger.info(f"Gap check [{region}]: no gaps found ({len(series)} pts)")
+    return found_gap
 
 
 async def gen_loop():
     await asyncio.sleep(5)   # let fast scrape finish first
+    # Seed from our own last-persisted snapshot first — recovers history across
+    # restarts even when AEMO's Current/Archive listings no longer cover the
+    # gap (e.g. a redeploy during a quiet period).
+    try:
+        await asyncio.wait_for(_load_gen_history_from_github(), timeout=20)
+    except Exception as e:
+        logger.warning(f"gen-history: load-on-startup failed: {e}")
     # Backfill 24hr SCADA history once at startup so chart is immediately populated
     try:
         loop = asyncio.get_running_loop()
@@ -442,6 +562,9 @@ async def gen_loop():
                     logger.info("Gap re-backfill complete")
                 except Exception as e:
                     logger.warning(f"Gap re-backfill failed: {e}")
+            # Persist the (now hopefully gap-free) history so a future restart
+            # can recover from this point instead of AEMO's limited retention.
+            asyncio.create_task(_persist_gen_history_to_github())
         except Exception as e:
             logger.error(f"Gen loop error: {e}")
             gen_cache["error"] = str(e)

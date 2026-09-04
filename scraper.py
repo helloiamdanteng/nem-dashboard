@@ -1039,6 +1039,17 @@ def scrape_dispatch_history() -> dict:
             _rooftop_history[region] = {}
         _rooftop_history[region].update(rooftop[region])
 
+    # Merge demand/op_demand/gen_demand into persistent in-memory history so a
+    # later cycle doesn't lose intervals that have aged out of AEMO's
+    # CURRENT-folder retention window (mirrors the _ic_history merge above).
+    for region in NEM_REGIONS:
+        if demand[region]:
+            _demand_history[region].update(demand[region])
+        if op_demand[region]:
+            _op_demand_history[region].update(op_demand[region])
+        if gen_demand[region]:
+            _gen_demand_history[region].update(gen_demand[region])
+
     logger.info(f"DispatchIS history: demand={sum(len(v) for v in demand_result.values())} pts, "
                 f"prices={sum(len(v) for v in price_result.values())} pts, "
                 f"ic_flows={sum(len(v) for v in ic_flows.values())} pts "
@@ -1577,10 +1588,35 @@ def scrape_fuel_mix_history_opennem() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# In-memory demand history - lightweight fallback used only if TradingIS fetch fails
+# In-memory demand history - accumulated across cycles (like _ic_history)
+# so intervals that age out of AEMO's CURRENT-folder retention window aren't
+# lost from a later scrape_dispatch_history() call. Persisted to GitHub
+# alongside gen history (see main.py _persist_gen_history_to_github).
 # ---------------------------------------------------------------------------
 
 _demand_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
+_op_demand_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
+_gen_demand_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
+
+
+def _get_op_demand_history() -> dict:
+    now_label = datetime.now(AEST).strftime("%H:%M")
+    result = {}
+    for region, series in _op_demand_history.items():
+        labels = {k: v for k, v in series.items() if k <= now_label}
+        if labels:
+            result[region] = [{"interval": k, "demand": v} for k, v in sorted(labels.items())]
+    return result
+
+
+def _get_gen_demand_history() -> dict:
+    now_label = datetime.now(AEST).strftime("%H:%M")
+    result = {}
+    for region, series in _gen_demand_history.items():
+        labels = {k: v for k, v in series.items() if k <= now_label}
+        if labels:
+            result[region] = [{"interval": k, "demand": v} for k, v in sorted(labels.items())]
+    return result
 
 # ---------------------------------------------------------------------------
 # In-memory fuel mix history - populated by scrape_gen every 15 min
@@ -1848,8 +1884,11 @@ def scrape_all() -> dict:
             dispatch_wind.setdefault(region, [])
             dispatch_wind[region] = [p for p in dispatch_wind[region] if p["interval"] != now_label]
             dispatch_wind[region].append({"interval": now_label, "mw": round(float(win), 1)})
-    # Use DispatchIS history for demand (full day), fall back to in-memory if empty
-    demand_history     = dispatch_demand if dispatch_demand else _get_demand_history()
+    # Read demand/op_demand/gen_demand from the accumulating in-memory history
+    # (merged in scrape_dispatch_history() every cycle) rather than the raw
+    # per-cycle fetch, so intervals that age out of AEMO's CURRENT-folder
+    # retention window aren't lost from the chart.
+    demand_history     = _get_demand_history()
     ic_history         = _get_ic_history()
     pd_interconnectors = scrape_predispatch_interconnectors(predispatch_text)
 
@@ -1917,11 +1956,15 @@ def scrape_all() -> dict:
         "predispatch_prices":    pd_prices,
         "predispatch_sensitivity": pd_sensitivity,
         "demand_history":        demand_history,
-        "op_demand_history":     dispatch_op_demand,
-        "dispatch_history":      dispatch_demand,
+        "op_demand_history":     _get_op_demand_history(),
+        # frontend prefers dispatch_history over demand_history whenever it's
+        # non-empty (drawDemandChart), so it must also come from the robust
+        # accumulator rather than the raw per-cycle fetch — otherwise it
+        # silently reintroduces the same gap-on-restart bug we just fixed.
+        "dispatch_history":      demand_history,
         "solar_history":         dispatch_solar,
         "wind_history":          dispatch_wind,
-        "gen_demand_history":    dispatch_hist.get("gen_demand", {}),
+        "gen_demand_history":    _get_gen_demand_history(),
         "predispatch_demand":    pd_demand,
         "predispatch_gen":       pd_gen,
         "predispatch_units":     pd_units,

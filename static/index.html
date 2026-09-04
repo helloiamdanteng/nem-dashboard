@@ -8189,7 +8189,7 @@ function _drawEraringChart(results) {
       ...CHART_DEFAULTS,
       plugins: {
         ...CHART_DEFAULTS.plugins,
-        legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 } },
+        legend: { display: false }, // per-unit toggle pills above the chart replace this
         tooltip: {
           ...CHART_DEFAULTS.plugins.tooltip,
           callbacks: {

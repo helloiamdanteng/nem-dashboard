@@ -1049,6 +1049,10 @@ def scrape_dispatch_history() -> dict:
             _op_demand_history[region].update(op_demand[region])
         if gen_demand[region]:
             _gen_demand_history[region].update(gen_demand[region])
+        if ss_solar[region]:
+            _solar_history[region].update(ss_solar[region])
+        if ss_wind[region]:
+            _wind_history[region].update(ss_wind[region])
 
     logger.info(f"DispatchIS history: demand={sum(len(v) for v in demand_result.values())} pts, "
                 f"prices={sum(len(v) for v in price_result.values())} pts, "
@@ -1597,6 +1601,28 @@ def scrape_fuel_mix_history_opennem() -> dict:
 _demand_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
 _op_demand_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
 _gen_demand_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
+_solar_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
+_wind_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
+
+
+def _get_solar_history() -> dict:
+    now_label = datetime.now(AEST).strftime("%H:%M")
+    result = {}
+    for region, series in _solar_history.items():
+        labels = {k: v for k, v in series.items() if k <= now_label}
+        if labels:
+            result[region] = [{"interval": k, "mw": v} for k, v in sorted(labels.items())]
+    return result
+
+
+def _get_wind_history() -> dict:
+    now_label = datetime.now(AEST).strftime("%H:%M")
+    result = {}
+    for region, series in _wind_history.items():
+        labels = {k: v for k, v in series.items() if k <= now_label}
+        if labels:
+            result[region] = [{"interval": k, "mw": v} for k, v in sorted(labels.items())]
+    return result
 
 
 def _get_op_demand_history() -> dict:
@@ -1811,11 +1837,11 @@ def scrape_all() -> dict:
     scada_vals       = _safe_result(f_scada,          {}, "scada")
     pd_sensitivity   = _safe_result(f_sens,           {}, "sensitivity")
 
-    dispatch_demand       = dispatch_hist.get("demand", {})
-    dispatch_op_demand    = dispatch_hist.get("op_demand", {})
+    # demand/op_demand/solar/wind are read back from their accumulating
+    # in-memory history (_get_demand_history() etc.) further down instead of
+    # dispatch_hist's raw per-cycle fetch — see the comment near
+    # demand_history/solar_history_out below.
     dispatch_price_5min   = dispatch_hist.get("prices", {})
-    dispatch_solar        = dispatch_hist.get("solar", {})
-    dispatch_wind         = dispatch_hist.get("wind", {})
 
     # Parse live dispatch snapshot (prices, demand, generation, ICs)
     region_summary  = scrape_region_summary(dispatch_text)
@@ -1869,7 +1895,9 @@ def scrape_all() -> dict:
             if rooftop:
                 live_fuel_mix[region]["Rooftop Solar"] = round(float(rooftop), 1)
     _update_fuel_history(live_fuel_mix, None, live_pump_load)
-    # Inject live solar/wind into dispatch history for current interval
+    # Inject live solar/wind into the accumulating history for the current
+    # interval (mirrors demand/op_demand — write into the persistent
+    # accumulator, not a per-call local list that gets discarded next cycle).
     now_label = datetime.now(AEST).strftime("%H:%M")
     for region, rdata in region_summary.items():
         if region not in NEM_REGIONS:
@@ -1877,19 +1905,17 @@ def scrape_all() -> dict:
         sol = rdata.get("SS_SOLAR_CLEAREDMW")
         win = rdata.get("SS_WIND_CLEAREDMW")
         if sol is not None:
-            dispatch_solar.setdefault(region, [])
-            dispatch_solar[region] = [p for p in dispatch_solar[region] if p["interval"] != now_label]
-            dispatch_solar[region].append({"interval": now_label, "mw": round(float(sol), 1)})
+            _solar_history[region][now_label] = round(float(sol), 1)
         if win is not None:
-            dispatch_wind.setdefault(region, [])
-            dispatch_wind[region] = [p for p in dispatch_wind[region] if p["interval"] != now_label]
-            dispatch_wind[region].append({"interval": now_label, "mw": round(float(win), 1)})
-    # Read demand/op_demand/gen_demand from the accumulating in-memory history
-    # (merged in scrape_dispatch_history() every cycle) rather than the raw
-    # per-cycle fetch, so intervals that age out of AEMO's CURRENT-folder
-    # retention window aren't lost from the chart.
+            _wind_history[region][now_label] = round(float(win), 1)
+    # Read demand/op_demand/gen_demand/solar/wind from the accumulating
+    # in-memory history (merged in scrape_dispatch_history() every cycle)
+    # rather than the raw per-cycle fetch, so intervals that age out of
+    # AEMO's CURRENT-folder retention window aren't lost from the chart.
     demand_history     = _get_demand_history()
     ic_history         = _get_ic_history()
+    solar_history_out  = _get_solar_history()
+    wind_history_out   = _get_wind_history()
     pd_interconnectors = scrape_predispatch_interconnectors(predispatch_text)
 
     # Live current values from latest dispatch interval
@@ -1962,8 +1988,8 @@ def scrape_all() -> dict:
         # accumulator rather than the raw per-cycle fetch — otherwise it
         # silently reintroduces the same gap-on-restart bug we just fixed.
         "dispatch_history":      demand_history,
-        "solar_history":         dispatch_solar,
-        "wind_history":          dispatch_wind,
+        "solar_history":         solar_history_out,
+        "wind_history":          wind_history_out,
         "gen_demand_history":    _get_gen_demand_history(),
         "predispatch_demand":    pd_demand,
         "predispatch_gen":       pd_gen,

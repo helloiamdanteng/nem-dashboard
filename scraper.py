@@ -822,6 +822,13 @@ def scrape_trading_history() -> dict:
             for region, label, val in pts:
                 prices[region][label] = val
 
+    # Merge into persistent in-memory history so a later cycle doesn't lose
+    # intervals that have aged out of AEMO's CURRENT-folder retention window
+    # (mirrors the demand/solar/wind accumulators).
+    for region in NEM_REGIONS:
+        if prices[region]:
+            _trading_price_history[region].update(prices[region])
+
     price_result = {r: [{"interval": k, "rrp": v} for k, v in sorted(s.items())]
                     for r, s in prices.items() if s}
 
@@ -1053,6 +1060,8 @@ def scrape_dispatch_history() -> dict:
             _solar_history[region].update(ss_solar[region])
         if ss_wind[region]:
             _wind_history[region].update(ss_wind[region])
+        if prices[region]:
+            _dispatch_price_history[region].update(prices[region])
 
     logger.info(f"DispatchIS history: demand={sum(len(v) for v in demand_result.values())} pts, "
                 f"prices={sum(len(v) for v in price_result.values())} pts, "
@@ -1603,6 +1612,33 @@ _op_demand_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
 _gen_demand_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
 _solar_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
 _wind_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
+# 30-min trading (firm/settled) and 5-min dispatch spot prices. The dispatch
+# series is restored at startup from data/prices/<date>.json — the same file
+# the price-history GitHub writer (main.py _append_prices_to_github) already
+# maintains — so this is the one place price data is durable across both a
+# running process (accumulation) and a restart (GitHub-backed reload).
+_trading_price_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
+_dispatch_price_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}
+
+
+def _get_trading_price_history() -> dict:
+    now_label = datetime.now(AEST).strftime("%H:%M")
+    result = {}
+    for region, series in _trading_price_history.items():
+        labels = {k: v for k, v in series.items() if k <= now_label}
+        if labels:
+            result[region] = [{"interval": k, "rrp": v} for k, v in sorted(labels.items())]
+    return result
+
+
+def _get_dispatch_price_history() -> dict:
+    now_label = datetime.now(AEST).strftime("%H:%M")
+    result = {}
+    for region, series in _dispatch_price_history.items():
+        labels = {k: v for k, v in series.items() if k <= now_label}
+        if labels:
+            result[region] = [{"interval": k, "rrp": v} for k, v in sorted(labels.items())]
+    return result
 
 
 def _get_solar_history() -> dict:
@@ -1837,11 +1873,11 @@ def scrape_all() -> dict:
     scada_vals       = _safe_result(f_scada,          {}, "scada")
     pd_sensitivity   = _safe_result(f_sens,           {}, "sensitivity")
 
-    # demand/op_demand/solar/wind are read back from their accumulating
-    # in-memory history (_get_demand_history() etc.) further down instead of
-    # dispatch_hist's raw per-cycle fetch — see the comment near
-    # demand_history/solar_history_out below.
-    dispatch_price_5min   = dispatch_hist.get("prices", {})
+    # demand/op_demand/solar/wind/dispatch-prices are all read back from
+    # their accumulating in-memory history (_get_demand_history() etc.)
+    # further down instead of dispatch_hist's raw per-cycle fetch — see the
+    # comment near demand_history/solar_history_out/capped_dispatch_prices
+    # below.
 
     # Parse live dispatch snapshot (prices, demand, generation, ICs)
     region_summary  = scrape_region_summary(dispatch_text)
@@ -1950,16 +1986,18 @@ def scrape_all() -> dict:
             "status":   "running" if (mw is not None and mw > 5) else ("charging" if (mw is not None and mw < -5) else ("off" if mw is not None else "unknown")),
         }
 
-    # Keep trading (firm 30-min) and dispatch 5-min prices separate
-    # so the frontend can style them differently
-    trading_prices = trading["prices"]
-    # Cap dispatch at now
-    now_label = datetime.now(AEST).strftime("%H:%M")
-    capped_dispatch_prices = {}
-    for r in NEM_REGIONS:
-        pts = [p for p in dispatch_price_5min.get(r, []) if p["interval"] <= now_label]
-        if pts:
-            capped_dispatch_prices[r] = pts
+    # Keep trading (firm 30-min) and dispatch 5-min prices separate so the
+    # frontend can style them differently. Both are read from their
+    # accumulating in-memory history (merged every cycle above) rather than
+    # the raw per-cycle fetch, so intervals that age out of AEMO's
+    # CURRENT-folder retention window aren't lost — same durability as
+    # demand/solar/wind. _dispatch_price_history is additionally restored
+    # from data/prices/<date>.json on startup (see main.py
+    # _load_price_history_from_github), so this is now the single source of
+    # truth the frontend reads via /api/data — no separate client-side fetch
+    # of the GitHub file is needed any more.
+    trading_prices = _get_trading_price_history()
+    capped_dispatch_prices = _get_dispatch_price_history()
 
     logger.info(
         f"scrape_all done - prices:{list(prices.keys())} "

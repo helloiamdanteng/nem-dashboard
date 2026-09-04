@@ -109,6 +109,58 @@ async def _append_prices_to_github(prices_5min: dict):
         logger.warning(f"prices: GitHub write failed: {e}")
 
 
+async def _load_price_history_from_github():
+    """
+    On startup, seed _dispatch_price_history from today's persisted
+    data/prices/<date>.json (the same file _append_prices_to_github writes)
+    before the fast loop starts. This is the price-side equivalent of
+    _load_gen_history_from_github — it's what lets the backend serve fully
+    durable price history through /api/data without the frontend needing to
+    fetch the GitHub file itself.
+    """
+    import json, base64, os
+    from datetime import datetime, timezone, timedelta
+    import httpx
+    from scraper import _dispatch_price_history, NEM_REGIONS
+
+    AEST     = timezone(timedelta(hours=10))
+    today    = datetime.now(AEST).strftime("%Y-%m-%d")
+    GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+    GH_REPO  = os.environ.get("GITHUB_REPO", "")
+    GH_PATH  = f"data/prices/{today}.json"
+    GH_HEADERS = {
+        "Authorization": f"token {GH_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+
+    if not GH_TOKEN or not GH_REPO:
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(
+                f"https://api.github.com/repos/{GH_REPO}/contents/{GH_PATH}",
+                headers=GH_HEADERS,
+            )
+            if r.status_code != 200:
+                logger.info(f"prices: no persisted snapshot for {today} (status={r.status_code})")
+                return
+            saved = json.loads(base64.b64decode(r.json()["content"]).decode())
+
+            n = 0
+            for region in NEM_REGIONS:
+                series = saved.get(region, {})
+                if not series:
+                    continue
+                bucket = _dispatch_price_history.setdefault(region, {})
+                for label, rrp in series.items():
+                    bucket.setdefault(label, rrp)
+                n += 1
+            logger.info(f"prices: restored {n} regions from {today}.json")
+    except Exception as e:
+        logger.warning(f"prices: GitHub load failed: {e}")
+
+
 async def _persist_gen_history_to_github():
     """
     Snapshot today's in-memory supply + demand + IC + battery history
@@ -485,6 +537,13 @@ async def _run_slow():
 
 
 async def fast_loop():
+    # Seed dispatch price history from our own last-persisted snapshot before
+    # the first live scrape, so /api/data is durable from the very first
+    # response rather than only after enough cycles have run to rebuild it.
+    try:
+        await asyncio.wait_for(_load_price_history_from_github(), timeout=20)
+    except Exception as e:
+        logger.warning(f"prices: load-on-startup failed: {e}")
     while True:
         try:
             await _run_fast()

@@ -529,12 +529,46 @@ function _renderDailyAvgSummary(data) {
 }
 
 
+// ── Persisted (GitHub-backed) price history ────────────────────────────────
+// AEMO's NEMWeb CURRENT folders only retain a rolling window of recent
+// dispatch/trading files (no archive fallback in scraper.py), so live
+// scrapes alone develop a permanent hole for any part of today older than
+// that window. The app already commits today's 5-min dispatch prices to
+// data/prices/<date>.json on GitHub every cycle (see main.py
+// _append_prices_to_github) — this fetches that file back so the chart can
+// fall back to it for intervals the live scrape can no longer reach.
+window._persistedPrices = null;
+window._persistedPricesFetchedAt = 0;
+
+function _todayAESTStr() {
+  const aest = new Date(Date.now() + 10 * 3600 * 1000);
+  return aest.getUTCFullYear() + '-' + String(aest.getUTCMonth()+1).padStart(2,'0') + '-' + String(aest.getUTCDate()).padStart(2,'0');
+}
+
+async function _fetchPersistedPrices() {
+  try {
+    const d = await fetch(`/api/historical_day_prices?date=${_todayAESTStr()}`).then(r => r.json());
+    if (d && !d.error) {
+      window._persistedPrices = d;
+      window._persistedPricesFetchedAt = Date.now();
+      if (currentPanel === 'prices' && latestData) drawPriceChart(latestData);
+    }
+  } catch(e) {
+    console.warn('Persisted prices fetch failed:', e);
+  }
+}
+
 function renderPrices(data) {
   const prices = data.prices || {};
   const demand = data.demand || {};
   if (!Object.keys(prices).length) {
     return '<div class="state-msg"><div class="icon">⚡</div><div>Connecting to AEMO…</div></div>';
   }
+  // Refresh persisted price fallback every 10 min while viewing this panel
+  // (settled prices don't change, so this doesn't need to be frequent).
+  const persistedAge = Date.now() - window._persistedPricesFetchedAt;
+  if (persistedAge > 10 * 60 * 1000) _fetchPersistedPrices();
+
   let html = '<div class="section-title">Latest Spot Prices ($/MWh)</div><div class="price-grid">';
   for (const r of REGIONS) {
     const p = prices[r];
@@ -851,7 +885,8 @@ function drawPriceChart(data) {
   });
   const nowIdx = labels.indexOf(nowSnap);
 
-  const disp5 = data.dispatch_prices_5min || {};
+  const disp5     = data.dispatch_prices_5min || {};
+  const persisted = window._persistedPrices || {};
   const datasets = [];
   for (const r of REGIONS) {
     const color = REGION_COLORS[r];
@@ -860,6 +895,13 @@ function drawPriceChart(data) {
     (hist[r] || []).forEach(p => { hm[p.interval] = p.rrp; });
     // Layer 2: 5-min dispatch fill for the recent gap (thin solid, only slots not in trading)
     const dm = {};
+    // 2a: GitHub-persisted fallback — fills whatever the live scrape can no
+    // longer reach because it fell out of AEMO's CURRENT-folder retention
+    // window. Lowest priority: live data below overwrites it where both exist.
+    for (const [interval, rrp] of Object.entries(persisted[r] || {})) {
+      if (hm[interval] === undefined) dm[interval] = rrp;
+    }
+    // 2b: live 5-min dispatch fetch — freshest, takes priority
     (disp5[r] || []).forEach(p => { if (hm[p.interval] === undefined) dm[p.interval] = p.rrp; });
     // Inject live spot at nowSnap into whichever series owns that slot
     if (livePrice[r] != null) {

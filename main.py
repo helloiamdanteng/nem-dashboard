@@ -622,6 +622,14 @@ async def gen_loop():
         await asyncio.wait_for(_load_gen_history_from_github(), timeout=20)
     except Exception as e:
         logger.warning(f"gen-history: load-on-startup failed: {e}")
+    # Restore the Eraring daily-summary cache, then kick off a background
+    # backfill (AEMO archives) for whatever's still missing — fire-and-forget,
+    # doesn't block startup, no-ops once the cache is complete.
+    try:
+        await asyncio.wait_for(_load_eraring_cache_from_github(), timeout=20)
+    except Exception as e:
+        logger.warning(f"eraring-daily: load-on-startup failed: {e}")
+    asyncio.create_task(_run_eraring_backfill(30))
     # Backfill 24hr SCADA history once at startup so chart is immediately populated
     try:
         loop = asyncio.get_running_loop()
@@ -2459,16 +2467,22 @@ async def origin_history():
 
 
 ERARING_DUIDS = ["ER01", "ER02", "ER03", "ER04"]
-# Cache of finalized past days only — data/gen/<date>.json and
-# data/prices/<date>.json are immutable once that day is over, so once
-# computed a day never needs to be re-fetched. Today is never cached here
-# (always recomputed live). None means "checked, no snapshot exists yet".
+ERARING_PRICE_CAP = 300.0
+# Cache of finalized past days only — {"full": stats, "cap300": stats} or
+# None for "checked, confirmed no data". Today is never cached here (always
+# recomputed live). Populated either from our own persisted daily snapshots
+# (data/gen + data/prices, immutable once the day is over) or, for days that
+# predate that pipeline, from a one-off AEMO archive backfill — see
+# _run_eraring_backfill. Persisted to data/eraring_daily.json so neither
+# source needs to be re-fetched across restarts.
 _eraring_daily_cache: dict = {}
+_eraring_backfill_running = False
 
 
-def _compute_eraring_day_stats(date_str: str, duid_hist: dict, nsw_prices: dict):
+def _compute_eraring_day_stats(date_str: str, duid_hist: dict, nsw_prices: dict, cap300: bool = False):
     """
-    production_mwh: total Eraring (ER01-04) energy for the day.
+    production_mwh: total Eraring (ER01-04) energy for the day — always uses
+        every interval regardless of price, unaffected by cap300.
     twp: NSW1 time-weighted average price (simple mean of 5-min RRP) — every
          interval counts equally regardless of what Eraring was doing.
     dwap: Eraring's own dispatch-weighted average price — sum(MW*RRP)/sum(MW)
@@ -2476,6 +2490,8 @@ def _compute_eraring_day_stats(date_str: str, duid_hist: dict, nsw_prices: dict)
           for the energy it generated.
     ratio: dwap / twp — >100% means Eraring tended to run more during
            higher-than-average price periods; <100% means the opposite.
+    cap300: when true, TWP/DWAP/ratio only consider intervals where
+            RRP < ERARING_PRICE_CAP (excludes price-spike events).
     """
     totals: dict = {}
     for duid in ERARING_DUIDS:
@@ -2489,6 +2505,8 @@ def _compute_eraring_day_stats(date_str: str, duid_hist: dict, nsw_prices: dict)
     production_mwh = sum(totals.values()) * (5 / 60)
 
     common = [l for l in totals if l in nsw_prices]
+    if cap300:
+        common = [l for l in common if nsw_prices[l] < ERARING_PRICE_CAP]
     if not common:
         return {"date": date_str, "production_mwh": round(production_mwh, 1),
                 "twp": None, "dwap": None, "ratio": None, "intervals": 0}
@@ -2514,6 +2532,15 @@ def _compute_eraring_day_stats(date_str: str, duid_hist: dict, nsw_prices: dict)
     }
 
 
+def _compute_eraring_day_both(date_str: str, duid_hist: dict, nsw_prices: dict) -> dict:
+    """Compute both cap300 variants at once — used for finalized past days,
+    which get cached forever, so both are worth precomputing up front."""
+    return {
+        "full":   _compute_eraring_day_stats(date_str, duid_hist, nsw_prices, cap300=False),
+        "cap300": _compute_eraring_day_stats(date_str, duid_hist, nsw_prices, cap300=True),
+    }
+
+
 async def _fetch_github_json(client, gh_repo: str, gh_headers: dict, path: str):
     import json, base64
     try:
@@ -2525,46 +2552,91 @@ async def _fetch_github_json(client, gh_repo: str, gh_headers: dict, path: str):
         return None
 
 
-@app.get("/api/eraring/daily_summary")
-async def eraring_daily_summary(days: int = 30):
+def _eraring_gh_config():
+    import os
+    return os.environ.get("GITHUB_TOKEN", ""), os.environ.get("GITHUB_REPO", "")
+
+
+async def _persist_eraring_cache_to_github():
+    """Snapshot _eraring_daily_cache (finalized days only) to
+    data/eraring_daily.json so it survives restarts without re-deriving from
+    data/gen+data/prices or re-running the AEMO archive backfill."""
+    import json, base64, httpx
+    GH_TOKEN, GH_REPO = _eraring_gh_config()
+    if not GH_TOKEN or not GH_REPO or not _eraring_daily_cache:
+        return
+    GH_HEADERS = {"Authorization": f"token {GH_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+    GH_PATH = "data/eraring_daily.json"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(f"https://api.github.com/repos/{GH_REPO}/contents/{GH_PATH}", headers=GH_HEADERS)
+            file_sha = r.json().get("sha", "") if r.status_code == 200 else ""
+            payload_data = {k: v for k, v in _eraring_daily_cache.items() if v is not None}
+            encoded = base64.b64encode(json.dumps(payload_data, separators=(',', ':')).encode()).decode()
+            payload = {"message": "eraring-daily: snapshot", "content": encoded}
+            if file_sha:
+                payload["sha"] = file_sha
+            wr = await client.put(f"https://api.github.com/repos/{GH_REPO}/contents/{GH_PATH}", headers=GH_HEADERS, json=payload)
+            if wr.status_code not in (200, 201):
+                logger.warning(f"eraring-daily: write failed status={wr.status_code} body={wr.text[:300]}")
+    except Exception as e:
+        logger.warning(f"eraring-daily: GitHub write failed: {e}")
+
+
+async def _load_eraring_cache_from_github():
+    """Restore _eraring_daily_cache from data/eraring_daily.json on startup."""
+    import json, base64, httpx
+    GH_TOKEN, GH_REPO = _eraring_gh_config()
+    if not GH_TOKEN or not GH_REPO:
+        return
+    GH_HEADERS = {"Authorization": f"token {GH_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+    GH_PATH = "data/eraring_daily.json"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(f"https://api.github.com/repos/{GH_REPO}/contents/{GH_PATH}", headers=GH_HEADERS)
+            if r.status_code != 200:
+                logger.info("eraring-daily: no persisted cache yet")
+                return
+            saved = json.loads(base64.b64decode(r.json()["content"]).decode())
+            for date_str, variants in saved.items():
+                _eraring_daily_cache.setdefault(date_str, variants)
+            logger.info(f"eraring-daily: restored {len(saved)} days from cache")
+    except Exception as e:
+        logger.warning(f"eraring-daily: GitHub load failed: {e}")
+
+
+async def _run_eraring_backfill(days: int = 30):
     """
-    Last N days of Eraring production/TWP/DWAP/ratio, newest first. Today is
-    computed live from in-memory history; past days are read from the
-    persisted daily snapshots (data/gen + data/prices) and cached forever
-    once found — those files don't change after the day ends.
-
-    Historical coverage grows by one day at a time starting from whenever
-    the gen-history persistence pipeline first went live (2026-09-04) — days
-    before that have no snapshot to read and are simply omitted, not zeroed.
+    Fill _eraring_daily_cache for the last `days` calendar days (excluding
+    today), preferring our own persisted daily snapshots and falling back to
+    a direct AEMO archive fetch for whatever's still missing (i.e. days that
+    predate the gen-history persistence pipeline). Runs as a background
+    task — can take minutes given the SCADA archive fetch is one HTTP
+    request per 5-min interval per day.
     """
-    from scraper import _duid_history, _dispatch_price_history, AEST
-    from datetime import datetime, timedelta
-    import os, httpx
+    global _eraring_backfill_running
+    if _eraring_backfill_running:
+        return
+    _eraring_backfill_running = True
+    try:
+        from scraper import AEST, scrape_eraring_price_archive, scrape_eraring_scada_archive
+        from datetime import datetime, timedelta
+        loop = asyncio.get_running_loop()
 
-    now_aest  = datetime.now(AEST)
-    today_str = now_aest.strftime("%Y-%m-%d")
-    days      = max(1, min(days, 90))
+        now_aest   = datetime.now(AEST)
+        past_dates = [(now_aest - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, days)]
+        missing    = [d for d in past_dates if d not in _eraring_daily_cache]
+        if not missing:
+            logger.info("eraring-backfill: cache already complete, nothing to do")
+            return
 
-    GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-    GH_REPO  = os.environ.get("GITHUB_REPO", "")
-    GH_HEADERS = {
-        "Authorization": f"token {GH_TOKEN}",
-        "Accept": "application/vnd.github.v3+json",
-    }
+        GH_TOKEN, GH_REPO = _eraring_gh_config()
 
-    results = []
-
-    today_stats = _compute_eraring_day_stats(
-        today_str, _duid_history, dict(_dispatch_price_history.get("NSW1", {}))
-    )
-    if today_stats:
-        results.append(today_stats)
-
-    past_dates = [(now_aest - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, days)]
-
-    if GH_TOKEN and GH_REPO:
-        to_fetch = [d for d in past_dates if d not in _eraring_daily_cache]
-        if to_fetch:
+        # Pass 1: our own persisted daily snapshots (fast, cheap)
+        still_missing = list(missing)
+        if GH_TOKEN and GH_REPO:
+            GH_HEADERS = {"Authorization": f"token {GH_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+            import httpx
             async with httpx.AsyncClient(timeout=15) as client:
                 sem = asyncio.Semaphore(6)
 
@@ -2575,16 +2647,105 @@ async def eraring_daily_summary(days: int = 30):
                             _fetch_github_json(client, GH_REPO, GH_HEADERS, f"data/prices/{date_str}.json"),
                         )
                         if not gen_json:
-                            _eraring_daily_cache[date_str] = None
                             return
                         duid_hist  = gen_json.get("duid_history", {})
                         nsw_prices = (price_json or {}).get("NSW1", {})
-                        _eraring_daily_cache[date_str] = _compute_eraring_day_stats(date_str, duid_hist, nsw_prices)
+                        _eraring_daily_cache[date_str] = _compute_eraring_day_both(date_str, duid_hist, nsw_prices)
 
-                await asyncio.gather(*[_load(d) for d in to_fetch])
+                await asyncio.gather(*[_load(d) for d in still_missing])
+            still_missing = [d for d in still_missing if d not in _eraring_daily_cache]
+            logger.info(f"eraring-backfill: {len(missing) - len(still_missing)} days from our own store, "
+                        f"{len(still_missing)} still need AEMO archives")
 
-        for d in past_dates:
-            stats = _eraring_daily_cache.get(d)
+        # Pass 2: AEMO archives for whatever our own store doesn't cover
+        if still_missing:
+            date_set = set(still_missing)
+            try:
+                prices = await asyncio.wait_for(
+                    loop.run_in_executor(None, scrape_eraring_price_archive, date_set), timeout=300
+                )
+            except Exception as e:
+                logger.warning(f"eraring-backfill: price archive fetch failed: {e}")
+                prices = {}
+            try:
+                # Generous timeout — this is one HTTP fetch per 5-min interval
+                # per day (~288/day), so a full 29-day backfill can genuinely
+                # take several minutes.
+                scada = await asyncio.wait_for(
+                    loop.run_in_executor(None, scrape_eraring_scada_archive, date_set), timeout=600
+                )
+            except Exception as e:
+                logger.warning(f"eraring-backfill: SCADA archive fetch failed: {e}")
+                scada = {}
+
+            # Only mark a date as permanently unavailable if the archive
+            # fetch demonstrably worked for at least some other date in this
+            # batch — otherwise (e.g. a total network failure) leave it
+            # uncached so a future call retries instead of baking in a false
+            # negative from an outage that had nothing to do with that date.
+            archive_reachable = bool(prices) or bool(scada)
+            for date_str in still_missing:
+                duid_hist  = scada.get(date_str)
+                nsw_prices = prices.get(date_str)
+                if duid_hist and nsw_prices:
+                    _eraring_daily_cache[date_str] = _compute_eraring_day_both(date_str, duid_hist, nsw_prices)
+                elif archive_reachable:
+                    _eraring_daily_cache[date_str] = None  # confirmed unavailable — don't retry every request
+
+        recovered = sum(1 for d in missing if _eraring_daily_cache.get(d))
+        logger.info(f"eraring-backfill: recovered {recovered}/{len(missing)} days")
+        await _persist_eraring_cache_to_github()
+    except Exception as e:
+        logger.error(f"eraring-backfill: failed: {e}\n{traceback.format_exc()}")
+    finally:
+        _eraring_backfill_running = False
+
+
+@app.get("/api/eraring/backfill")
+async def eraring_backfill_trigger(days: int = 30):
+    """Manually (re-)trigger the AEMO archive backfill in the background."""
+    if _eraring_backfill_running:
+        return {"status": "already running"}
+    asyncio.create_task(_run_eraring_backfill(max(1, min(days, 90))))
+    return {"status": "backfill started", "days": days}
+
+
+@app.get("/api/eraring/daily_summary")
+async def eraring_daily_summary(days: int = 30, cap300: bool = False):
+    """
+    Last N days of Eraring production/TWP/DWAP/ratio, newest first. Today is
+    computed live from in-memory history; past days come from
+    _eraring_daily_cache (our own persisted snapshots, or the one-off AEMO
+    archive backfill for days that predate that pipeline — see
+    _run_eraring_backfill). cap300=true recomputes TWP/DWAP/ratio using only
+    intervals where NSW1 RRP < $300, excluding price-spike events.
+    """
+    from scraper import _duid_history, _dispatch_price_history, AEST
+    from datetime import datetime, timedelta
+
+    now_aest  = datetime.now(AEST)
+    today_str = now_aest.strftime("%Y-%m-%d")
+    days      = max(1, min(days, 90))
+
+    results = []
+
+    today_stats = _compute_eraring_day_stats(
+        today_str, _duid_history, dict(_dispatch_price_history.get("NSW1", {})), cap300=cap300
+    )
+    if today_stats:
+        results.append(today_stats)
+
+    past_dates = [(now_aest - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, days)]
+
+    # Kick off a background backfill for anything still missing — cheap to
+    # call repeatedly, it no-ops while already running or already complete.
+    if any(d not in _eraring_daily_cache for d in past_dates):
+        asyncio.create_task(_run_eraring_backfill(days))
+
+    for d in past_dates:
+        variants = _eraring_daily_cache.get(d)
+        if variants:
+            stats = variants.get("cap300" if cap300 else "full")
             if stats:
                 results.append(stats)
 

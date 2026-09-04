@@ -7943,6 +7943,13 @@ const ERARING_COLOR = '#38bdf8';
 let _eraringData = null; // raw /api/stations/batch results, cached per page load
 let eraringShowPrice = true; // NSW1 price overlay — on by default
 let _eraringDailyData = null; // /api/eraring/daily_summary results, cached per page load
+let eraringCap300 = false; // when true, TWP/DWAP/ratio exclude intervals where NSW1 RRP >= $300
+
+function toggleEraringCap300() {
+  eraringCap300 = !eraringCap300;
+  _eraringDailyData = null; // force a re-fetch with the new filter
+  if (currentPanel === 'eraring') renderPanel('eraring', latestData || {});
+}
 
 function toggleEraringPrice() {
   eraringShowPrice = !eraringShowPrice;
@@ -8059,6 +8066,15 @@ function _renderEraringDailySummary() {
     'Ratio = DWAP ÷ TWP — above 100% means Eraring captured better-than-average prices.' +
     '</div>';
 
+  html += `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px">
+    <button onclick="toggleEraringCap300()" style="font-family:var(--font-mono);font-size:10px;padding:3px 8px;border-radius:20px;cursor:pointer;
+      border:1px solid ${eraringCap300 ? '#f39c12' : '#475569'};
+      background:${eraringCap300 ? '#f39c1233' : 'transparent'};
+      color:${eraringCap300 ? '#f39c12' : '#475569'}">
+      ${eraringCap300 ? '✓ ' : ''}Exclude ≥$300 intervals
+    </button>
+  </div>`;
+
   if (!_eraringDailyData) {
     html += '<div style="font-family:var(--font-mono);font-size:10px;color:#475569;padding:12px 0">Loading daily summary…</div>';
     return html;
@@ -8109,13 +8125,23 @@ async function fetchEraringData() {
   }
 }
 
+let _eraringDailyPollTimer = null;
+
 async function fetchEraringDailySummary() {
+  const prevCount = (_eraringDailyData || []).length;
   try {
-    const result = await fetch('/api/eraring/daily_summary?days=30').then(r => r.json());
+    const result = await fetch(`/api/eraring/daily_summary?days=30&cap300=${eraringCap300}`).then(r => r.json());
     _eraringDailyData = result.days || [];
   } catch(e) {
     console.error('Eraring daily summary fetch error:', e);
-    _eraringDailyData = [];
+    if (_eraringDailyData === null) _eraringDailyData = [];
+  }
+  // The server may still be running a one-off AEMO archive backfill in the
+  // background (can take minutes) — keep checking back while coverage is
+  // still growing, and stop on its own once it plateaus.
+  clearTimeout(_eraringDailyPollTimer);
+  if (_eraringDailyData.length < 30 && _eraringDailyData.length !== prevCount) {
+    _eraringDailyPollTimer = setTimeout(fetchEraringDailySummary, 20000);
   }
   if (currentPanel === 'eraring') {
     renderPanel('eraring', latestData || {});
@@ -8189,7 +8215,7 @@ function _drawEraringChart(results) {
       ...CHART_DEFAULTS,
       plugins: {
         ...CHART_DEFAULTS.plugins,
-        legend: { display: true, labels: { color:'#94a3b8', font:{family:'Space Mono',size:9}, boxWidth:10, padding:6 } },
+        legend: { display: false }, // per-unit toggle pills above the chart replace this
         tooltip: {
           ...CHART_DEFAULTS.plugins.tooltip,
           callbacks: {

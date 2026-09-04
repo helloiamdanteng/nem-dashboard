@@ -3219,6 +3219,175 @@ def scrape_historical_price_averages(days: int = 90) -> dict:
     total = sum(len(v) for v in results.values())
     logger.info(f"scrape_historical_price_averages: {total} region-days computed")
     return results
+
+
+# ---------------------------------------------------------------------------
+# Eraring historical backfill — pulls specific past dates directly from
+# AEMO's archives (not our own GitHub-persisted store) so the daily summary
+# table on the Eraring page can be filled in immediately for days that
+# predate our own persistence pipeline, instead of waiting ~30 days for it
+# to accumulate day by day.
+# ---------------------------------------------------------------------------
+
+_ERARING_ARCHIVE_DUIDS = ("ER01", "ER02", "ER03", "ER04")
+
+
+def scrape_eraring_price_archive(dates: set) -> dict:
+    """
+    Fetch NSW1 30-min settlement prices for a set of specific past dates
+    (YYYY-MM-DD strings) from AEMO's TradingIS weekly archive (zip-of-zips —
+    same source/pattern as scrape_historical_price_averages, but keeping the
+    raw per-interval series instead of only aggregate stats).
+    Returns { "YYYY-MM-DD": { "HH:MM": rrp } }.
+    """
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+    from calendar import monthrange
+
+    if not dates:
+        return {}
+
+    date_objs = sorted(datetime.strptime(d, "%Y-%m-%d").date() for d in dates)
+    months_needed = {(d.year, d.month) for d in date_objs}
+
+    try:
+        all_hrefs = _list_hrefs(TRADING_ARCHIVE)
+    except Exception as e:
+        logger.warning(f"scrape_eraring_price_archive: listing failed: {e}")
+        return {}
+
+    relevant = []
+    for href in all_hrefs:
+        fname = href.split('/')[-1]
+        parts = fname.replace('.zip', '').split('_')
+        if len(parts) >= 4:
+            try:
+                start_date = datetime.strptime(parts[-2], "%Y%m%d").date()
+                end_date   = datetime.strptime(parts[-1], "%Y%m%d").date()
+                for (yr, mo) in months_needed:
+                    month_start = datetime(yr, mo, 1).date()
+                    month_end   = datetime(yr, mo, monthrange(yr, mo)[1]).date()
+                    if start_date <= month_end and end_date >= month_start:
+                        relevant.append(href)
+                        break
+            except ValueError:
+                continue
+    relevant = list(set(relevant))
+    if not relevant:
+        return {}
+
+    logger.info(f"scrape_eraring_price_archive: {len(relevant)} weekly archive ZIPs for {len(dates)} days")
+
+    date_set = set(dates)
+    results: dict = {}
+
+    def _fetch_and_parse(url):
+        try:
+            text = _read_zip_of_zips(url)
+        except Exception:
+            return
+        if not text:
+            return
+        rows = _parse_aemo(text, "TRADINGPRICE") or _parse_aemo(text, "TRADING_PRICE")
+        for row in rows:
+            if row.get("REGIONID", "").strip() != "NSW1":
+                continue
+            if row.get("INVALIDFLAG", "0") not in ("0", ""):
+                continue
+            dt_str  = row.get("SETTLEMENTDATE", "")
+            rrp_str = row.get("RRP", "")
+            if not dt_str or not rrp_str:
+                continue
+            try:
+                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=30)
+                day_str = dt.strftime("%Y-%m-%d")
+                if day_str not in date_set:
+                    continue
+                results.setdefault(day_str, {})[dt.strftime("%H:%M")] = round(float(rrp_str), 2)
+            except (ValueError, TypeError):
+                continue
+
+    with _TPE(max_workers=3) as ex:
+        list(ex.map(_fetch_and_parse, relevant))
+
+    logger.info(f"scrape_eraring_price_archive: recovered {len(results)}/{len(dates)} days")
+    return results
+
+
+def scrape_eraring_scada_archive(dates: set) -> dict:
+    """
+    Fetch ER01-ER04 5-min SCADA output for a set of specific past dates from
+    AEMO's Dispatch_SCADA CURRENT + ARCHIVE listings. Each file covers one
+    5-min interval for every DUID in the NEM — filtered down to just
+    Eraring's 4 units to keep this affordable, but it's still one HTTP fetch
+    per interval per day (~288/day), so this is meant for a slow background
+    backfill, never a live request. AEMO's archive retention for this report
+    type isn't guaranteed to cover the full requested range — whatever days
+    come back empty are simply omitted, not fabricated.
+    Returns { "YYYY-MM-DD": { duid: { "HH:MM": mw } } }.
+    """
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+
+    if not dates:
+        return {}
+    date_strs_compact = {d.replace("-", "") for d in dates}
+
+    try:
+        current_urls = _list_hrefs(SCADA_URL)
+    except Exception as e:
+        logger.warning(f"scrape_eraring_scada_archive: CURRENT listing failed: {e}")
+        current_urls = []
+    try:
+        archive_urls = _list_hrefs(SCADA_ARCHIVE)
+    except Exception as e:
+        logger.warning(f"scrape_eraring_scada_archive: ARCHIVE listing failed: {e}")
+        archive_urls = []
+
+    all_urls = list(set(current_urls + archive_urls))
+    target_urls = [u for u in all_urls
+                   if "PUBLIC_DISPATCHSCADA" in u.upper()
+                   and any(ds in u for ds in date_strs_compact)]
+
+    if not target_urls:
+        logger.info("scrape_eraring_scada_archive: no matching SCADA files found for requested dates")
+        return {}
+
+    logger.info(f"scrape_eraring_scada_archive: {len(target_urls)} files to fetch for {len(dates)} days")
+
+    date_set = set(dates)
+    results: dict = {}
+
+    def _fetch(url):
+        try:
+            text = _read_zip(url)
+        except Exception:
+            return
+        if not text:
+            return
+        for row in _parse_aemo(text, "DISPATCH_UNIT_SCADA"):
+            duid = row.get("DUID", "").strip().upper()
+            if duid not in _ERARING_ARCHIVE_DUIDS:
+                continue
+            dt_str = row.get("SETTLEMENTDATE", "")
+            v = row.get("SCADAVALUE", "")
+            if not dt_str or not v:
+                continue
+            try:
+                dt = datetime.fromisoformat(dt_str.replace("/", "-")) - timedelta(minutes=5)
+                day_str = dt.strftime("%Y-%m-%d")
+                if day_str not in date_set:
+                    continue
+                label = dt.strftime("%H:%M")
+                results.setdefault(day_str, {}).setdefault(duid, {})[label] = round(float(v), 1)
+            except (ValueError, TypeError):
+                continue
+
+    with _TPE(max_workers=20) as ex:
+        list(ex.map(_fetch, target_urls))
+
+    logger.info(f"scrape_eraring_scada_archive: recovered {len(results)}/{len(dates)} days")
+    return results
+
+
 def scrape_mtpasa_outages() -> list:
     """
     Find units that are currently offline/derated OR have upcoming availability changes.

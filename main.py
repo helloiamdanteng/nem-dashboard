@@ -111,16 +111,19 @@ async def _append_prices_to_github(prices_5min: dict):
 
 async def _persist_gen_history_to_github():
     """
-    Snapshot today's in-memory generation history (_fuel_history + _duid_history)
-    to GitHub so a process restart can reload it instead of relying solely on
-    AEMO NEMWeb's limited Current/Archive retention to reconstruct the day.
+    Snapshot today's in-memory supply + demand + IC history (_fuel_history,
+    _duid_history, _demand_history, _op_demand_history, _gen_demand_history,
+    _ic_history) to GitHub so a process restart can reload it instead of
+    relying solely on AEMO NEMWeb's limited Current/Archive retention to
+    reconstruct the day.
     File: data/gen/YYYY-MM-DD.json — overwritten each cycle (in-memory dicts
     already hold the accumulated day, so no merge is needed on write).
     """
     import json, base64, os
     from datetime import datetime, timezone, timedelta
     import httpx
-    from scraper import _fuel_history, _duid_history
+    from scraper import (_fuel_history, _duid_history, _demand_history,
+                          _op_demand_history, _gen_demand_history, _ic_history)
 
     AEST     = timezone(timedelta(hours=10))
     today    = datetime.now(AEST).strftime("%Y-%m-%d")
@@ -134,7 +137,8 @@ async def _persist_gen_history_to_github():
 
     if not GH_TOKEN or not GH_REPO:
         return
-    if not _fuel_history and not _duid_history:
+    if not any([_fuel_history, _duid_history, _demand_history,
+                _op_demand_history, _gen_demand_history, _ic_history]):
         return
 
     try:
@@ -149,6 +153,10 @@ async def _persist_gen_history_to_github():
                 "date": today,
                 "fuel_history": _fuel_history,
                 "duid_history": _duid_history,
+                "demand_history": _demand_history,
+                "op_demand_history": _op_demand_history,
+                "gen_demand_history": _gen_demand_history,
+                "ic_history": _ic_history,
             }
             encoded = base64.b64encode(
                 json.dumps(payload_data, separators=(',', ':')).encode()
@@ -171,15 +179,17 @@ async def _persist_gen_history_to_github():
 
 async def _load_gen_history_from_github():
     """
-    On startup, seed _fuel_history/_duid_history from today's last-persisted
-    snapshot (if any) before AEMO backfill runs. This recovers generation
-    history across restarts even when AEMO's Current/Archive listings no
-    longer cover the gap (e.g. a redeploy during a quiet period).
+    On startup, seed _fuel_history/_duid_history/_demand_history/
+    _op_demand_history/_gen_demand_history/_ic_history from today's
+    last-persisted snapshot (if any) before AEMO backfill runs. This
+    recovers history across restarts even when AEMO's Current/Archive
+    listings no longer cover the gap (e.g. a redeploy during a quiet period).
     """
     import json, base64, os
     from datetime import datetime, timezone, timedelta
     import httpx
-    from scraper import _fuel_history, _duid_history
+    from scraper import (_fuel_history, _duid_history, _demand_history,
+                          _op_demand_history, _gen_demand_history, _ic_history)
 
     AEST     = timezone(timedelta(hours=10))
     today    = datetime.now(AEST).strftime("%Y-%m-%d")
@@ -194,6 +204,15 @@ async def _load_gen_history_from_github():
     if not GH_TOKEN or not GH_REPO:
         return
 
+    def _restore(target: dict, saved: dict) -> int:
+        n = 0
+        for key, series in saved.items():
+            bucket = target.setdefault(key, {})
+            for label, val in series.items():
+                bucket.setdefault(label, val)
+            n += 1
+        return n
+
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.get(
@@ -205,19 +224,16 @@ async def _load_gen_history_from_github():
                 return
             saved = json.loads(base64.b64decode(r.json()["content"]).decode())
 
-            fh = saved.get("fuel_history", {})
-            for region, series in fh.items():
-                bucket = _fuel_history.setdefault(region, {})
-                for label, snap in series.items():
-                    bucket.setdefault(label, snap)
+            n_fh = _restore(_fuel_history, saved.get("fuel_history", {}))
+            n_dh = _restore(_duid_history, saved.get("duid_history", {}))
+            n_dem = _restore(_demand_history, saved.get("demand_history", {}))
+            n_op = _restore(_op_demand_history, saved.get("op_demand_history", {}))
+            n_gd = _restore(_gen_demand_history, saved.get("gen_demand_history", {}))
+            n_ic = _restore(_ic_history, saved.get("ic_history", {}))
 
-            dh = saved.get("duid_history", {})
-            for duid, series in dh.items():
-                bucket = _duid_history.setdefault(duid, {})
-                for label, mw in series.items():
-                    bucket.setdefault(label, mw)
-
-            logger.info(f"gen-history: restored {len(fh)} regions / {len(dh)} DUIDs from {today}.json")
+            logger.info(f"gen-history: restored {n_fh} fuel regions / {n_dh} DUIDs / "
+                        f"{n_dem} demand regions / {n_op} op_demand regions / "
+                        f"{n_gd} gen_demand regions / {n_ic} interconnectors from {today}.json")
     except Exception as e:
         logger.warning(f"gen-history: GitHub load failed: {e}")
 

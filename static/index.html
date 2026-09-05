@@ -1385,7 +1385,7 @@ function drawGenChart(data) {
       }),
       backgroundColor: color + 'cc', borderColor: color,
       borderWidth: 0.5, fill: true, pointRadius: 0,
-      tension: 0.2, stack: 'actual', spanGaps: false, yAxisID: 'y', order: 1,
+      tension: 0.2, stack: 'actual', spanGaps: true, yAxisID: 'y', order: 1,
     };
   });
 
@@ -1402,7 +1402,7 @@ function drawGenChart(data) {
     }),
     backgroundColor: battColor + 'cc', borderColor: battColor,
     borderWidth: 0.5, fill: true, pointRadius: 0,
-    tension: 0.2, stack: 'actual', spanGaps: false, yAxisID: 'y', order: 1,
+    tension: 0.2, stack: 'actual', spanGaps: true, yAxisID: 'y', order: 1,
   };
 
   // Battery charging (negative, below x-axis) — uses BDU load data
@@ -1415,7 +1415,7 @@ function drawGenChart(data) {
     }),
     backgroundColor: '#a855f755', borderColor: '#a855f7',
     borderWidth: 0.5, fill: 'origin', pointRadius: 0,
-    tension: 0.2, stack: 'negative', spanGaps: false, yAxisID: 'y', order: 1,
+    tension: 0.2, stack: 'negative', spanGaps: true, yAxisID: 'y', order: 1,
   };
 
   // Pump hydro load (negative — from bdu_history pump_load field, same 5-min resolution as battery)
@@ -1428,7 +1428,7 @@ function drawGenChart(data) {
     }),
     backgroundColor: '#06b6d455', borderColor: '#06b6d4',
     borderWidth: 1, fill: '-1', pointRadius: 0,
-    tension: 0.2, stack: 'negative', spanGaps: false, yAxisID: 'y', order: 1,
+    tension: 0.2, stack: 'negative', spanGaps: true, yAxisID: 'y', order: 1,
   };
 
   // ── Scheduled demand lines ──────────────────────────────────────────────────
@@ -1454,7 +1454,7 @@ function drawGenChart(data) {
     data: allSlots.map((l, i) => i <= lastDemSlotIdx ? (demValMap[l] ?? null) : null),
     borderColor: '#ffffff', backgroundColor: 'transparent',
     borderWidth: 2, pointRadius: 0, tension: 0.2,
-    spanGaps: false, fill: false, yAxisID: 'y', order: -1,
+    spanGaps: true, fill: false, yAxisID: 'y', order: -1,
   };
 
   const demPdDataset = {
@@ -2520,6 +2520,12 @@ function _drawOriginPortfolioChart(stationMap, fc) {
     const isPump = NEGATIVE_STATIONS.has(s.name);
     const isBatt = s.fuel === 'Battery';
 
+    // spanGaps:true — an isolated missing interval (one DUID's SCADA report
+    // running a few seconds late, an AEMO intervention-flagged interval,
+    // etc.) would otherwise collapse this filled/stacked area to the
+    // baseline and back for that single point — a dramatic vertical spike
+    // for what is actually a negligible one-interval gap. See the same fix
+    // on the Wind+Solar and Battery-page charts.
     if (isBatt) {
       // Battery: discharge → positive stack, charging → negative stack
       genDatasets.push({
@@ -2530,7 +2536,7 @@ function _drawOriginPortfolioChart(stationMap, fc) {
         }),
         backgroundColor: col + 'cc', borderColor: col, borderWidth: 0.5,
         fill: 'origin', stack: 'pos', pointRadius: 0, tension: 0.2,
-        spanGaps: false, yAxisID: 'y', order: 2,
+        spanGaps: true, yAxisID: 'y', order: 2,
       });
       genDatasets.push({
         label: s.name + ' (chg)',
@@ -2541,7 +2547,7 @@ function _drawOriginPortfolioChart(stationMap, fc) {
         backgroundColor: (fc['Battery (charging)'] || col) + 'cc',
         borderColor: fc['Battery (charging)'] || col,
         borderWidth: 0.5, fill: 'origin', stack: 'neg',
-        pointRadius: 0, tension: 0.2, spanGaps: false, yAxisID: 'y', order: 2,
+        pointRadius: 0, tension: 0.2, spanGaps: true, yAxisID: 'y', order: 2,
       });
     } else {
       genDatasets.push({
@@ -2553,7 +2559,7 @@ function _drawOriginPortfolioChart(stationMap, fc) {
         }),
         backgroundColor: col + 'cc', borderColor: col, borderWidth: 0.5,
         fill: 'origin', stack: isPump ? 'neg' : 'pos',
-        pointRadius: 0, tension: 0.2, spanGaps: false, yAxisID: 'y', order: 2,
+        pointRadius: 0, tension: 0.2, spanGaps: true, yAxisID: 'y', order: 2,
       });
     }
   });

@@ -2490,8 +2490,12 @@ def _compute_eraring_day_stats(date_str: str, duid_hist: dict, nsw_prices: dict,
           for the energy it generated.
     ratio: dwap / twp — >100% means Eraring tended to run more during
            higher-than-average price periods; <100% means the opposite.
-    cap300: when true, TWP/DWAP/ratio only consider intervals where
-            RRP < ERARING_PRICE_CAP (excludes price-spike events).
+    cap300: when true, every interval is still counted, but any RRP above
+            ERARING_PRICE_CAP is clipped down to it before averaging (a
+            winsorized TWP/DWAP), so a handful of price-spike intervals
+            can't dominate the result — as opposed to dropping them
+            entirely, which would also throw away Eraring's production
+            during those intervals.
     """
     totals: dict = {}
     for duid in ERARING_DUIDS:
@@ -2505,8 +2509,6 @@ def _compute_eraring_day_stats(date_str: str, duid_hist: dict, nsw_prices: dict,
     production_mwh = sum(totals.values()) * (5 / 60)
 
     common = [l for l in totals if l in nsw_prices]
-    if cap300:
-        common = [l for l in common if nsw_prices[l] < ERARING_PRICE_CAP]
     if not common:
         return {"date": date_str, "production_mwh": round(production_mwh, 1),
                 "twp": None, "dwap": None, "ratio": None, "intervals": 0}
@@ -2514,6 +2516,8 @@ def _compute_eraring_day_stats(date_str: str, duid_hist: dict, nsw_prices: dict,
     sum_mw = sum_mw_price = sum_price = 0.0
     for l in common:
         mw, rrp = totals[l], nsw_prices[l]
+        if cap300:
+            rrp = min(rrp, ERARING_PRICE_CAP)
         sum_mw       += mw
         sum_mw_price += mw * rrp
         sum_price    += rrp

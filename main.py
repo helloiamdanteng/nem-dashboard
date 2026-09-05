@@ -2641,16 +2641,25 @@ async def _run_eraring_backfill(days: int = 30):
                 sem = asyncio.Semaphore(6)
 
                 async def _load(date_str):
-                    async with sem:
-                        gen_json, price_json = await asyncio.gather(
-                            _fetch_github_json(client, GH_REPO, GH_HEADERS, f"data/gen/{date_str}.json"),
-                            _fetch_github_json(client, GH_REPO, GH_HEADERS, f"data/prices/{date_str}.json"),
-                        )
-                        if not gen_json:
-                            return
-                        duid_hist  = gen_json.get("duid_history", {})
-                        nsw_prices = (price_json or {}).get("NSW1", {})
-                        _eraring_daily_cache[date_str] = _compute_eraring_day_both(date_str, duid_hist, nsw_prices)
+                    # One bad date must never take the whole batch down —
+                    # asyncio.gather aborts every other in-flight task the
+                    # moment any one of them raises, which would silently
+                    # discard every date's progress (this was very likely
+                    # why even yesterday, which we confirmed has valid data,
+                    # was never making it into the persisted cache).
+                    try:
+                        async with sem:
+                            gen_json, price_json = await asyncio.gather(
+                                _fetch_github_json(client, GH_REPO, GH_HEADERS, f"data/gen/{date_str}.json"),
+                                _fetch_github_json(client, GH_REPO, GH_HEADERS, f"data/prices/{date_str}.json"),
+                            )
+                            if not gen_json:
+                                return
+                            duid_hist  = gen_json.get("duid_history", {})
+                            nsw_prices = (price_json or {}).get("NSW1", {})
+                            _eraring_daily_cache[date_str] = _compute_eraring_day_both(date_str, duid_hist, nsw_prices)
+                    except Exception as e:
+                        logger.warning(f"eraring-backfill: Pass 1 failed for {date_str}: {e}")
 
                 await asyncio.gather(*[_load(d) for d in still_missing])
             still_missing = [d for d in still_missing if d not in _eraring_daily_cache]

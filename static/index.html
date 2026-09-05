@@ -8163,9 +8163,10 @@ function _drawEraringChart(results) {
     if (slots.length && slots[slots.length-1] > lastSlot) lastSlot = slots[slots.length-1];
   }
   if (!lastSlot) return;
-  let lastIdx = allSlots.findIndex(s => s > lastSlot) - 1;
-  if (lastIdx < 0) lastIdx = allSlots.length - 1;
-  const labels = allSlots.slice(0, lastIdx + 1);
+  // Full 24hr spine — unit output naturally stops at lastSlot (no forecast
+  // for MW), but this leaves room for the NSW1 predispatch price line to
+  // extend into the rest of the day.
+  const labels = allSlots;
 
   const datasets = results.map((d, i) => {
     const hm = {};
@@ -8189,9 +8190,10 @@ function _drawEraringChart(results) {
     const priceMap = {};
     (latestData.historical_prices?.NSW1     || []).forEach(p => { priceMap[p.interval] = p.rrp; });
     (latestData.dispatch_prices_5min?.NSW1  || []).forEach(p => { if (priceMap[p.interval] === undefined) priceMap[p.interval] = p.rrp; });
+    // Actual — solid, stops at lastSlot
     datasets.push({
       label: 'NSW1 Price',
-      data: labels.map(l => priceMap[l] !== undefined ? priceMap[l] : null),
+      data: labels.map(l => l <= lastSlot ? (priceMap[l] !== undefined ? priceMap[l] : null) : null),
       borderColor: '#ffffff',
       backgroundColor: 'transparent',
       borderWidth: 1,
@@ -8202,6 +8204,31 @@ function _drawEraringChart(results) {
       yAxisID: 'yPrice',
       order: 0,
     });
+    // Predispatch forecast — dashed, from lastSlot onward, bridged from the
+    // last actual price so the two lines connect visually.
+    const pdMap = {};
+    (latestData.predispatch_prices?.NSW1 || []).forEach(p => { pdMap[p.interval] = p.rrp; });
+    if (Object.keys(pdMap).length) {
+      const bridgeVal = priceMap[lastSlot];
+      datasets.push({
+        label: 'NSW1 Price (forecast)',
+        data: labels.map(l => {
+          if (l < lastSlot) return null;
+          if (l === lastSlot) return bridgeVal !== undefined ? bridgeVal : (pdMap[l] !== undefined ? pdMap[l] : null);
+          return pdMap[l] !== undefined ? pdMap[l] : null;
+        }),
+        borderColor: '#ffffff99',
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+        borderDash: [5, 5],
+        pointRadius: 0,
+        tension: 0.2,
+        spanGaps: true,
+        fill: false,
+        yAxisID: 'yPrice',
+        order: 0,
+      });
+    }
   }
 
   const nowStr = nowAEST();

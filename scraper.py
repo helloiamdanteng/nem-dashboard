@@ -1680,6 +1680,36 @@ def _get_gen_demand_history() -> dict:
             result[region] = [{"interval": k, "demand": v} for k, v in sorted(labels.items())]
     return result
 
+def _snap5(dt: datetime) -> str:
+    """Snap a timestamp down to its 5-min boundary as 'HH:MM'."""
+    return dt.strftime("%H:") + f"{(dt.minute // 5) * 5:02d}"
+
+
+def _evict_oldest(d: dict, now_label: str, cap: int = 290) -> None:
+    """
+    Trim a { 'HH:MM': value } dict down to `cap` entries by removing the
+    genuinely oldest ones. Keys carry no date, so a naive lexicographic sort
+    (as if 'HH:MM' order were chronological order) breaks the moment entries
+    from more than one calendar day coexist: '23:55' from yesterday looks
+    alphabetically *larger* (so "newer") than '00:05' from today, even
+    though it's actually ~10 minutes older — that bug used to make eviction
+    repeatedly delete this morning's earliest, freshest entries instead of
+    yesterday's stale ones. Rank each key by minutes-ago-relative-to-now
+    instead, treating any key later than `now_label` as belonging to a
+    previous day.
+    """
+    if len(d) <= cap:
+        return
+    now_mins = int(now_label[:2]) * 60 + int(now_label[3:])
+
+    def _age(k: str) -> int:
+        mins = int(k[:2]) * 60 + int(k[3:])
+        return (now_mins - mins) if mins <= now_mins else (now_mins + 1440 - mins)
+
+    while len(d) > cap:
+        del d[max(d.keys(), key=_age)]
+
+
 # ---------------------------------------------------------------------------
 # In-memory fuel mix history - populated by scrape_gen every 15 min
 # { region: { "HH:MM": { fuel: mw } } }
@@ -1693,8 +1723,7 @@ def _update_fuel_history(fuel_mix: dict, scada: dict | None = None, pump_load: d
     """Store a fuel mix snapshot and per-DUID snapshot. Prune to today only."""
     now = datetime.now(AEST)
     # Snap to nearest 5-min boundary so labels align with the 5-min time spine in the frontend
-    snapped_min = (now.minute // 5) * 5
-    label = now.strftime("%H:") + f"{snapped_min:02d}"
+    label = _snap5(now)
     for region in NEM_REGIONS:
         if region not in fuel_mix:
             continue
@@ -1703,9 +1732,7 @@ def _update_fuel_history(fuel_mix: dict, scada: dict | None = None, pump_load: d
         if pump_load and pump_load.get(region, 0) < -1:
             snap["Pump Hydro"] = round(pump_load[region], 1)
         _fuel_history[region][label] = snap
-        if len(_fuel_history[region]) > 290:
-            oldest = sorted(_fuel_history[region].keys())[0]
-            del _fuel_history[region][oldest]
+        _evict_oldest(_fuel_history[region], label)
 
     # Store per-DUID history for station drill-down
     if scada:
@@ -1717,9 +1744,7 @@ def _update_fuel_history(fuel_mix: dict, scada: dict | None = None, pump_load: d
             # Pump-load DUIDs report positive MW when consuming - negate for display
             stored_mw = -round(mw, 1) if duid in PUMP_LOAD_DUIDS else round(mw, 1)
             _duid_history[duid][label] = stored_mw
-            if len(_duid_history[duid]) > 290:
-                oldest = sorted(_duid_history[duid].keys())[0]
-                del _duid_history[duid][oldest]
+            _evict_oldest(_duid_history[duid], label)
 
 def _get_fuel_history() -> dict:
     now_label = datetime.now(AEST).strftime("%H:%M")
@@ -1731,7 +1756,7 @@ def _get_fuel_history() -> dict:
 
 
 def _update_demand_history(region_summary: dict) -> None:
-    label = datetime.now(AEST).strftime("%H:%M")
+    label = _snap5(datetime.now(AEST))
     for region, data in region_summary.items():
         if region in NEM_REGIONS and "TOTALDEMAND" in data:
             _demand_history[region][label] = data["TOTALDEMAND"]
@@ -1754,7 +1779,7 @@ _bdu_history: dict[str, dict] = {r: {} for r in NEM_REGIONS}  # { region: { HH:M
 
 
 def _update_ic_history(ic_snapshot: dict) -> None:
-    label = datetime.now(AEST).strftime("%H:%M")
+    label = _snap5(datetime.now(AEST))
     for ic_id, vals in ic_snapshot.items():
         if ic_id not in _ic_history:
             _ic_history[ic_id] = {}
@@ -1770,7 +1795,7 @@ def _get_ic_history() -> dict:
 
 
 def _update_bdu_history(region_summary: dict) -> None:
-    label = datetime.now(AEST).strftime("%H:%M")
+    label = _snap5(datetime.now(AEST))
     for region, d in region_summary.items():
         if region not in NEM_REGIONS:
             continue
@@ -1794,7 +1819,7 @@ def _update_bdu_history(region_summary: dict) -> None:
 def _update_live_duid_history(scada: dict) -> None:
     """Write current SCADA snapshot into _duid_history so modal charts stay live.
     Called every 5 min from scrape_all. Only writes DUIDs we care about."""
-    label = datetime.now(AEST).strftime("%H:%M")
+    label = _snap5(datetime.now(AEST))
     for duid, mw in scada.items():
         if mw is None:
             continue
@@ -1804,9 +1829,7 @@ def _update_live_duid_history(scada: dict) -> None:
             _duid_history[duid] = {}
         _duid_history[duid][label] = stored_mw
         # Trim to 290 points (~24h of 5-min data)
-        if len(_duid_history[duid]) > 290:
-            oldest = sorted(_duid_history[duid].keys())[0]
-            del _duid_history[duid][oldest]
+        _evict_oldest(_duid_history[duid], label)
 
 
 def _get_bdu_history() -> dict:

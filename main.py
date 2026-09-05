@@ -2656,6 +2656,12 @@ async def _run_eraring_backfill(days: int = 30):
             still_missing = [d for d in still_missing if d not in _eraring_daily_cache]
             logger.info(f"eraring-backfill: {len(missing) - len(still_missing)} days from our own store, "
                         f"{len(still_missing)} still need AEMO archives")
+            # Persist now — Pass 1 is fast and cheap, but Pass 2 (AEMO
+            # archives) can take minutes, and a redeploy triggered by
+            # unrelated work would otherwise kill this whole task before it
+            # ever reaches the persist call at the end, discarding Pass 1's
+            # results too.
+            await _persist_eraring_cache_to_github()
 
         # Pass 2: AEMO archives for whatever our own store doesn't cover
         if still_missing:

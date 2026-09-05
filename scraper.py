@@ -1957,7 +1957,11 @@ def scrape_all() -> dict:
     # Inject live solar/wind into the accumulating history for the current
     # interval (mirrors demand/op_demand — write into the persistent
     # accumulator, not a per-call local list that gets discarded next cycle).
-    now_label = datetime.now(AEST).strftime("%H:%M")
+    # Snapped to the 5-min grid (like _update_fuel_history just above) so
+    # this doesn't create off-grid keys the frontend's clean 5-min spine
+    # can't match — an unsnapped label here was the same class of bug fixed
+    # in _update_live_duid_history.
+    now_label = _snap5(datetime.now(AEST))
     for region, rdata in region_summary.items():
         if region not in NEM_REGIONS:
             continue

@@ -7991,6 +7991,39 @@ function renderEraring() {
   return html;
 }
 
+function _renderEraringOutageNotes(latestByUnit) {
+  // Units currently at ~0 MW — cross-reference AEMO's own PASA-derived
+  // outage return estimates (same source as the Outages page) to note when
+  // each is expected back.
+  const outUnits = latestByUnit.filter(u => (u.mw ?? 0) < 5);
+  if (!outUnits.length) return '';
+
+  const outages = (slowData && slowData.mtpasa_outages) || [];
+
+  function fmtReturn(dateStr) {
+    if (!dateStr) return null;
+    const [y, m, d] = dateStr.split('/');
+    const dt = new Date(y, m - 1, d);
+    const days = Math.round((dt - new Date()) / 86400000);
+    const label = dt.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
+    return days <= 0 ? label : `${label} (~${days}d)`;
+  }
+
+  let html = '<div class="chart-card" style="padding:10px 12px;margin-bottom:10px;border-left:3px solid #f39c12">';
+  html += '<div style="font-size:9px;color:#f39c12;font-family:var(--font-mono);font-weight:700;margin-bottom:6px">UNITS OFFLINE</div>';
+  outUnits.forEach(u => {
+    const o = outages.find(x => x.duid === u.duid);
+    const ret = o ? fmtReturn(o.return_date) : null;
+    html += `<div style="font-family:var(--font-mono);font-size:11px;color:var(--text);margin-bottom:2px">
+      <b>${u.duid}</b> — ${ret
+        ? `expected back ${ret}${o.return_source ? ' · ' + o.return_source : ''}`
+        : 'no return estimate available yet'}
+    </div>`;
+  });
+  html += '</div>';
+  return html;
+}
+
 function _renderEraringContent(results) {
   if (!results.length) {
     return '<div class="state-msg"><div class="icon">⚠️</div><div>No SCADA data available for Eraring</div></div>';
@@ -8020,6 +8053,8 @@ function _renderEraringContent(results) {
     </div>`;
   });
   html += '</div>';
+
+  html += _renderEraringOutageNotes(latestByUnit);
 
   html += `<div class="chart-card" style="padding:10px 12px;margin-bottom:10px">
     <div style="display:flex;justify-content:space-between;font-family:var(--font-mono)">

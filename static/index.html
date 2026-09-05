@@ -7955,7 +7955,7 @@ const ERARING_COLOR = '#38bdf8';
 let _eraringData = null; // raw /api/stations/batch results, cached per page load
 let eraringShowPrice = true; // NSW1 price overlay — on by default
 let _eraringDailyData = null; // /api/eraring/daily_summary results, cached per page load
-let eraringCap300 = false; // when true, TWP/DWAP/ratio exclude intervals where NSW1 RRP >= $300
+let eraringCap300 = false; // when true, TWP/DWAP/ratio clip NSW1 RRP to $300 (every interval still counted)
 
 function toggleEraringCap300() {
   eraringCap300 = !eraringCap300;
@@ -8118,7 +8118,7 @@ function _renderEraringDailySummary() {
       border:1px solid ${eraringCap300 ? '#f39c12' : '#475569'};
       background:${eraringCap300 ? '#f39c1233' : 'transparent'};
       color:${eraringCap300 ? '#f39c12' : '#475569'}">
-      ${eraringCap300 ? '✓ ' : ''}Exclude ≥$300 intervals
+      ${eraringCap300 ? '✓ ' : ''}Cap prices at $300
     </button>
   </div>`;
 

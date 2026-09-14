@@ -1250,6 +1250,29 @@ def scrape_predispatch_sensitivity(text: str) -> dict:
         return {}
 
 
+def _first_nonzero_field(row: dict, *fields: str) -> str:
+    """
+    Return the first field (in order) whose value is present AND parses to
+    a genuine non-zero number — falling through past both a missing/empty
+    field and a present-but-literal-"0" one. AEMO's PREDISPATCH_REGION_
+    SOLUTION populates demand fields inconsistently by how far out a period
+    is: confirmed live, the near-term period had TOTALDEMAND="6300.09" but
+    DEMANDFORECAST="0", while later periods had TOTALDEMAND missing and
+    DEMANDFORECAST genuinely populated. A plain `or`-chain treats "0" as
+    truthy (it's a non-empty string) and would wrongly lock onto it.
+    """
+    for f in fields:
+        v = row.get(f)
+        if not v:
+            continue
+        try:
+            if float(v) != 0:
+                return v
+        except (ValueError, TypeError):
+            continue
+    return ""
+
+
 def scrape_predispatch_demand(text: str) -> dict:
     now_aest = datetime.now(AEST).replace(tzinfo=None)
     today    = now_aest.date()
@@ -1265,16 +1288,11 @@ def scrape_predispatch_demand(text: str) -> dict:
             if row.get("INTERVENTION", "0") not in ("0", ""):
                 continue
             dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", ""))
-            # AEMO only backfills TOTALDEMAND/DEMAND_AND_NONSCHEDGEN for a
-            # short near-term window of predispatch periods (confirmed live:
-            # 15 of ~63 future periods) — DEMANDFORECAST is the field
-            # actually populated across the full predispatch horizon, so
-            # try it first. `or`-chained rather than nested .get(k, default)
-            # calls: a field that's *present but empty* (as TOTALDEMAND
-            # commonly is here) must still fall through to the next
-            # candidate, which nested .get() defaults don't do.
-            demand_str = (row.get("DEMANDFORECAST") or row.get("DEMAND_AND_NONSCHEDGEN")
-                          or row.get("TOTALDEMAND") or row.get("DEMAND") or "")
+            # See _first_nonzero_field — neither TOTALDEMAND nor
+            # DEMANDFORECAST is reliably populated on its own; whichever
+            # is genuinely non-zero for this period is the real value.
+            demand_str = _first_nonzero_field(
+                row, "DEMANDFORECAST", "DEMAND_AND_NONSCHEDGEN", "TOTALDEMAND", "DEMAND")
             if not dt_str or not demand_str:
                 continue
             try:
@@ -1468,12 +1486,10 @@ def scrape_tomorrow_demand(text: str, stpasa: dict) -> dict:
             if row.get("INTERVENTION", "0") not in ("0", ""):
                 continue
             dt_str = row.get("DATETIME", row.get("SETTLEMENTDATE", ""))
-            # Same AEMO field-backfill quirk as scrape_predispatch_demand —
-            # DEMANDFORECAST is populated across the full horizon,
-            # TOTALDEMAND/DEMAND_AND_NONSCHEDGEN only for a near-term
-            # window (and often present-but-empty, hence `or`-chained).
-            demand_str = (row.get("DEMANDFORECAST") or row.get("DEMAND_AND_NONSCHEDGEN")
-                          or row.get("TOTALDEMAND") or row.get("DEMAND") or "")
+            # See _first_nonzero_field — same AEMO field-backfill quirk as
+            # scrape_predispatch_demand.
+            demand_str = _first_nonzero_field(
+                row, "DEMANDFORECAST", "DEMAND_AND_NONSCHEDGEN", "TOTALDEMAND", "DEMAND")
             if not dt_str or not demand_str:
                 continue
             try:
